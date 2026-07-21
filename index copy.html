@@ -1616,8 +1616,38 @@
         return [r.txnId, r.date, r.counterparty, r.description, r.reference, String(r.amount), r.currency].join(' ').toLowerCase().includes(q);
       });
       rows = rows.slice().sort((a, b) => { let x = a[sort.field] || a.id, y = b[sort.field] || b.id; if (typeof x === 'string') { x = x.toLowerCase(); y = (y || '').toLowerCase(); } const c = x < y ? -1 : x > y ? 1 : 0; return sort.dir === 'asc' ? c : -c; });
+      
+      const pageSize = 10;
+      const totalRows = rows.length;
+      const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+      const currentPage = Math.min(Math.max(1, DB.filters.stgPage || 1), totalPages);
+      const startRow = totalRows ? (currentPage - 1) * pageSize + 1 : 0;
+      const endRow = Math.min(totalRows, currentPage * pageSize);
+      const pagedRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
       const th = (f, l, extra = '') => `<th class="px-3 py-2 font-semibold cursor-pointer select-none ${extra}" data-act="stg-sort" data-field="${f}"><span class="inline-flex items-center gap-1">${l}${sort.field === f ? `<span class="text-accent-ink">${sort.dir === 'asc' ? '↑' : '↓'}</span>` : ''}</span></th>`;
       const stpill = s => s === 'error' ? '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Error</span>' : s === 'mapped' ? '<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Mapped</span>' : '<span class="chip">Staged</span>';
+
+      let pageBtns = [];
+      for (let p = 1; p <= totalPages; p++) {
+        pageBtns.push(`<button data-act="stg-page" data-page="${p}" class="h-7 min-w-[28px] px-2 text-[12px] font-medium rounded transition ${p === currentPage ? 'bg-accent text-white font-semibold shadow-sm' : 'hover:bg-sunken text-muted hover:text-ink'}">${p}</button>`);
+      }
+
+      const paginationHtml = `
+        <div class="px-4 py-3 border-t border-line flex items-center justify-between bg-surface text-[12.5px] text-muted">
+          <div class="flex items-center gap-2">
+            <span>Showing <span class="font-medium text-ink">${startRow}–${endRow}</span> of <span class="font-medium text-ink">${totalRows}</span> rows</span>
+            <span class="text-faint">·</span>
+            <span>Page <span class="font-medium text-ink">${currentPage}</span> of <span class="font-medium text-ink">${totalPages}</span></span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button data-act="stg-page" data-page="${currentPage - 1}" class="btn btn-sm btn-ghost ${currentPage <= 1 ? 'opacity-40 pointer-events-none' : ''}">${icon('chevR', 'w-3.5 h-3.5 rotate-180')}Prev</button>
+            <div class="flex items-center gap-1 px-1">${pageBtns.join('')}</div>
+            <button data-act="stg-page" data-page="${currentPage + 1}" class="btn btn-sm btn-ghost ${currentPage >= totalPages ? 'opacity-40 pointer-events-none' : ''}">Next${icon('chevR', 'w-3.5 h-3.5')}</button>
+          </div>
+        </div>
+      `;
+
       return `<div class="p-6">
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
@@ -1625,7 +1655,7 @@
       <select data-stg-status class="field w-[150px]"><option value="all">All statuses</option><option value="staged" ${st === 'staged' ? 'selected' : ''}>Staged</option><option value="mapped" ${st === 'mapped' ? 'selected' : ''}>Mapped</option><option value="error" ${st === 'error' ? 'selected' : ''}>Error</option></select>
       <button data-act="stg-insert" class="btn btn-primary btn-sm ml-auto">${icon('plus', 'w-3.5 h-3.5')}Insert row</button>
     </div>
-    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · ${rows.length} of ${(DB.staging || []).length} rows · mapped target fields shown as column headers</div>
+    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · ${totalRows} rows staged · 10 rows per page</div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
       ${th('txnId', 'Transaction ID')}
       ${th('date', 'Transaction date')}
@@ -1636,7 +1666,7 @@
       ${th('currency', 'Currency')}
       ${th('status', 'Status')}
       <th class="w-8"></th></tr></thead><tbody>
-      ${rows.length ? rows.map(r => `<tr class="border-b border-line-soft row-hover">
+      ${pagedRows.length ? pagedRows.map(r => `<tr class="border-b border-line-soft row-hover">
         <td class="px-3 py-2.5 mono text-[12px] font-semibold text-accent-ink">${esc(r.txnId || r.id)}</td>
         <td class="px-3 py-2.5 mono text-muted">${fmtDate(r.date)}</td>
         <td class="px-3 py-2.5 mono text-[12px] text-faint">${esc(r.reference || '—')}</td>
@@ -1646,7 +1676,7 @@
         <td class="px-3 py-2.5 mono text-muted">${r.currency || 'USD'}</td>
         <td class="px-3 py-2.5">${stpill(r.status)}</td>
         <td class="px-2 py-2.5 text-right"><button data-act="stg-del" data-id="${r.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td></tr>`).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-muted">No rows match your query.</td></tr>`}
-    </tbody></table></div></div>
+    </tbody></table></div>${paginationHtml}</div>
   </div>`;
     }
     function viewIngestion() {
@@ -1929,7 +1959,8 @@
       'import-reset': () => { const c = importState(); c.a = null; c.b = null; c.tab = 'a'; save(); render(); toast('Import cleared', 'warn'); },
       'import-run': () => { logAudit('Reconciled imported files', CHANNELS[importState().type].label); toast('Reconciliation created from imported files', 'ok'); },
       'dih-tab': d => { DB.route.tab = d.t; render(); },
-      'stg-sort': d => { const s = DB.filters.stgSort || { field: 'date', dir: 'desc' }; DB.filters.stgSort = (s.field === d.field) ? { field: d.field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field: d.field, dir: 'asc' }; render(); },
+      'stg-page': d => { DB.filters.stgPage = +d.page; render(); },
+      'stg-sort': d => { const s = DB.filters.stgSort || { field: 'date', dir: 'desc' }; DB.filters.stgSort = (s.field === d.field) ? { field: d.field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field: d.field, dir: 'asc' }; DB.filters.stgPage = 1; render(); },
       'stg-insert': () => modalInsertRow(),
       'stg-add': () => { const r = { id: uid('stg'), date: $('#ins-date').value || todayISO(), description: ($('#ins-desc').value || '(untitled)'), reference: ($('#ins-ref').value || ''), amount: +($('#ins-amt').value || 0), currency: $('#ins-cur').value || 'INR', status: 'staged' }; DB.staging = DB.staging || []; DB.staging.unshift(r); logAudit('Inserted staging row', `${r.description} ${fmtMoney(r.amount * 100, r.currency)}`); save(); closeModal(); render(); toast('Row inserted to staging'); },
       'stg-del': d => { DB.staging = (DB.staging || []).filter(x => x.id !== d.id); save(); render(); toast('Row removed', 'warn'); },
