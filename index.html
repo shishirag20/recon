@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>True Balance — Reconciliation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        canvas:'var(--canvas)', surface:'var(--surface)', sunken:'var(--sunken)', raised:'var(--raised)',
+        ink:'var(--ink)', 'ink-soft':'var(--ink-soft)', muted:'var(--muted)', faint:'var(--faint)',
+        line:'var(--line)', 'line-soft':'var(--line-soft)',
+        accent:'var(--accent)', 'accent-soft':'var(--accent-soft)', 'accent-ink':'var(--accent-ink)',
+        ok:'var(--ok)', 'ok-soft':'var(--ok-soft)', 'ok-ink':'var(--ok-ink)',
+        warn:'var(--warn)', 'warn-soft':'var(--warn-soft)', 'warn-ink':'var(--warn-ink)',
+        bad:'var(--bad)', 'bad-soft':'var(--bad-soft)', 'bad-ink':'var(--bad-ink)',
+      },
+      fontFamily: {
+        sans:['Inter','ui-sans-serif','system-ui','-apple-system','Segoe UI','sans-serif'],
+        mono:['"IBM Plex Mono"','ui-monospace','SFMono-Regular','Menlo','monospace'],
+      },
+      borderRadius:{ 'md':'6px','lg':'8px','xl':'10px' },
+    } }
+  }
+</script>
+<style>
+  :root{
+    --canvas:#F7F8FA; --surface:#FFFFFF; --sunken:#EEF0F4; --raised:#FFFFFF;
+    --ink:#10131A; --ink-soft:#3A4150; --muted:#5B6472; --faint:#9AA2AF;
+    --line:#E4E7EC; --line-soft:#EEF0F3;
+    --accent:#4F46E5; --accent-soft:#EEF0FD; --accent-ink:#4338CA;
+    --ok:#0E9F6E; --ok-soft:#E4F5EE; --ok-ink:#057A55;
+    --warn:#D97706; --warn-soft:#FBF0E1; --warn-ink:#B45309;
+    --bad:#DC2626; --bad-soft:#FCECEC; --bad-ink:#B91C1C;
+  }
+  html,body{background:var(--canvas);color:var(--ink);}
+  body{font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-size:13px;line-height:1.5;}
+  *{scrollbar-width:thin;scrollbar-color:#CDD3DC transparent;}
+  *::-webkit-scrollbar{width:9px;height:9px;}
+  *::-webkit-scrollbar-thumb{background:#CDD3DC;border-radius:6px;border:2px solid var(--canvas);}
+  *::-webkit-scrollbar-thumb:hover{background:#B4BCC8;}
+  .tnum{font-variant-numeric:tabular-nums;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
+  .lbl{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);}
+  .field{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--ink);outline:none;transition:border-color .12s,box-shadow .12s;}
+  .field:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  select.field{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%235B6472' stroke-width='1.6' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:28px;}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:6px;font-size:13px;font-weight:600;border:1px solid transparent;cursor:pointer;transition:background .12s,border-color .12s,color .12s;white-space:nowrap;}
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{background:var(--accent-ink);}
+  .btn-ghost{background:transparent;color:var(--ink-soft);border-color:var(--line);}
+  .btn-ghost:hover{background:var(--sunken);}
+  .btn-sm{height:28px;padding:0 9px;font-size:12px;font-weight:500;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;}
+  .row-hover:hover{background:var(--sunken);}
+  .seg{transition:width .5s cubic-bezier(.2,.7,.2,1);}
+  .num-anim{transition:color .3s;}
+  [data-tip]{position:relative;}
+  .switch{position:relative;width:34px;height:20px;border-radius:999px;background:#CDD3DC;transition:background .15s;cursor:pointer;flex:none;}
+  .switch[data-on="true"]{background:var(--accent);}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2);}
+  .switch[data-on="true"]::after{transform:translateX(14px);}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:4px;background:var(--sunken);outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border-radius:5px;font-size:11.5px;font-weight:500;background:var(--sunken);color:var(--ink-soft);border:1px solid var(--line);}
+  .fade-in{animation:fi .25s ease;}
+  @keyframes fi{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:none;}}
+  .modal-back{background:rgba(16,19,26,.38);backdrop-filter:blur(2px);}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+// ═══════════════════════════════════════ helpers ═══════════════════════════════════════
+const $  = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const esc = s => (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+const DAY=86400000;
+const todayISO=()=>new Date().toISOString().slice(0,10);
+const parseISO=s=>{const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d);};
+const addDays=(iso,n)=>{const d=parseISO(iso);d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);};
+const dateDiff=(a,b)=>Math.round((parseISO(a)-parseISO(b))/DAY);
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtDate=iso=>{const d=parseISO(iso);return MON[d.getMonth()]+' '+String(d.getDate()).padStart(2,'0');};
+const fmtMoney=(c,cur='INR')=>{const sym=cur==='USD'?'$':cur==='EUR'?'€':cur==='GBP'?'£':cur==='SGD'?'S$':'₹';const neg=c<0;const v=Math.abs(c)/100;
+  const loc=cur==='INR'?'en-IN':'en-US';
+  return (neg?'-':'')+sym+v.toLocaleString(loc,{minimumFractionDigits:2,maximumFractionDigits:2});};
+const pct=(n)=>{return (n>=0?'':'')+n.toFixed(1)+'%';};
+let _uid=0; const uid=p=>`${p}_${(++_uid).toString(36)}${Date.now().toString(36).slice(-3)}`;
+
+// ═══════════════════════════════════════ icons ═══════════════════════════════════════
+const IC={
+  dash:'M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 13h7v8H3z',
+  rules:'M4 6h16M4 12h16M4 18h16M8 6v0M16 12v0M11 18v0',
+  merge:'M6 3v6a6 6 0 006 6h6M6 21V9',
+  alert:'M12 9v4M12 17v0M10.3 3.9L2 18a2 2 0 001.7 3h16.6a2 2 0 001.7-3L14 3.9a2 2 0 00-3.4 0z',
+  db:'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6',
+  plus:'M12 5v14M5 12h14', check:'M20 6L9 17l-5-5', x:'M18 6L6 18M6 6l12 12',
+  play:'M6 4l14 8-14 8z', chevR:'M9 6l6 6-6 6', chevD:'M6 9l6 6 6-6',
+  up:'M12 19V5M5 12l7-7 7 7', down:'M12 5v14M19 12l-7 7-7-7',
+  cog:'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1V21a2 2 0 11-4 0v-.1A1.6 1.6 0 006 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 002.6 15H2.5a2 2 0 110-4h.1A1.6 1.6 0 004.6 9a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1A1.6 1.6 0 009 4.6h.1A1.6 1.6 0 0111 2.5V2.5a2 2 0 114 0v.1A1.6 1.6 0 0018 4.6a1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8v.1a1.6 1.6 0 001.5 1.1h.1a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z',
+  search:'M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.3-4.3',
+  filter:'M3 5h18l-7 8v6l-4 2v-8z', dots:'M5 9h.01M9 9h.01M5 15h.01M9 15h.01M13 9h.01M17 9h.01M13 15h.01M17 15h.01',
+  trash:'M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13',
+  bolt:'M13 2L4 14h7l-1 8 9-12h-7z', arrowr:'M5 12h14M13 5l7 7-7 7',
+  clock:'M12 22a10 10 0 100-20 10 10 0 000 20zM12 6v6l4 2', ext:'M18 13v6a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3',
+  card:'M2 8h20M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2z', bank:'M3 21h18M4 10h16M5 21V10M19 21V10M12 3L3 8h18z', doc:'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6',
+};
+const icon=(k,cls='w-4 h-4')=>`<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${IC[k].split('M').filter(Boolean).map(p=>`<path d="M${p}"/>`).join('')}</svg>`;
+
+// ═══════════════════════════════════════ seed ═══════════════════════════════════════
+const STORE_KEY='truebalance.v3';
+let _sr=20240720;
+const rnd=()=>((_sr=(_sr*1103515245+12345)&0x7fffffff)/0x7fffffff);
+const pick=arr=>arr[Math.floor(rnd()*arr.length)];
+
+const TYPE_META={
+  payments:{label:'Payments',icon:'card',a:'Stripe payouts',b:'Order ledger',aKind:'Processor',bKind:'Internal'},
+  bank:{label:'Bank / Cash',icon:'bank',a:'Bank statement',b:'GL cash account',aKind:'Bank',bKind:'General ledger'},
+  close:{label:'Subledger → GL',icon:'doc',a:'AR subledger',b:'GL control account',aKind:'Subledger',bKind:'General ledger'},
+  ar:{label:'Accounts Receivable',icon:'card',a:'Bank deposits',b:'Open invoices',aKind:'Bank',bKind:'AR ledger'},
+  ap:{label:'Accounts Payable',icon:'doc',a:'Vendor bills',b:'Sent payments',aKind:'AP ledger',bKind:'Bank'},
+  payroll:{label:'Payroll',icon:'bank',a:'Bank withdrawals',b:'Payroll register',aKind:'Bank',bKind:'HR system'},
+  inventory:{label:'Inventory',icon:'db',a:'Goods receipts',b:'Vendor invoices',aKind:'Warehouse',bKind:'AP ledger'},
+};
+
+function ruleC(name,enabled,priority,ref,amount,date,confidence){return {id:uid('rl'),name,enabled,priority,cond:{ref,amount,date},confidence};}
+
+const _MERCH=['Aster Goods','Volt Mobility','Nook Living','Pax Athletics','Ember Coffee','Rune Studio','Halo Beauty','Tidewell','Marrow & Co','Sable Home'];
+const _CUST=['Northwind LLC','Acme Retail','Vertex Health','Blue Owl','Cirrus Foods','Delta Labs','Onyx Media','Pinebrook','Quill & Co','Summit Gear'];
+const _VEND=['AWS','Cloudflare','WeWork','Staples','Gusto','Slack','FedEx','Adobe','Ramp','Notion'];
+const _OPS=['Payroll Run','AWS','Stripe Payout','Office Lease','Gusto','Vendor ACH','Wire — Meridian','Refund Batch','Tax Authority','Insurance'];
+const TYPE_GEN={
+  payments:{refP:'ch_',timing:false,cos:_MERCH,memos:['Card charge','Subscription','One-time'],kindA:'charge',kindB:'order',
+    aOnly:[{sign:-1,lo:40,hi:160,memo:'Customer refund',kind:'refund'},{sign:-1,lo:15,hi:45,memo:'Processing fee',kind:'fee'},{sign:-1,lo:80,hi:280,memo:'Chargeback',kind:'chargeback'}],
+    bOnly:[{lo:90,hi:350,memo:'Payment in transit',kind:'in-transit'},{lo:45,hi:165,memo:'Payout pending',kind:'in-transit'}]},
+  bank:{refP:'TX',timing:true,cos:_OPS,memos:['ACH debit','Wire in','Card settlement','Deposit'],kindA:'bank-line',kindB:'gl-entry',
+    aOnly:[{sign:-1,lo:12,hi:32,memo:'Bank service fee',kind:'bank-fee'},{sign:1,lo:3,hi:12,memo:'Interest earned',kind:'interest'}],
+    bOnly:[{lo:300,hi:800,memo:'Deposit in transit',kind:'in-transit'},{lo:150,hi:400,memo:'Outstanding check',kind:'outstanding'}]},
+  close:{refP:'INV-',timing:false,cos:_CUST,memos:['Invoice','Credit memo','Posting'],kindA:'gl-post',kindB:'invoice',
+    aOnly:[{lo:200,hi:500,memo:'Unapplied cash',kind:'unapplied'}],
+    bOnly:[{lo:120,hi:300,memo:'Invoice not posted',kind:'noreceipt'},{lo:70,hi:160,memo:'Timing — next period',kind:'timing'}]},
+  ar:{refP:'INV-',timing:false,cos:_CUST,memos:['Invoice payment','Wire','ACH'],kindA:'deposit',kindB:'invoice',
+    aOnly:[{lo:100,hi:400,memo:'Unapplied cash',kind:'unapplied'}],
+    bOnly:[{lo:200,hi:600,memo:'Overdue >60 days',kind:'overdue'},{lo:120,hi:320,memo:'Disputed invoice',kind:'dispute'}]},
+  ap:{refP:'BILL-',timing:false,cos:_VEND,memos:['Vendor payment','ACH','Wire'],kindA:'bill',kindB:'payment',
+    aOnly:[{lo:150,hi:520,memo:'Bill awaiting payment',kind:'unpaid'}],
+    bOnly:[{lo:80,hi:220,memo:'Payment, no matching bill',kind:'nobill'}]},
+  payroll:{refP:'PR-',timing:false,cos:['Payroll — Engineering','Payroll — Sales','Payroll — Operations','Payroll — G&A','Payroll — Design'],memos:['Net pay','Benefits','401(k)'],kindA:'withdrawal',kindB:'register',
+    aOnly:[{sign:-1,lo:20,hi:60,memo:'Bank wire fee',kind:'bank-fee'}],
+    bOnly:[{lo:200,hi:450,memo:'Tax withholding — unbooked',kind:'tax'},{lo:120,hi:300,memo:'Reimbursement pending',kind:'reimb'}]},
+  inventory:{refP:'GRN-',timing:false,cos:_VEND,memos:['Goods receipt','Delivery','Return'],kindA:'receipt',kindB:'invoice',
+    aOnly:[{sign:-1,lo:50,hi:160,memo:'Shrinkage / damage',kind:'shrinkage'}],
+    bOnly:[{lo:100,hi:320,memo:'Invoice, no goods receipt',kind:'noreceipt'}]},
+};
+const RULESET={
+  payments:()=>[ruleC('Exact PSP reference',true,1,'exact',{mode:'exact',value:0},{days:2},99),ruleC('Amount + close date',true,2,'off',{mode:'exact',value:0},{days:1},88),ruleC('Fee-tolerant (±1.5%)',true,3,'fuzzy',{mode:'pct',value:1.5},{days:3},78)],
+  bank:()=>[ruleC('Reference + amount',true,1,'exact',{mode:'exact',value:0},{days:3},98),ruleC('Amount + date window',true,2,'off',{mode:'exact',value:0},{days:2},90),ruleC('Rounding tolerant (±$0.50)',true,3,'off',{mode:'abs',value:50},{days:5},75)],
+  close:()=>[ruleC('Invoice number match',true,1,'exact',{mode:'exact',value:0},{days:5},99),ruleC('Amount + posting date',true,2,'off',{mode:'exact',value:0},{days:5},85),ruleC('Amount tolerant (±1%)',true,3,'fuzzy',{mode:'pct',value:1},{days:7},70)],
+  ar:()=>[ruleC('Invoice number match',true,1,'exact',{mode:'exact',value:0},{days:4},99),ruleC('Amount + deposit date',true,2,'off',{mode:'exact',value:0},{days:2},88),ruleC('Partial-payment tolerant (±2%)',true,3,'fuzzy',{mode:'pct',value:2},{days:5},72)],
+  ap:()=>[ruleC('Bill number match',true,1,'exact',{mode:'exact',value:0},{days:5},99),ruleC('Amount + payment date',true,2,'off',{mode:'exact',value:0},{days:3},88),ruleC('Early-pay discount (±2%)',true,3,'fuzzy',{mode:'pct',value:2},{days:5},72)],
+  payroll:()=>[ruleC('Batch reference',true,1,'exact',{mode:'exact',value:0},{days:2},98),ruleC('Amount + pay date',true,2,'off',{mode:'exact',value:0},{days:1},90),ruleC('Net-of-fee tolerant (±$1)',true,3,'off',{mode:'abs',value:100},{days:3},75)],
+  inventory:()=>[ruleC('GRN ↔ invoice number',true,1,'exact',{mode:'exact',value:0},{days:7},99),ruleC('Amount + receipt date',true,2,'off',{mode:'exact',value:0},{days:5},86),ruleC('Qty variance tolerant (±3%)',true,3,'fuzzy',{mode:'pct',value:3},{days:7},70)],
+};
+const CADENCE={payments:'Daily',bank:'Daily',close:'Monthly',ar:'Daily',ap:'Weekly',payroll:'Per pay run',inventory:'Monthly'};
+function genThreeway(){const v=_VEND.slice(0,6);const out=[];for(let i=0;i<5;i++){const amt=Math.round((20000+rnd()*180000)*100);
+  const gr=i===2?null:amt;const inv=i===3?Math.round(amt*1.045):amt;
+  out.push({po:'PO-'+(4000+Math.floor(rnd()*5999)),vendor:pick(v),poAmt:amt,grAmt:gr,invAmt:inv,status:gr==null?'missing-gr':(inv!==amt?'variance':'matched')});}return out;}
+function genTax(){const j=[['Federal income',1],['State — CA',1],['FICA / Medicare',1],['State — NY',0]];
+  return j.map(([jur,ok])=>{const accrued=Math.round((300000+rnd()*900000)*100);const paid=ok?accrued:Math.round(accrued*0.88);return {jur,accrued,paid,status:accrued===paid?'ok':'variance'};});}
+
+function genRecords(recId, type){
+  const g=TYPE_GEN[type]||TYPE_GEN.close; const A=[], B=[]; const T=todayISO(); let n=0;
+  const push=(side,o)=>{(side==='A'?A:B).push(Object.assign({id:`${recId}-${side}-${++n}`,recId,side,currency:'INR',resolution:null},o));};
+  const mkref=()=>g.refP+(10000+Math.floor(rnd()*89999));
+  // ── clean matched pairs (bulk) ──
+  const NP = 22;
+  for(let i=0;i<NP;i++){
+    const co=pick(g.cos); const amt=Math.round((5000+rnd()*95000)*100); const ref=mkref();
+    const d=addDays(T,-Math.floor(rnd()*20)-1);
+    const dB = g.timing? addDays(d,-1) : (rnd()<0.3? addDays(d,-1):d);
+    push('B',{date:dB,amount:amt,reference:ref,counterparty:co,memo:pick(g.memos),kind:g.kindB});
+    push('A',{date:d,amount:amt,reference:ref,counterparty:co,memo:pick(g.memos),kind:g.kindA});
+  }
+  // ── near-match: amount off ~0.9% (only matches once amount tolerance is loosened → suggested) ──
+  const nco=pick(g.cos), namt=Math.round((25000+rnd()*75000)*100), nref=mkref(), nd=addDays(T,-4);
+  push('B',{date:nd,amount:namt,reference:nref,counterparty:nco,memo:pick(g.memos),kind:g.kindB});
+  push('A',{date:nd,amount:Math.round(namt*0.991),reference:nref,counterparty:nco,memo:pick(g.memos),kind:g.kindA});
+  // ── wide-date, no shared reference → stays a break unless a rule widens the window ──
+  const wco=pick(g.cos), wamt=Math.round((12000+rnd()*40000)*100);
+  push('B',{date:addDays(T,-12),amount:wamt,reference:'',counterparty:wco,memo:pick(g.memos),kind:g.kindB});
+  push('A',{date:addDays(T,-8),amount:wamt,reference:mkref(),counterparty:wco,memo:pick(g.memos),kind:g.kindA});
+  // ── one-sided breaks (domain specific) ──
+  g.aOnly.forEach(o=>push('A',{date:addDays(T,-Math.floor(rnd()*8)-1),reference:mkref(),counterparty:pick(g.cos),
+    amount:(o.sign||1)*Math.round((o.lo+rnd()*(o.hi-o.lo))*10000),memo:o.memo,kind:o.kind}));
+  g.bOnly.forEach(o=>push('B',{date:addDays(T,-Math.floor(rnd()*6)-1),reference:'',counterparty:pick(g.cos),
+    amount:(o.sign||1)*Math.round((o.lo+rnd()*(o.hi-o.lo))*10000),memo:o.memo,kind:o.kind}));
+  return {A,B};
+}
+
+function buildRec(type, name, owner){
+  const recId=uid('rec');
+  const {A,B}=genRecords(recId,type);
+  const rules=(RULESET[type]||RULESET.close)();
+  const rec={id:recId,type,name,owner,cadence:CADENCE[type]||'Monthly',threshold:85,
+    rules, records:A.concat(B), confirmed:[], rejected:[], lastRun:null};
+  if(type==='ap'||type==='inventory') rec.threeway=genThreeway();
+  if(type==='payroll') rec.tax=genTax();
+  return rec;
+}
+
+function seed(){
+  _sr=20240720;_uid=0;
+  const recs=[
+    buildRec('payments','Stripe Payouts ↔ Orders','Priya Nair'),
+    buildRec('bank','Operating Bank ↔ GL Cash','Marcus Feld'),
+    buildRec('ar','Customer Payments ↔ AR','Priya Nair'),
+    buildRec('ap','Vendor Bills ↔ Payments','Marcus Feld'),
+    buildRec('payroll','Payroll ↔ Bank','Dana Osei'),
+    buildRec('inventory','Goods Receipt ↔ Invoices','Sam Whitlock'),
+    buildRec('close','AR Subledger ↔ GL','Priya Nair'),
+  ];
+  recs.forEach(r=>{const res=engine(r);r.lastRun={at:addDays(todayISO(),-1)+'T18:20',rate:res.rate,matched:res.matched.length,breaks:res.breaks.length,history:seedTrend(res.rate)};});
+  const acct=(name,institution,kind,currency,balance,status,sync,feed)=>({id:uid('ac'),name,institution,kind,currency,balance,status,sync,feed});
+  const accounts=[
+    acct('Operating','HDFC Bank','checking','INR',6842000000,'connected','2h ago','Operating Bank ↔ GL Cash'),
+    acct('Payroll','HDFC Bank','checking','INR',1280000000,'connected','2h ago','Payroll ↔ Bank'),
+    acct('Reserve','ICICI Bank','savings','INR',20000000000,'connected','5h ago',null),
+    acct('USD collections','SVB','checking','USD',31200000,'connected','3h ago',null),
+    acct('EUR collections','Wise','checking','EUR',3850000,'connected','3h ago',null),
+    acct('Corporate card','HDFC Bank','card','INR',-98000000,'connected','1d ago',null),
+    acct('Stripe','Stripe','gateway','INR',321000000,'connected','1h ago','Stripe Payouts ↔ Orders'),
+    acct('Razorpay','Razorpay','gateway','INR',0,'pending','—',null),
+  ];
+  const fx=[{pair:'USD/INR',exposure:2595840000,rate:83.20,realized:18450000},{pair:'EUR/INR',exposure:346885000,rate:90.10,realized:-6200000}];
+  const period={label:'July 2026',status:'open'};
+  const entities=[
+    {id:'e_in',name:'Meridian India Pvt Ltd',code:'IN',currency:'INR',coa:'Ind AS',fx:1},
+    {id:'e_us',name:'Meridian US Inc',code:'US',currency:'USD',coa:'US GAAP',fx:83.2},
+    {id:'e_uk',name:'Meridian UK Ltd',code:'UK',currency:'GBP',coa:'IFRS',fx:105.3},
+    {id:'e_sg',name:'Meridian Singapore Pte',code:'SG',currency:'SGD',coa:'SFRS(I)',fx:61.8},
+  ];
+  const ic=(ref,seller,buyer,desc,arINR,apINR)=>({id:uid('ic'),ref,seller,buyer,desc,arINR,apINR,eliminated:false});
+  const icTxns=[
+    ic('IC-4501','e_in','e_us','IT & engineering services',1246800000,1246800000),
+    ic('IC-4502','e_in','e_uk','Shared services allocation',382200000,382200000),
+    ic('IC-4503','e_us','e_sg','Management fee',914500000,914500000),
+    ic('IC-4504','e_in','e_sg','Software licenses',268400000,259100000),
+    ic('IC-4505','e_uk','e_in','Marketing recharge',176900000,176900000),
+    ic('IC-4506','e_us','e_in','Loan interest',531000000,null),
+    ic('IC-4507','e_sg','e_uk','Distribution margin',423700000,423700000),
+  ];
+  const transferPricing=[
+    {id:uid('tp'),from:'e_in',to:'e_us',category:'IT & engineering services',method:'Cost plus',agreed:15,actual:15.2,status:'compliant'},
+    {id:uid('tp'),from:'e_in',to:'e_uk',category:'Shared services',method:'Cost plus',agreed:8,actual:8.0,status:'compliant'},
+    {id:uid('tp'),from:'e_us',to:'e_sg',category:'Management fee',method:'Cost plus',agreed:12,actual:6.4,status:'below-policy'},
+    {id:uid('tp'),from:'e_sg',to:'e_uk',category:'Distribution',method:'Resale minus',agreed:20,actual:22.5,status:'review'},
+  ];
+  const entityRevenue={e_in:28400000000,e_us:9600000000,e_uk:4200000000,e_sg:3100000000};
+  const audit=[
+    {at:addDays(todayISO(),-1)+'T18:20',user:'Alex Rivera',action:'Ran reconciliation',detail:'Stripe Payouts ↔ Orders · 83.0% matched'},
+    {at:addDays(todayISO(),-2)+'T11:04',user:'Priya Nair',action:'Wrote off break',detail:'Processing fee −₹2,240 → Bank fees expense'},
+    {at:addDays(todayISO(),-2)+'T09:41',user:'Marcus Feld',action:'Edited rule',detail:'Operating Bank · widened date window to ±5d'},
+  ];
+  return {company:'Meridian Commerce', user:{name:'Alex Rivera',role:'Reconciliation Lead',initials:'AR'},
+    recs, accounts, fx, period, entities, icTxns, transferPricing, entityRevenue, audit,
+    route:{name:'dashboard'}, ui:{}, filters:{}};
+}
+function seedTrend(cur){const out=[];let v=Math.max(60,cur-9);for(let i=0;i<11;i++){v=clamp(v+(rnd()*4-1.4),55,99.5);out.push(+v.toFixed(1));}out.push(cur);return out;}
+
+// ═══════════════════════════════════════ persistence ═══════════════════════════════════════
+let DB=load();
+function load(){try{const r=localStorage.getItem(STORE_KEY);if(r){const d=JSON.parse(r);if(d&&d.recs)return d;}}catch(e){}return seed();}
+function save(){try{localStorage.setItem(STORE_KEY,JSON.stringify(DB));}catch(e){}}
+function resetAll(){localStorage.removeItem(STORE_KEY);DB=seed();render();}
+const getRec=id=>DB.recs.find(r=>r.id===id);
+const recById=id=>DB.recs.find(r=>r.id===id);
+
+// ═══════════════════════════════════════ matching engine ═══════════════════════════════════════
+function normRef(s){return (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');}
+function fuzzyRef(a,b){a=normRef(a);b=normRef(b);if(!a||!b)return false;if(a===b)return true;
+  if(a.length>=5&&b.length>=5&&(a.includes(b)||b.includes(a)))return true;
+  return a.slice(-5)===b.slice(-5);}
+function evalPair(a,b,c){
+  if(c.ref==='exact'){if(!a.reference||a.reference!==b.reference)return false;}
+  else if(c.ref==='fuzzy'){if(!fuzzyRef(a.reference,b.reference))return false;}
+  const diff=Math.abs(Math.abs(a.amount)-Math.abs(b.amount));
+  if(c.amount.mode==='exact'){if(diff!==0)return false;}
+  else if(c.amount.mode==='abs'){if(diff>c.amount.value)return false;}
+  else if(c.amount.mode==='pct'){if(diff>(c.amount.value/100)*Math.max(Math.abs(a.amount),Math.abs(b.amount)))return false;}
+  if(Math.abs(dateDiff(a.date,b.date))>c.date.days)return false;
+  return true;
+}
+function engine(rec){
+  const live=rec.records.filter(r=>!r.resolution);
+  const A=live.filter(r=>r.side==='A'), B=live.filter(r=>r.side==='B');
+  const usedA=new Set(), usedB=new Set(), matches=[];
+  const rejected=new Set((rec.rejected||[]).map(p=>p.aId+'|'+p.bId));
+  // 1) manual confirmed matches first
+  (rec.confirmed||[]).forEach(p=>{const a=A.find(x=>x.id===p.aId),b=B.find(x=>x.id===p.bId);
+    if(a&&b&&!usedA.has(a.id)&&!usedB.has(b.id)){usedA.add(a.id);usedB.add(b.id);matches.push({aId:a.id,bId:b.id,ruleId:'manual',ruleName:'Manual match',confidence:100});}});
+  // 2) rules in priority order
+  rec.rules.filter(r=>r.enabled).slice().sort((x,y)=>x.priority-y.priority).forEach(rule=>{
+    A.forEach(a=>{ if(usedA.has(a.id))return; let best=null,bs=Infinity;
+      B.forEach(b=>{ if(usedB.has(b.id))return; if(rejected.has(a.id+'|'+b.id))return;
+        if(evalPair(a,b,rule.cond)){const sc=Math.abs(Math.abs(a.amount)-Math.abs(b.amount))*100+Math.abs(dateDiff(a.date,b.date));if(sc<bs){bs=sc;best=b;}}});
+      if(best){usedA.add(a.id);usedB.add(best.id);matches.push({aId:a.id,bId:best.id,ruleId:rule.id,ruleName:rule.name,confidence:rule.confidence});}
+    });
+  });
+  const matched=matches.filter(m=>m.confidence>=rec.threshold);
+  const suggested=matches.filter(m=>m.confidence<rec.threshold);
+  const mSet=new Set(); matched.forEach(m=>{mSet.add(m.aId);mSet.add(m.bId);});
+  const sSet=new Set(); suggested.forEach(m=>{sSet.add(m.aId);sSet.add(m.bId);});
+  const breaks=live.filter(r=>!mSet.has(r.id)&&!sSet.has(r.id));
+  const resolved=rec.records.filter(r=>r.resolution);
+  const total=live.length;
+  const rate= total? +( (matched.length*2) / total *100 ).toFixed(1):100;
+  const matchedVal=matched.reduce((s,m)=>{const a=rec.records.find(r=>r.id===m.aId);return s+Math.abs(a?a.amount:0);},0);
+  const breakVal=breaks.reduce((s,r)=>s+Math.abs(r.amount),0);
+  return {A,B,matches,matched,suggested,breaks,resolved,rate,matchedVal,breakVal,total,
+    perRule: rec.rules.map(rl=>({rule:rl,count:matches.filter(m=>m.ruleId===rl.id).length}))};
+}
+const recById2=engine; // alias guard
+function getEntity(id){return (DB.entities||[]).find(e=>e.id===id);}
+function icEngine(){
+  const t=(DB.icTxns||[]).map(x=>{const delta=x.apINR==null?null:Math.abs(x.arINR-x.apINR);
+    let status=x.apINR==null?'unmatched':(delta<=Math.round(x.arINR*0.01)?'matched':'mismatch');
+    if(x.eliminated)status='eliminated';
+    return {...x,delta,status};});
+  const by=s=>t.filter(x=>x.status===s);
+  const elimValue=by('eliminated').reduce((s,x)=>s+x.arINR,0);
+  const readyValue=by('matched').reduce((s,x)=>s+x.arINR,0);
+  return {t,matched:by('matched'),eliminated:by('eliminated'),mismatch:by('mismatch'),unmatched:by('unmatched'),elimValue,readyValue};
+}
+
+// ═══════════════════════════════════════ small components ═══════════════════════════════════════
+function statusPill(k){
+  const m={matched:['ok','Matched'],suggested:['warn','Suggested'],break:['bad','Break'],resolved:['ok','Resolved'],writeoff:['muted','Written off'],investigate:['warn','Investigating'],journal:['ok','Journal entry']};
+  const [t,l]=m[k]||['muted',k];
+  const bg=t==='ok'?'bg-ok-soft text-ok-ink':t==='warn'?'bg-warn-soft text-warn-ink':t==='bad'?'bg-bad-soft text-bad-ink':'bg-sunken text-muted';
+  return `<span class="inline-flex items-center gap-1 h-[20px] px-2 rounded text-[11px] font-semibold ${bg}">${l}</span>`;
+}
+function confBar(c){
+  const band=c>=90?'var(--ok)':c>=75?'var(--accent)':'var(--warn)';
+  const segs=[20,40,60,80,100].map(t=>`<span style="width:5px;height:12px;border-radius:1px;background:${c>=t-15?band:'var(--sunken)'}"></span>`).join('');
+  return `<span class="inline-flex items-center gap-2"><span class="inline-flex items-end gap-[2px]">${segs}</span><span class="mono text-[12px] text-ink-soft">${c}</span></span>`;
+}
+function matchRing(rate,size=132){
+  const r=(size-16)/2,c=2*Math.PI*r,off=c*(1-rate/100);
+  const col=rate>=95?'var(--ok)':rate>=80?'var(--accent)':'var(--warn)';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="block">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--sunken)" stroke-width="10"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${col}" stroke-width="10" stroke-linecap="round"
+      stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})" style="transition:stroke-dashoffset .6s cubic-bezier(.2,.7,.2,1),stroke .3s"/>
+    <text x="50%" y="49%" text-anchor="middle" class="mono" font-size="26" font-weight="600" fill="var(--ink)">${rate.toFixed(1)}</text>
+    <text x="50%" y="63%" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--faint)" letter-spacing=".08em">MATCH RATE %</text>
+  </svg>`;
+}
+function closeRing(pct,size=132){
+  const r=(size-16)/2,c=2*Math.PI*r,off=c*(1-pct/100);
+  const col=pct>=100?'var(--ok)':pct>=60?'var(--accent)':'var(--warn)';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="block">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--sunken)" stroke-width="10"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${col}" stroke-width="10" stroke-linecap="round"
+      stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})" style="transition:stroke-dashoffset .6s cubic-bezier(.2,.7,.2,1),stroke .3s"/>
+    <text x="50%" y="49%" text-anchor="middle" class="mono" font-size="26" font-weight="600" fill="var(--ink)">${pct}</text>
+    <text x="50%" y="63%" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--faint)" letter-spacing=".08em">% READY</text>
+  </svg>`;
+}
+function spark(vals,w=120,h=34){
+  const mn=Math.min(...vals),mx=Math.max(...vals),rng=mx-mn||1;
+  const pts=vals.map((v,i)=>`${(i/(vals.length-1)*w).toFixed(1)},${(h-4-((v-mn)/rng)*(h-8)).toFixed(1)}`);
+  const up=vals[vals.length-1]>=vals[0];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${up?'var(--ok)':'var(--warn)'}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" points="${pts.join(' ')}"/></svg>`;
+}
+function typeGlyph(type,cls='w-4 h-4'){return icon(TYPE_META[type].icon,cls);}
+
+// ═══════════════════════════════════════ shell ═══════════════════════════════════════
+function navItem(active,act,data,ico,label,badge){
+  return `<button data-act="${act}" ${data||''} class="w-full flex items-center gap-2.5 px-2.5 h-9 rounded-md text-[13px] font-medium transition ${active?'bg-accent-soft text-accent-ink':'text-ink-soft hover:bg-sunken'}">
+    <span class="${active?'text-accent':'text-faint'}">${icon(ico,'w-[17px] h-[17px]')}</span><span class="flex-1 text-left">${label}</span>
+    ${badge?`<span class="mono text-[11px] ${active?'text-accent-ink':'text-faint'}">${badge}</span>`:''}</button>`;
+}
+function shell(inner){
+  const r=DB.route;
+  const totalBreaks=DB.recs.reduce((s,rc)=>s+engine(rc).breaks.length,0);
+  return `<div class="flex h-screen overflow-hidden">
+    <aside class="w-[236px] flex-none bg-surface border-r border-line flex flex-col">
+      <div class="h-[52px] flex items-center gap-2.5 px-4 border-b border-line">
+        <div class="w-7 h-7 rounded-md bg-accent flex items-center justify-center text-white">${icon('merge','w-4 h-4')}</div>
+        <div class="leading-tight"><div class="font-bold text-[14px] tracking-tight">True Balance</div></div>
+      </div>
+      <div class="p-2.5 space-y-0.5">
+        ${navItem(r.name==='dashboard','goto','data-r="dashboard"','dash','Overview')}
+        ${navItem(r.name==='ingestion','goto','data-r="ingestion"','bank','Banking & feeds')}
+        ${navItem(r.name==='intercompany','goto','data-r="intercompany"','merge','Intercompany')}
+        ${navItem(r.name==='exceptions','goto','data-r="exceptions"','alert','Exceptions',totalBreaks||'')}
+        ${navItem(r.name==='close','goto','data-r="close"','check','Period close')}
+      </div>
+      <div class="px-3.5 pt-3 pb-1 lbl">Reconciliations</div>
+      <div class="px-2.5 space-y-0.5 overflow-y-auto flex-1">
+        ${DB.recs.map(rc=>{const active=r.name==='recon'&&r.recId===rc.id;const res=engine(rc);
+          return `<button data-act="open-recon" data-id="${rc.id}" class="w-full flex items-center gap-2.5 px-2.5 h-[42px] rounded-md transition ${active?'bg-accent-soft':'hover:bg-sunken'}">
+            <span class="${active?'text-accent':'text-faint'}">${typeGlyph(rc.type,'w-[17px] h-[17px]')}</span>
+            <span class="flex-1 min-w-0 text-left"><span class="block text-[12.5px] font-semibold truncate ${active?'text-accent-ink':'text-ink'}">${esc(rc.name)}</span>
+            <span class="block text-[11px] text-faint">${res.breaks.length} open · ${res.rate.toFixed(0)}%</span></span>
+            <span class="w-1.5 h-1.5 rounded-full ${res.breaks.length?'bg-warn':'bg-ok'}"></span></button>`;}).join('')}
+      </div>
+      <div class="p-2.5 border-t border-line">
+        <button data-act="new-recon" class="btn btn-ghost w-full justify-center">${icon('plus','w-4 h-4')}New reconciliation</button>
+      </div>
+      <div class="p-2.5 border-t border-line flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-full bg-ink text-white flex items-center justify-center text-[12px] font-semibold">${esc(DB.user.initials)}</div>
+        <div class="leading-tight min-w-0 flex-1"><div class="text-[12.5px] font-semibold truncate">${esc(DB.user.name)}</div><div class="text-[11px] text-faint truncate">${esc(DB.user.role)}</div></div>
+        <button data-act="goto" data-r="settings" class="text-faint hover:text-ink p-1">${icon('cog','w-[17px] h-[17px]')}</button>
+      </div>
+    </aside>
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">${inner}</main>
+  </div>
+  <div id="modal"></div><div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2"></div>`;
+}
+function topbar(title,sub,actions){
+  return `<header class="h-[52px] flex-none flex items-center gap-3 px-6 border-b border-line bg-surface">
+    <div class="min-w-0"><div class="font-bold text-[15px] tracking-tight truncate">${title}</div>${sub?`<div class="text-[11.5px] text-muted -mt-0.5 truncate">${sub}</div>`:''}</div>
+    <div class="ml-auto flex items-center gap-2">${actions||''}</div></header>`;
+}
+
+// ═══════════════════════════════════════ view: dashboard ═══════════════════════════════════════
+function kpi(label,value,sub){
+  return `<div class="card p-4">
+    <div class="lbl">${label}</div>
+    <div class="mono text-[24px] font-semibold mt-1.5 leading-none">${value}</div>
+    <div class="text-[11.5px] text-muted mt-1.5">${sub||''}</div></div>`;
+}
+function toINR(a){return a.currency==='USD'?Math.round(a.balance*83.2):a.currency==='EUR'?Math.round(a.balance*90.1):a.currency==='GBP'?Math.round(a.balance*105.3):a.currency==='SGD'?Math.round(a.balance*61.8):a.balance;}
+function viewDashboard(){
+  const all=DB.recs.map(rc=>({rc,res:engine(rc)}));
+  const totBreaks=all.reduce((s,x)=>s+x.res.breaks.length,0);
+  const totVal=all.reduce((s,x)=>s+x.res.breakVal,0);
+  const avgRate=+(all.reduce((s,x)=>s+x.res.rate,0)/all.length).toFixed(1);
+  const ready=all.filter(x=>x.res.breaks.length===0).length;
+  const closePct=+(ready/all.length*100).toFixed(0);
+  const cashAccts=DB.accounts.filter(a=>a.kind!=='gateway');
+  const cashTotal=cashAccts.reduce((s,a)=>s+toINR(a),0);
+  const queue=[]; all.forEach(({rc,res})=>res.breaks.forEach(r=>queue.push({rc,r})));
+  queue.sort((x,y)=>Math.abs(y.r.amount)-Math.abs(x.r.amount));
+  const kindChip=k=>({checking:'Checking',savings:'Savings',card:'Card',gateway:'Gateway'}[k]||k);
+  const inner=topbar('Overview',`Control tower · ${esc(DB.period.label)} close in progress`,
+    `<button data-act="new-recon" class="btn btn-primary">${icon('plus','w-4 h-4')}New reconciliation</button>`)
+  +`<div class="flex-1 overflow-y-auto p-6 fade-in">
+    <div class="grid grid-cols-4 gap-3 mb-5">
+      ${kpi('Cash on hand',fmtMoney(cashTotal),`${cashAccts.length} accounts · ${DB.accounts.filter(a=>a.status==='connected').length} feeds live`)}
+      ${kpi('Avg match rate',avgRate+'%',`Across ${all.length} reconciliations`)}
+      ${kpi('Open breaks',totBreaks,fmtMoney(totVal)+' at risk')}
+      ${kpi('Close readiness',closePct+'%',`${ready} of ${all.length} reconciliations ready`)}
+    </div>
+    <div class="grid grid-cols-3 gap-5 mb-5">
+      <div class="col-span-2 card overflow-hidden">
+        <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Cash position</div>
+          <button data-act="goto" data-r="ingestion" class="ml-auto btn btn-ghost btn-sm">Feeds ${icon('arrowr','w-3.5 h-3.5')}</button></div>
+        <table class="w-full text-[13px]"><tbody>
+          ${DB.accounts.map(a=>`<tr class="border-b border-line-soft last:border-0">
+            <td class="px-4 py-2.5"><div class="font-medium">${esc(a.institution)} · ${esc(a.name)}</div><div class="text-[11px] text-faint">${kindChip(a.kind)} · ${a.currency}</div></td>
+            <td class="px-3 py-2.5">${a.status==='connected'?`<span class="inline-flex items-center gap-1.5 text-[11.5px] text-muted"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>synced ${a.sync}</span>`:`<span class="inline-flex items-center gap-1.5 text-[11.5px] text-warn-ink"><span class="w-1.5 h-1.5 rounded-full bg-warn"></span>pending</span>`}</td>
+            <td class="px-4 py-2.5 text-right mono font-semibold ${a.balance<0?'text-bad-ink':''}">${fmtMoney(a.balance,a.currency)}</td></tr>`).join('')}
+        </tbody><tfoot><tr class="border-t border-line"><td class="px-4 py-2.5 lbl">Total (INR equiv.)</td><td></td><td class="px-4 py-2.5 text-right mono font-bold text-[14px]">${fmtMoney(cashTotal)}</td></tr></tfoot></table>
+      </div>
+      <div class="card p-5 flex flex-col items-center">
+        <div class="lbl self-start mb-2">Close progress</div>
+        ${closeRing(closePct)}
+        <div class="mt-3 text-[12.5px] text-muted text-center">${ready} of ${all.length} reconciliations at zero breaks</div>
+        <button data-act="goto" data-r="close" class="btn btn-ghost w-full justify-center mt-4">Open period close ${icon('arrowr','w-3.5 h-3.5')}</button>
+      </div>
+    </div>
+    <div class="card overflow-hidden mb-5">
+      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Priority exceptions</div>
+        <div class="ml-auto text-[11.5px] text-muted">${queue.length} open · highest value first</div></div>
+      ${queue.length?`<table class="w-full text-[13px]"><tbody>
+        ${queue.slice(0,6).map(({rc,r})=>`<tr class="border-b border-line-soft last:border-0 row-hover cursor-pointer" data-act="open-recon-tab" data-id="${rc.id}" data-t="exceptions">
+          <td class="px-4 py-2.5"><span class="w-1.5 h-1.5 rounded-full inline-block ${Math.abs(r.amount)>20000?'bg-bad':'bg-warn'}"></span></td>
+          <td class="px-2 py-2.5"><div class="font-medium">${esc(r.counterparty)}</div><div class="text-[11px] text-faint">${esc(rc.name)}</div></td>
+          <td class="px-3 py-2.5 text-[12px] text-muted">${esc(breakReason(rc,r))}</td>
+          <td class="px-3 py-2.5 mono text-faint text-[12px]">${fmtDate(r.date)}</td>
+          <td class="px-4 py-2.5 text-right mono font-semibold ${r.amount<0?'text-bad-ink':''}">${fmtMoney(r.amount,r.currency)}</td>
+          <td class="px-3 text-faint">${icon('chevR','w-4 h-4')}</td></tr>`).join('')}
+      </tbody></table>`:`<div class="px-4 py-8 text-center text-[13px] text-muted">No open exceptions — all reconciliations clear.</div>`}
+    </div>
+    <div class="card overflow-hidden">
+      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Reconciliations</div>
+        <div class="ml-auto lbl">Last run · match rate · breaks</div></div>
+      <table class="w-full text-[13px]"><thead>
+        <tr class="text-left lbl border-b border-line">
+          <th class="font-semibold px-4 py-2">Name</th><th class="font-semibold px-3 py-2">Type</th>
+          <th class="font-semibold px-3 py-2">Cadence</th><th class="font-semibold px-3 py-2 text-right">Match rate</th>
+          <th class="font-semibold px-3 py-2">Trend</th><th class="font-semibold px-3 py-2 text-right">Breaks</th>
+          <th class="font-semibold px-3 py-2 text-right">Value at risk</th><th class="w-8"></th></tr></thead><tbody>
+        ${all.map(({rc,res})=>`<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}">
+          <td class="px-4 py-2.5"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">Owner · ${esc(rc.owner)}</div></td>
+          <td class="px-3 py-2.5"><span class="chip">${typeGlyph(rc.type,'w-3.5 h-3.5')}${TYPE_META[rc.type].label}</span></td>
+          <td class="px-3 py-2.5 text-muted">${rc.cadence}</td>
+          <td class="px-3 py-2.5 text-right"><span class="mono font-semibold ${res.rate>=95?'text-ok-ink':res.rate>=80?'text-ink':'text-warn-ink'}">${res.rate.toFixed(1)}%</span></td>
+          <td class="px-3 py-2.5">${rc.lastRun?spark(rc.lastRun.history):''}</td>
+          <td class="px-3 py-2.5 text-right">${res.breaks.length?`<span class="mono font-semibold text-warn-ink">${res.breaks.length}</span>`:`<span class="mono text-faint">0</span>`}</td>
+          <td class="px-3 py-2.5 text-right mono ${res.breakVal?'text-ink-soft':'text-faint'}">${fmtMoney(res.breakVal)}</td>
+          <td class="px-2 text-faint">${icon('chevR','w-4 h-4')}</td></tr>`).join('')}
+      </tbody></table></div>
+  </div>`;
+  return inner;
+}
+
+// ═══════════════════════════════════════ view: reconciliation ═══════════════════════════════════════
+const RECON_TABS=[['overview','Overview'],['rules','Rules Studio'],['matches','Matches'],['exceptions','Exceptions'],['sources','Sources']];
+function viewRecon(){
+  const rec=getRec(DB.route.recId); if(!rec)return viewDashboard();
+  const tab=DB.route.tab||'overview';
+  const res=engine(rec);
+  const meta=TYPE_META[rec.type];
+  const runBtn=`<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play','w-4 h-4')}Run reconciliation</button>`;
+  const lastRun=rec.lastRun?`<span class="text-[11.5px] text-muted mono">last run ${rec.lastRun.at.replace('T',' ')}</span>`:'';
+  let body='';
+  if(tab==='overview') body=reconOverview(rec,res);
+  else if(tab==='rules') body=reconRules(rec,res);
+  else if(tab==='matches') body=reconMatches(rec,res);
+  else if(tab==='exceptions') body=reconExceptions(rec,res);
+  else if(tab==='sources') body=reconSources(rec,res);
+  return topbar(esc(rec.name),`${meta.a} <span class="text-faint">↔</span> ${meta.b} · ${rec.cadence}`,`${lastRun}${runBtn}`)
+    +`<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
+      ${RECON_TABS.map(([k,l])=>`<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab===k?'border-accent text-accent-ink':'border-transparent text-muted hover:text-ink'}">${l}${k==='exceptions'&&res.breaks.length?` <span class="mono text-[11px] text-warn-ink">${res.breaks.length}</span>`:''}</button>`).join('')}
+    </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
+}
+
+function twistCard(rec,res){
+  if(rec.type==='ar'){
+    const inv=rec.records.filter(r=>r.side==='B');const T=todayISO();
+    const buck=[['Current',0,30,0],['31–60 days',31,60,0],['61–90 days',61,90,0],['90+ days',91,99999,0]];
+    inv.forEach(r=>{const age=Math.abs(dateDiff(T,r.date));const b=buck.find(x=>age>=x[1]&&age<=x[2]);if(b)b[3]+=Math.abs(r.amount);});
+    return `<div class="col-span-3 card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Invoice aging</div><div class="ml-auto text-[11.5px] text-muted">Open receivables by age · disputes routed to Exceptions</div></div>
+      <div class="grid grid-cols-4 divide-x divide-line">${buck.map(([l,,,v],i)=>`<div class="p-4"><div class="lbl">${l}</div><div class="mono text-[20px] font-semibold mt-1 ${i>=2?'text-warn-ink':''}">${fmtMoney(v)}</div></div>`).join('')}</div></div>`;
+  }
+  if(rec.type==='payroll'&&rec.tax){
+    return `<div class="col-span-3 card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Tax liabilities</div><div class="ml-auto text-[11.5px] text-muted">Accrued vs. paid by jurisdiction</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Jurisdiction</th><th class="px-3 py-2 font-semibold text-right">Accrued</th><th class="px-3 py-2 font-semibold text-right">Paid</th><th class="px-3 py-2 font-semibold text-right">Variance</th><th class="px-4 py-2 font-semibold">Status</th></tr></thead><tbody>
+      ${rec.tax.map(t=>`<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${t.jur}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(t.accrued)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(t.paid)}</td><td class="px-3 py-2.5 text-right mono ${t.accrued-t.paid?'text-warn-ink':'text-faint'}">${fmtMoney(t.accrued-t.paid)}</td><td class="px-4 py-2.5">${t.status==='ok'?'<span class="text-ok-ink text-[12px] font-medium">Reconciled</span>':'<span class="text-warn-ink text-[12px] font-medium">Variance</span>'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  if((rec.type==='ap'||rec.type==='inventory')&&rec.threeway){
+    return `<div class="col-span-3 card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Three-way match</div><div class="ml-auto text-[11.5px] text-muted">Purchase order · goods receipt · vendor invoice</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">PO</th><th class="px-3 py-2 font-semibold">Vendor</th><th class="px-3 py-2 font-semibold text-right">PO amt</th><th class="px-3 py-2 font-semibold text-right">Received</th><th class="px-3 py-2 font-semibold text-right">Invoiced</th><th class="px-4 py-2 font-semibold">Status</th></tr></thead><tbody>
+      ${rec.threeway.map(t=>`<tr class="border-b border-line-soft"><td class="px-4 py-2.5 mono">${t.po}</td><td class="px-3 py-2.5 font-medium">${esc(t.vendor)}</td>
+        <td class="px-3 py-2.5 text-right mono">${fmtMoney(t.poAmt)}</td>
+        <td class="px-3 py-2.5 text-right mono ${t.grAmt==null?'text-bad-ink':''}">${t.grAmt==null?'— missing':fmtMoney(t.grAmt)}</td>
+        <td class="px-3 py-2.5 text-right mono ${t.invAmt!==t.poAmt?'text-warn-ink':''}">${fmtMoney(t.invAmt)}</td>
+        <td class="px-4 py-2.5">${t.status==='matched'?'<span class="text-ok-ink text-[12px] font-medium">3-way matched</span>':t.status==='missing-gr'?'<span class="text-bad-ink text-[12px] font-medium">Missing receipt</span>':'<span class="text-warn-ink text-[12px] font-medium">Price variance</span>'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  return '';
+}
+function reconOverview(rec,res){
+  const auto=res.matches.length?Math.round(res.matched.length/res.matches.length*100):0;
+  return `<div class="p-6 grid grid-cols-3 gap-5">
+    <div class="card p-5 flex flex-col items-center justify-center">${matchRing(res.rate,148)}
+      <div class="mt-3 text-[12px] text-muted text-center">${res.matched.length} of ${res.total} items matched</div></div>
+    <div class="col-span-2 grid grid-cols-2 gap-3 content-start">
+      ${kpi('Matched',res.matched.length,fmtMoney(res.matchedVal)+' reconciled')}
+      ${kpi('Suggested',res.suggested.length,'below '+rec.threshold+'% confidence')}
+      ${kpi('Breaks',res.breaks.length,fmtMoney(res.breakVal)+' at risk')}
+      ${kpi('Auto-match',auto+'%','no human touch')}
+    </div>
+    ${twistCard(rec,res)}
+    <div class="col-span-3 card overflow-hidden">
+      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Rule performance</div>
+        <button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr','w-3.5 h-3.5')}</button></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+        <th class="px-4 py-2 font-semibold">#</th><th class="px-3 py-2 font-semibold">Rule</th>
+        <th class="px-3 py-2 font-semibold">Conditions</th><th class="px-3 py-2 font-semibold text-right">Confidence</th>
+        <th class="px-3 py-2 font-semibold text-right">Matched</th><th class="px-3 py-2 font-semibold">Status</th></tr></thead><tbody>
+        ${res.perRule.map(({rule,count})=>`<tr class="border-b border-line-soft">
+          <td class="px-4 py-2.5 mono text-faint">${rule.priority}</td>
+          <td class="px-3 py-2.5 font-medium">${esc(rule.name)}</td>
+          <td class="px-3 py-2.5">${condChips(rule.cond)}</td>
+          <td class="px-3 py-2.5 text-right">${confBar(rule.confidence)}</td>
+          <td class="px-3 py-2.5 text-right mono font-semibold">${count}</td>
+          <td class="px-3 py-2.5">${rule.enabled?'<span class="text-ok-ink text-[12px] font-medium">● Active</span>':'<span class="text-faint text-[12px]">○ Off</span>'}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+}
+function condChips(c){
+  const out=[];
+  out.push(`<span class="chip">Ref: ${c.ref==='exact'?'exact':c.ref==='fuzzy'?'fuzzy':'ignore'}</span>`);
+  out.push(`<span class="chip">Amt: ${c.amount.mode==='exact'?'exact':c.amount.mode==='pct'?'±'+c.amount.value+'%':'±'+fmtMoney(c.amount.value)}</span>`);
+  out.push(`<span class="chip">Date: ±${c.date.days}d</span>`);
+  return `<span class="flex flex-wrap gap-1.5">${out.join('')}</span>`;
+}
+
+// ── HERO: Rules Studio ──
+function reconRules(rec,res){
+  const base=rec.lastRun?rec.lastRun.rate:res.rate;
+  const delta=+(res.rate-base).toFixed(1);
+  const dirty = !rec.lastRun || Math.abs(delta)>0.05 || engineChanged(rec);
+  return `<div class="flex h-full">
+    <div class="flex-1 min-w-0 overflow-y-auto p-6">
+      <div class="flex items-center mb-4"><div><div class="font-semibold text-[14px]">Match rules</div>
+        <div class="text-[12px] text-muted">Evaluated top-to-bottom. The first rule that matches a pair wins.</div></div>
+        <button data-act="add-rule" data-id="${rec.id}" class="ml-auto btn btn-ghost btn-sm">${icon('plus','w-3.5 h-3.5')}Add rule</button></div>
+      <div class="space-y-2.5">
+        ${rec.rules.slice().sort((a,b)=>a.priority-b.priority).map((rl,i,arr)=>ruleCard(rec,rl,i,arr.length,res)).join('')}
+      </div>
+      <div class="mt-5 card p-4">
+        <div class="flex items-center gap-3"><div class="lbl">Auto-match threshold</div>
+          <div class="mono text-[13px] font-semibold text-accent-ink ml-auto">${rec.threshold}%</div></div>
+        <input type="range" min="50" max="100" value="${rec.threshold}" data-thresh="${rec.id}" class="w-full mt-3">
+        <div class="text-[11.5px] text-muted mt-2">Matches at or above ${rec.threshold}% confidence are auto-applied; below become <span class="text-warn-ink font-medium">suggested</span> for review.</div>
+      </div>
+    </div>
+    <div class="w-[300px] flex-none border-l border-line bg-surface overflow-y-auto p-5">
+      <div class="lbl mb-3">Live simulation</div>
+      <div class="flex flex-col items-center">${matchRing(res.rate,140)}</div>
+      <div class="mt-3 flex items-center justify-center gap-2 text-[12.5px]">
+        <span class="text-muted">vs last run</span>
+        <span class="mono font-semibold ${delta>0?'text-ok-ink':delta<0?'text-bad-ink':'text-faint'}">${delta>0?'+':''}${delta}%</span></div>
+      <div class="mt-5 space-y-2">
+        ${simStat('Matched',res.matched.length,'ok')}
+        ${simStat('Suggested',res.suggested.length,'warn')}
+        ${simStat('Breaks',res.breaks.length,'bad')}
+        ${simStat('Value at risk',fmtMoney(res.breakVal),'muted')}
+      </div>
+      <div class="mt-5 pt-4 border-t border-line">
+        ${dirty?`<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary w-full justify-center">${icon('play','w-4 h-4')}Apply & run</button>
+          <button data-act="revert-rules" data-id="${rec.id}" class="btn btn-ghost btn-sm w-full justify-center mt-2">Discard changes</button>`
+          :`<div class="text-[12px] text-muted text-center flex items-center justify-center gap-1.5">${icon('check','w-4 h-4 text-ok')}In sync with last run</div>`}
+      </div>
+      <div class="mt-5 lbl mb-2">Matched by rule</div>
+      <div class="space-y-1.5">${res.perRule.filter(p=>p.count).map(({rule,count})=>`<div class="flex items-center gap-2 text-[12px]"><span class="w-1.5 h-1.5 rounded-full ${rule.enabled?'bg-accent':'bg-faint'}"></span><span class="flex-1 truncate text-ink-soft">${esc(rule.name)}</span><span class="mono text-faint">${count}</span></div>`).join('')||'<div class="text-[12px] text-faint">No matches yet</div>'}</div>
+    </div></div>`;
+}
+function simStat(l,v,t){const col=t==='ok'?'text-ok-ink':t==='warn'?'text-warn-ink':t==='bad'?'text-bad-ink':'text-ink';
+  return `<div class="flex items-center justify-between px-3 h-9 rounded-md bg-sunken"><span class="text-[12.5px] text-muted">${l}</span><span class="mono text-[13px] font-semibold ${col}">${v}</span></div>`;}
+function ruleCard(rec,rl,i,total,res){
+  const editing=DB.ui.editRule===rl.id;
+  const count=(res.perRule.find(p=>p.rule.id===rl.id)||{}).count||0;
+  return `<div class="card ${rl.enabled?'':'opacity-60'} ${editing?'ring-1 ring-accent':''}">
+    <div class="flex items-center gap-3 px-3.5 py-3">
+      <div class="flex flex-col text-faint">
+        <button data-act="rule-up" data-id="${rec.id}" data-rule="${rl.id}" class="hover:text-ink ${i===0?'invisible':''}">${icon('up','w-3.5 h-3.5')}</button>
+        <button data-act="rule-down" data-id="${rec.id}" data-rule="${rl.id}" class="hover:text-ink ${i===total-1?'invisible':''}">${icon('down','w-3.5 h-3.5')}</button></div>
+      <div class="mono text-[12px] text-faint w-4">${rl.priority}</div>
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold text-[13px] flex items-center gap-2">${esc(rl.name)}${count?`<span class="text-[11px] font-medium text-muted mono">· ${count} matched</span>`:''}</div>
+        <div class="mt-1.5">${condChips(rl.cond)}</div></div>
+      <div class="flex items-center gap-3">
+        ${confBar(rl.confidence)}
+        <button data-act="edit-rule" data-rule="${rl.id}" class="btn btn-ghost btn-sm">${editing?'Done':'Edit'}</button>
+        <div class="switch" data-on="${rl.enabled}" data-act="toggle-rule" data-id="${rec.id}" data-rule="${rl.id}"></div></div>
+    </div>
+    ${editing?ruleEditor(rec,rl):''}</div>`;
+}
+function ruleEditor(rec,rl){
+  const c=rl.cond;
+  return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-4 gap-4 fade-in">
+    <div><label class="lbl block mb-1.5">Rule name</label><input class="field" value="${esc(rl.name)}" data-rf="name" data-rule="${rl.id}"></div>
+    <div><label class="lbl block mb-1.5">Reference</label><select class="field" data-rf="ref" data-rule="${rl.id}">
+      <option value="exact" ${c.ref==='exact'?'selected':''}>Exact match</option>
+      <option value="fuzzy" ${c.ref==='fuzzy'?'selected':''}>Fuzzy match</option>
+      <option value="off" ${c.ref==='off'?'selected':''}>Ignore</option></select></div>
+    <div><label class="lbl block mb-1.5">Amount tolerance</label>
+      <div class="flex gap-1.5"><select class="field" data-rf="amode" data-rule="${rl.id}" style="flex:1.2">
+        <option value="exact" ${c.amount.mode==='exact'?'selected':''}>Exact</option>
+        <option value="pct" ${c.amount.mode==='pct'?'selected':''}>Percent ±</option>
+        <option value="abs" ${c.amount.mode==='abs'?'selected':''}>Amount ±</option></select>
+        <input class="field ${c.amount.mode==='exact'?'opacity-40 pointer-events-none':''}" style="flex:1" type="number" step="0.1" value="${c.amount.mode==='abs'?(c.amount.value/100):c.amount.value}" data-rf="aval" data-rule="${rl.id}"></div></div>
+    <div><label class="lbl block mb-1.5">Date window (± days)</label><input class="field" type="number" min="0" value="${c.date.days}" data-rf="date" data-rule="${rl.id}"></div>
+    <div class="col-span-4 flex items-center gap-4">
+      <div class="flex items-center gap-3 flex-1"><label class="lbl">Confidence</label>
+        <input type="range" min="50" max="100" value="${rl.confidence}" data-rf="conf" data-rule="${rl.id}" class="flex-1 max-w-[220px]">
+        <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>
+      <button data-act="del-rule" data-id="${rec.id}" data-rule="${rl.id}" class="btn btn-ghost btn-sm text-bad-ink">${icon('trash','w-3.5 h-3.5')}Delete rule</button></div></div>`;
+}
+// track whether current computed differs from last committed to show Apply state
+function engineChanged(rec){ if(!rec.lastRun)return true; const r=engine(rec); return r.rate!==rec.lastRun.rate || r.matched.length!==rec.lastRun.matched; }
+
+// ── Matches tab ──
+function recRow(rec,r,compact){
+  const kindCol=r.amount<0?'text-bad-ink':'text-ink';
+  return `<div class="min-w-0"><div class="flex items-center gap-2"><span class="mono font-semibold ${kindCol} text-[13px]">${fmtMoney(r.amount,r.currency)}</span>
+    <span class="text-[11px] text-faint mono">${fmtDate(r.date)}</span></div>
+    <div class="text-[12px] text-ink-soft truncate">${esc(r.counterparty)} · <span class="text-muted">${esc(r.memo)}</span></div>
+    ${r.reference?`<div class="text-[11px] text-faint mono truncate">${esc(r.reference)}</div>`:''}</div>`;
+}
+function reconMatches(rec,res){
+  const f=DB.filters.m||'all';
+  const rows=res.matches.filter(m=>f==='all'?true:f==='auto'?m.confidence>=rec.threshold:m.confidence<rec.threshold);
+  const A=id=>rec.records.find(r=>r.id===id), B=id=>rec.records.find(r=>r.id===id);
+  const tab=(k,l,n)=>`<button data-act="mfilter" data-f="${k}" class="btn btn-sm ${f===k?'btn-primary':'btn-ghost'}">${l}${n!=null?` <span class="mono opacity-80">${n}</span>`:''}</button>`;
+  return `<div class="p-6">
+    <div class="flex items-center gap-2 mb-4">${tab('all','All',res.matches.length)}${tab('auto','Auto-matched',res.matched.length)}${tab('sugg','Suggested',res.suggested.length)}
+      <div class="ml-auto text-[12px] text-muted">${TYPE_META[rec.type].a} <span class="mono">A</span> &nbsp;↔&nbsp; <span class="mono">B</span> ${TYPE_META[rec.type].b}</div></div>
+    <div class="space-y-2">
+      ${rows.length?rows.map(m=>{const a=A(m.aId),b=B(m.bId);const sugg=m.confidence<rec.threshold;
+        return `<div class="card px-4 py-3 grid items-center gap-3" style="grid-template-columns:1fr 150px 1fr auto">
+          ${recRow(rec,a)}
+          <div class="flex flex-col items-center gap-1">
+            <div class="flex items-center gap-1.5 text-faint w-full"><span class="h-px flex-1 bg-line"></span>${icon('merge','w-3.5 h-3.5')}<span class="h-px flex-1 bg-line"></span></div>
+            ${confBar(m.confidence)}
+            <div class="text-[10.5px] text-faint truncate max-w-[140px]">${esc(m.ruleName)}</div></div>
+          ${recRow(rec,b)}
+          <div class="flex flex-col gap-1.5 items-end w-[120px]">${statusPill(sugg?'suggested':'matched')}
+            ${sugg?`<div class="flex gap-1"><button data-act="accept-sugg" data-id="${rec.id}" data-a="${m.aId}" data-b="${m.bId}" class="btn btn-sm btn-ghost text-ok-ink px-2">${icon('check','w-3.5 h-3.5')}</button>
+              <button data-act="reject-sugg" data-id="${rec.id}" data-a="${m.aId}" data-b="${m.bId}" class="btn btn-sm btn-ghost text-bad-ink px-2">${icon('x','w-3.5 h-3.5')}</button></div>`:''}</div>
+        </div>`;}).join('')
+      :emptyState('No matches in this view','Try running the reconciliation or adjusting rules.')}
+    </div></div>`;
+}
+
+// ── Exceptions tab ──
+function breakReason(rec,r){
+  const map={fee:'Processor fee — book to expense',chargeback:'Chargeback — investigate & book',refund:'Refund not in ledger',
+    'bank-fee':'Bank fee — book to expense',interest:'Interest earned — book to income',
+    'in-transit':'In transit — clears next period',outstanding:'Outstanding — not yet cleared',
+    unapplied:'Unapplied cash on account',timing:'Timing — posts next period',
+    overdue:'Overdue >60 days — send to collections',dispute:'Disputed — route to disputes queue',
+    unpaid:'Bill approved, awaiting payment',nobill:'Payment with no matching bill',
+    tax:'Tax withholding — book liability',reimb:'Expense reimbursement — clear',
+    shrinkage:'Shrinkage / damage — book variance',noreceipt:'Invoice with no goods receipt'};
+  return map[r.kind] || (r.side==='A'?'Present in source, missing in ledger':'Present in ledger, missing in source');
+}
+function reconExceptions(rec,res){
+  const breaks=res.breaks;
+  return `<div class="p-6">
+    <div class="flex items-center mb-4"><div><div class="font-semibold text-[14px]">${breaks.length} open break${breaks.length===1?'':'s'}</div>
+      <div class="text-[12px] text-muted">${fmtMoney(res.breakVal)} unreconciled exposure</div></div>
+      ${res.resolved.length?`<div class="ml-auto text-[12px] text-muted">${res.resolved.length} resolved this period</div>`:''}</div>
+    ${breaks.length?`<div class="card overflow-hidden"><table class="w-full text-[13px]"><thead>
+      <tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Source</th><th class="px-3 py-2 font-semibold">Date</th>
+      <th class="px-3 py-2 font-semibold">Counterparty / memo</th><th class="px-3 py-2 font-semibold">Reference</th>
+      <th class="px-3 py-2 font-semibold text-right">Amount</th><th class="px-3 py-2 font-semibold">Likely reason</th><th class="px-3 py-2 font-semibold text-right">Resolve</th></tr></thead><tbody>
+      ${breaks.map(r=>`<tr class="border-b border-line-soft row-hover">
+        <td class="px-4 py-2.5"><span class="chip ${r.side==='A'?'':'bg-accent-soft text-accent-ink border-accent-soft'}">${r.side==='A'?TYPE_META[rec.type].aKind:TYPE_META[rec.type].bKind}</span></td>
+        <td class="px-3 py-2.5 mono text-muted">${fmtDate(r.date)}</td>
+        <td class="px-3 py-2.5"><div class="font-medium">${esc(r.counterparty)}</div><div class="text-[11px] text-faint">${esc(r.memo)}</div></td>
+        <td class="px-3 py-2.5 mono text-faint text-[12px]">${esc(r.reference||'—')}</td>
+        <td class="px-3 py-2.5 text-right mono font-semibold ${r.amount<0?'text-bad-ink':''}">${fmtMoney(r.amount,r.currency)}</td>
+        <td class="px-3 py-2.5 text-[12px] text-muted">${esc(breakReason(rec,r))}</td>
+        <td class="px-3 py-2.5"><div class="flex justify-end gap-1">
+          <button data-act="resolve-break" data-id="${rec.id}" data-rec-item="${r.id}" data-mode="journal" class="btn btn-sm btn-ghost text-accent-ink">Journal entry</button>
+          <button data-act="resolve-break" data-id="${rec.id}" data-rec-item="${r.id}" data-mode="writeoff" class="btn btn-sm btn-ghost">Write off</button>
+          <button data-act="resolve-break" data-id="${rec.id}" data-rec-item="${r.id}" data-mode="investigate" class="btn btn-sm btn-ghost">Investigate</button></div></td></tr>`).join('')}
+    </tbody></table></div>`:emptyState('No open breaks 🎉','Every item is matched or resolved.')}
+    ${res.resolved.length?`<div class="mt-5"><div class="lbl mb-2">Resolved</div><div class="card divide-y divide-line-soft">
+      ${res.resolved.map(r=>`<div class="flex items-center gap-3 px-4 py-2.5 text-[12.5px]">${statusPill(r.resolution)}
+        <span class="font-medium">${esc(r.counterparty)}</span><span class="text-faint">${esc(r.memo)}</span>
+        <span class="ml-auto mono ${r.amount<0?'text-bad-ink':'text-ink-soft'}">${fmtMoney(r.amount,r.currency)}</span>
+        <button data-act="unresolve" data-id="${rec.id}" data-rec-item="${r.id}" class="text-faint hover:text-ink ml-2">${icon('x','w-3.5 h-3.5')}</button></div>`).join('')}
+    </div></div>`:''}</div>`;
+}
+
+// ── Sources tab ──
+function reconSources(rec,res){
+  const meta=TYPE_META[rec.type];
+  const A=rec.records.filter(r=>r.side==='A'), B=rec.records.filter(r=>r.side==='B');
+  const feed=(recs,name,kind)=>`<div class="card overflow-hidden">
+    <div class="flex items-center gap-2.5 px-4 h-12 border-b border-line"><div class="w-7 h-7 rounded-md bg-sunken flex items-center justify-center text-muted">${typeGlyph(rec.type,'w-4 h-4')}</div>
+      <div><div class="font-semibold text-[13px]">${esc(name)}</div><div class="text-[11px] text-faint">${kind} · ${recs.length} records</div></div>
+      <span class="ml-auto chip">${icon('check','w-3.5 h-3.5 text-ok')}Connected</span></div>
+    <div class="max-h-[360px] overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line">
+      <th class="px-4 py-2 font-semibold">Date</th><th class="px-3 py-2 font-semibold">Reference</th><th class="px-3 py-2 font-semibold">Memo</th><th class="px-3 py-2 font-semibold text-right">Amount</th></tr></thead><tbody>
+      ${recs.map(r=>`<tr class="border-b border-line-soft"><td class="px-4 py-2 mono text-muted">${fmtDate(r.date)}</td>
+        <td class="px-3 py-2 mono text-[11.5px] text-faint">${esc(r.reference||'—')}</td>
+        <td class="px-3 py-2"><span class="text-ink-soft">${esc(r.counterparty)}</span> <span class="text-faint">${esc(r.memo)}</span></td>
+        <td class="px-3 py-2 text-right mono ${r.amount<0?'text-bad-ink':''}">${fmtMoney(r.amount,r.currency)}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+  const canon=[['Transaction date','date'],['Reference / ID','reference'],['Counterparty','counterparty'],['Amount','amount'],['Memo','memo']];
+  return `<div class="p-6">
+    <div class="grid grid-cols-2 gap-5 mb-6">${feed(A,meta.a,meta.aKind)}${feed(B,meta.b,meta.bKind)}</div>
+    <div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Field mapping</div>
+      <div class="ml-auto text-[12px] text-muted">Both feeds normalized to canonical fields</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Canonical field</th>
+        <th class="px-3 py-2 font-semibold">${meta.a}</th><th class="px-3 py-2 font-semibold">${meta.b}</th></tr></thead><tbody>
+        ${canon.map(([l,k])=>`<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${l}</td>
+          <td class="px-3 py-2.5 mono text-[12px] text-muted">${k}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${k}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+}
+
+// ═══════════════════════════════════════ view: global exceptions ═══════════════════════════════════════
+function viewExceptions(){
+  const all=DB.recs.map(rc=>({rc,res:engine(rc)})).filter(x=>x.res.breaks.length);
+  const tot=all.reduce((s,x)=>s+x.res.breaks.length,0);
+  const val=all.reduce((s,x)=>s+x.res.breakVal,0);
+  return topbar('Exceptions',`${tot} open breaks across all reconciliations`,'')
+    +`<div class="flex-1 overflow-y-auto p-6 fade-in">
+      <div class="grid grid-cols-3 gap-3 mb-5">${kpi('Open breaks',tot,'requiring attention')}${kpi('Value at risk',fmtMoney(val),'unreconciled')}${kpi('Reconciliations affected',all.length,`of ${DB.recs.length} total`)}</div>
+      ${all.length?all.map(({rc,res})=>`<div class="mb-5"><div class="flex items-center gap-2 mb-2">
+        <span class="text-faint">${typeGlyph(rc.type,'w-4 h-4')}</span><button data-act="open-recon" data-id="${rc.id}" class="font-semibold text-[13px] hover:text-accent-ink">${esc(rc.name)}</button>
+        <span class="mono text-[12px] text-warn-ink">${res.breaks.length} breaks · ${fmtMoney(res.breakVal)}</span>
+        <button data-act="open-recon-tab" data-id="${rc.id}" data-t="exceptions" class="ml-auto btn btn-ghost btn-sm">Resolve ${icon('arrowr','w-3.5 h-3.5')}</button></div>
+        <div class="card overflow-hidden"><table class="w-full text-[13px]"><tbody>
+        ${res.breaks.slice(0,5).map(r=>`<tr class="border-b border-line-soft last:border-0 row-hover">
+          <td class="px-4 py-2.5"><span class="chip">${r.side==='A'?TYPE_META[rc.type].aKind:TYPE_META[rc.type].bKind}</span></td>
+          <td class="px-3 py-2.5 mono text-muted">${fmtDate(r.date)}</td><td class="px-3 py-2.5 font-medium">${esc(r.counterparty)}</td>
+          <td class="px-3 py-2.5 text-muted text-[12px]">${esc(breakReason(rc,r))}</td>
+          <td class="px-3 py-2.5 text-right mono font-semibold ${r.amount<0?'text-bad-ink':''}">${fmtMoney(r.amount,r.currency)}</td></tr>`).join('')}
+        ${res.breaks.length>5?`<tr><td colspan="5" class="px-4 py-2 text-[12px] text-muted">+ ${res.breaks.length-5} more…</td></tr>`:''}
+        </tbody></table></div></div>`).join('')
+      :emptyState('All clear','No open breaks across your reconciliations.')}
+    </div>`;
+}
+
+function viewSettings(){
+  return topbar('Settings','Workspace configuration','')
+  +`<div class="flex-1 overflow-y-auto p-6 fade-in max-w-2xl">
+    <div class="card p-5 mb-4"><div class="font-semibold text-[13px] mb-3">Workspace</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div><label class="lbl block mb-1.5">Company</label><input class="field" value="${esc(DB.company)}" disabled></div>
+        <div><label class="lbl block mb-1.5">Base currency</label><input class="field" value="USD" disabled></div></div></div>
+    <div class="card p-5"><div class="font-semibold text-[13px] mb-1">Demo data</div>
+      <div class="text-[12px] text-muted mb-3">Restore the seeded reconciliations, rules, and transactions.</div>
+      <button data-act="reset" class="btn btn-ghost">Restore sample data</button></div></div>`;
+}
+
+// ═══════════════════════════════════════ modal: new reconciliation ═══════════════════════════════════════
+function modalNew(){
+  const t=DB.ui.newType||'payments';
+  const meta=TYPE_META[t];
+  openModal(`<div class="w-[540px]">
+    <div class="text-[15px] font-bold mb-1">New reconciliation</div>
+    <div class="text-[12.5px] text-muted mb-4">Pick a template — sources and a starter rule set come pre-configured.</div>
+    <div class="grid grid-cols-3 gap-2.5 mb-5">
+      ${Object.entries(TYPE_META).map(([k,m])=>`<button data-act="new-type" data-t="${k}" class="card p-3 text-left transition ${t===k?'ring-1 ring-accent border-accent':''}">
+        <div class="w-8 h-8 rounded-md ${t===k?'bg-accent text-white':'bg-sunken text-muted'} flex items-center justify-center mb-2">${icon(m.icon,'w-4 h-4')}</div>
+        <div class="font-semibold text-[12.5px]">${m.label}</div><div class="text-[11px] text-faint mt-0.5">${m.a} ↔ ${m.b}</div></button>`).join('')}
+    </div>
+    <label class="lbl block mb-1.5">Name</label><input id="new-name" class="field mb-4" placeholder="${esc(meta.a)} ↔ ${esc(meta.b)}" value="${esc(meta.a)} ↔ ${esc(meta.b)}">
+    <div class="grid grid-cols-2 gap-3 mb-5">
+      <div class="card p-3 flex items-center gap-2.5"><div class="w-7 h-7 rounded bg-sunken flex items-center justify-center text-muted">${icon(meta.icon,'w-4 h-4')}</div>
+        <div><div class="text-[12px] font-semibold">${esc(meta.a)}</div><div class="text-[11px] text-faint">${meta.aKind}</div></div>
+        <span class="ml-auto chip">${icon('check','w-3 h-3 text-ok')}Ready</span></div>
+      <div class="card p-3 flex items-center gap-2.5"><div class="w-7 h-7 rounded bg-sunken flex items-center justify-center text-muted">${icon(meta.icon,'w-4 h-4')}</div>
+        <div><div class="text-[12px] font-semibold">${esc(meta.b)}</div><div class="text-[11px] text-faint">${meta.bKind}</div></div>
+        <span class="ml-auto chip">${icon('check','w-3 h-3 text-ok')}Ready</span></div></div>
+    <div class="flex justify-end gap-2"><button data-act="close-modal" class="btn btn-ghost">Cancel</button>
+      <button data-act="create-recon" class="btn btn-primary">${icon('plus','w-4 h-4')}Create reconciliation</button></div>
+  </div>`);
+}
+
+// ═══════════════════════════════════════ shared ═══════════════════════════════════════
+function emptyState(t,s){return `<div class="card py-16 flex flex-col items-center text-center"><div class="w-11 h-11 rounded-full bg-sunken flex items-center justify-center text-faint mb-3">${icon('check','w-5 h-5')}</div>
+  <div class="font-semibold text-[14px]">${t}</div><div class="text-[12.5px] text-muted mt-1 max-w-xs">${s}</div></div>`;}
+function openModal(html){$('#modal').innerHTML=`<div class="fixed inset-0 z-40 modal-back flex items-center justify-center p-6" data-act="close-modal" data-backdrop="1"><div class="card p-6 shadow-xl fade-in">${html}</div></div>`;}
+function closeModal(){$('#modal').innerHTML='';}
+function toast(msg,tone='ok'){const c=tone==='ok'?'bg-ink text-white':tone==='warn'?'bg-warn text-white':'bg-bad text-white';
+  const el=document.createElement('div');el.className=`${c} px-3.5 py-2 rounded-lg text-[13px] font-medium shadow-lg fade-in flex items-center gap-2`;
+  el.innerHTML=`${icon('check','w-4 h-4')}${esc(msg)}`;$('#toast').appendChild(el);setTimeout(()=>el.remove(),2200);}
+
+// ═══════════════════════════════════════ view: ingestion hub ═══════════════════════════════════════
+function viewIngestion(){
+  const kindLabel={checking:'Checking',savings:'Savings',card:'Card',gateway:'Gateway'};
+  const groups=[['Bank feeds',['checking','savings'],'bank'],['Payment gateways',['gateway'],'card'],['Card statements',['card'],'card']];
+  const connTable=list=>`<table class="w-full text-[13px]"><tbody>
+    ${list.map(a=>{const fr=DB.recs.find(r=>r.name===a.feed);return `<tr class="border-b border-line-soft last:border-0 row-hover">
+      <td class="px-4 py-2.5"><div class="font-medium">${esc(a.institution)} · ${esc(a.name)}</div><div class="text-[11px] text-faint">${kindLabel[a.kind]||a.kind} · ${a.currency}</div></td>
+      <td class="px-3 py-2.5">${a.status==='connected'?`<span class="inline-flex items-center gap-1.5 text-[12px] text-muted"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>Connected</span>`:`<span class="inline-flex items-center gap-1.5 text-[12px] text-warn-ink"><span class="w-1.5 h-1.5 rounded-full bg-warn"></span>Pending setup</span>`}</td>
+      <td class="px-3 py-2.5 text-[12px] text-faint mono">${a.status==='connected'?'sync '+a.sync:'—'}</td>
+      <td class="px-3 py-2.5">${fr?`<button data-act="open-recon" data-id="${fr.id}" class="chip hover:border-accent hover:text-accent-ink transition">${icon('merge','w-3 h-3')}${esc(a.feed)}</button>`:'<span class="text-[12px] text-faint">Not linked</span>'}</td>
+      <td class="px-4 py-2.5 text-right mono ${a.balance<0?'text-bad-ink':a.balance?'':'text-faint'}">${a.balance?fmtMoney(a.balance,a.currency):'—'}</td></tr>`;}).join('')}
+  </tbody></table>`;
+  const netFx=DB.fx.reduce((s,f)=>s+f.realized,0);
+  return topbar('Banking & feeds','Centralized ingestion of external financial data',
+    `<button data-act="toast-soon" class="btn btn-primary">${icon('plus','w-4 h-4')}Connect source</button>`)
+  +`<div class="flex-1 overflow-y-auto p-6 fade-in">
+    <div class="grid grid-cols-3 gap-3 mb-5">
+      ${kpi('Connected feeds',DB.accounts.filter(a=>a.status==='connected').length,`${DB.accounts.length} sources total`)}
+      ${kpi('Pending setup',DB.accounts.filter(a=>a.status!=='connected').length,'awaiting authorization')}
+      ${kpi('Net FX realized',fmtMoney(netFx),'this period, gains − losses')}
+    </div>
+    ${groups.map(([title,kinds])=>{const list=DB.accounts.filter(a=>kinds.includes(a.kind));if(!list.length)return '';
+      return `<div class="card overflow-hidden mb-4"><div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">${title}</div>
+        <div class="ml-auto lbl">${list.length} connected</div></div>${connTable(list)}</div>`;}).join('')}
+    <div class="card overflow-hidden">
+      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">FX &amp; currency realization</div>
+        <div class="ml-auto text-[11.5px] text-muted">Auto-computed gains / losses on multi-currency balances</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+        <th class="px-4 py-2 font-semibold">Pair</th><th class="px-3 py-2 font-semibold text-right">Exposure</th>
+        <th class="px-3 py-2 font-semibold text-right">Spot rate</th><th class="px-4 py-2 font-semibold text-right">Realized G/(L)</th></tr></thead><tbody>
+        ${DB.fx.map(f=>`<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium mono">${f.pair}</td>
+          <td class="px-3 py-2.5 text-right mono">${fmtMoney(f.exposure)}</td>
+          <td class="px-3 py-2.5 text-right mono text-muted">${f.rate.toFixed(3)}</td>
+          <td class="px-4 py-2.5 text-right mono font-semibold ${f.realized<0?'text-bad-ink':'text-ok-ink'}">${f.realized>0?'+':''}${fmtMoney(f.realized)}</td></tr>`).join('')}
+      </tbody><tfoot><tr class="border-t border-line"><td class="px-4 py-2.5 lbl" colspan="3">Net realized</td>
+        <td class="px-4 py-2.5 text-right mono font-bold ${netFx<0?'text-bad-ink':'text-ok-ink'}">${netFx>0?'+':''}${fmtMoney(netFx)}</td></tr></tfoot></table></div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════ view: period close ═══════════════════════════════════════
+function viewClose(){
+  const all=DB.recs.map(rc=>({rc,res:engine(rc)}));
+  const ready=all.filter(x=>x.res.breaks.length===0);
+  const allReady=ready.length===all.length;
+  const cashTotal=DB.accounts.filter(a=>a.kind!=='gateway').reduce((s,a)=>s+toINR(a),0);
+  const closed=DB.period.status==='closed';
+  return topbar(`Period close · ${esc(DB.period.label)}`, closed?'Closed — locked for edits':'Reconcile every module to 100% before closing',
+    closed?`<span class="chip">${icon('check','w-3.5 h-3.5 text-ok')}Closed</span>`
+      :`<button data-act="close-period" class="btn ${allReady?'btn-primary':'btn-ghost opacity-60 pointer-events-none'}">${icon('check','w-4 h-4')}Close ${esc(DB.period.label)}</button>`)
+  +`<div class="flex-1 overflow-y-auto p-6 fade-in">
+    <div class="card overflow-hidden mb-5">
+      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Module readiness checklist</div>
+        <div class="ml-auto text-[12px] ${allReady?'text-ok-ink':'text-warn-ink'} font-semibold mono">${ready.length}/${all.length} ready</div></div>
+      <table class="w-full text-[13px]"><tbody>
+        ${all.map(({rc,res})=>{const ok=res.breaks.length===0;return `<tr class="border-b border-line-soft last:border-0 row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}">
+          <td class="px-4 py-2.5 w-8">${ok?`<span class="text-ok">${icon('check','w-4 h-4')}</span>`:`<span class="text-warn">${icon('alert','w-4 h-4')}</span>`}</td>
+          <td class="px-2 py-2.5"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${TYPE_META[rc.type].label} · ${rc.cadence}</div></td>
+          <td class="px-3 py-2.5"><span class="mono ${res.rate>=95?'text-ok-ink':'text-ink-soft'}">${res.rate.toFixed(1)}%</span></td>
+          <td class="px-3 py-2.5 text-right">${ok?`<span class="text-[12px] text-ok-ink font-medium">Ready to close</span>`:`<span class="text-[12px] text-warn-ink font-medium mono">${res.breaks.length} open · ${fmtMoney(res.breakVal)}</span>`}</td>
+          <td class="px-3 text-faint">${icon('chevR','w-4 h-4')}</td></tr>`;}).join('')}
+      </tbody></table>
+      <div class="px-4 py-3 border-t border-line text-[12px] text-muted flex items-center gap-2">${icon(allReady?'check':'alert',`w-4 h-4 ${allReady?'text-ok':'text-warn'}`)}${allReady?'All prerequisites met — the period can be closed.':'Close is gated until every reconciliation reaches zero open breaks.'}</div>
+    </div>
+    <div class="grid grid-cols-2 gap-5 mb-5">
+      ${outputCard('Balance sheet',[['Cash &amp; equivalents',cashTotal],['Accounts receivable',8640000000],['Inventory',5200000000],['Fixed assets, net',18000000000]],[['Accounts payable',6400000000],['Accrued liabilities',2100000000]])}
+      ${plCard()}
+    </div>
+    <div class="card overflow-hidden">
+      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Audit &amp; compliance log</div>
+        <div class="ml-auto text-[11.5px] text-muted">Immutable — every change is recorded</div></div>
+      <table class="w-full text-[13px]"><tbody>
+        ${(DB.audit||[]).slice(0,12).map(a=>`<tr class="border-b border-line-soft last:border-0">
+          <td class="px-4 py-2.5 mono text-[11.5px] text-faint whitespace-nowrap">${a.at.replace('T',' ')}</td>
+          <td class="px-3 py-2.5 font-medium whitespace-nowrap">${esc(a.user)}</td>
+          <td class="px-3 py-2.5 text-ink-soft">${esc(a.action)}</td>
+          <td class="px-4 py-2.5 text-muted text-[12px]">${esc(a.detail)}</td></tr>`).join('')}
+      </tbody></table></div>
+  </div>`;
+}
+function outputCard(title,assets,liabs){
+  const ta=assets.reduce((s,[,v])=>s+v,0),tl=liabs.reduce((s,[,v])=>s+v,0);
+  return `<div class="card overflow-hidden"><div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">${title}</div>
+    <span class="ml-auto chip">Preview · read-only</span></div>
+    <div class="p-4 text-[13px]"><div class="lbl mb-2">Assets</div>
+      ${assets.map(([l,v])=>`<div class="flex justify-between py-1"><span class="text-ink-soft">${l}</span><span class="mono">${fmtMoney(v)}</span></div>`).join('')}
+      <div class="flex justify-between py-1.5 mt-1 border-t border-line font-semibold"><span>Total assets</span><span class="mono">${fmtMoney(ta)}</span></div>
+      <div class="lbl mb-2 mt-3">Liabilities</div>
+      ${liabs.map(([l,v])=>`<div class="flex justify-between py-1"><span class="text-ink-soft">${l}</span><span class="mono">${fmtMoney(v)}</span></div>`).join('')}
+      <div class="flex justify-between py-1.5 mt-1 border-t border-line font-semibold"><span>Equity</span><span class="mono">${fmtMoney(ta-tl)}</span></div>
+    </div></div>`;
+}
+function plCard(){
+  const rows=[['Revenue',42000000000],['Cost of goods sold',-15100000000],['Gross profit',26900000000,true],['Operating expenses',-18600000000],['Net income',8300000000,true]];
+  return `<div class="card overflow-hidden"><div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Profit &amp; loss</div>
+    <span class="ml-auto chip">Preview · read-only</span></div>
+    <div class="p-4 text-[13px]">${rows.map(([l,v,b])=>`<div class="flex justify-between py-1.5 ${b?'border-t border-line font-semibold':''}"><span class="${b?'':'text-ink-soft'}">${l}</span><span class="mono ${v<0?'text-muted':''}">${fmtMoney(v)}</span></div>`).join('')}
+    <div class="text-[11px] text-faint mt-3">Generated from reconciled ledgers · figures illustrative in this prototype.</div></div></div>`;
+}
+
+// ═══════════════════════════════════════ view: intercompany ═══════════════════════════════════════
+const IC_TABS=[['matching','Matching engine'],['entities','Entities & mapping'],['pricing','Transfer pricing'],['consolidation','Consolidation']];
+function viewIntercompany(){
+  const tab=DB.route.tab||'matching';
+  const ie=icEngine();
+  let body;
+  if(tab==='entities') body=icEntities();
+  else if(tab==='pricing') body=icPricing();
+  else if(tab==='consolidation') body=icConsolidation(ie);
+  else body=icMatching(ie);
+  const exc=ie.mismatch.length+ie.unmatched.length;
+  return topbar('Intercompany &amp; multi-entity',`${DB.entities.length} legal entities · eliminations for ${esc(DB.period.label)}`,'')
+   +`<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
+     ${IC_TABS.map(([k,l])=>`<button data-act="ic-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab===k?'border-accent text-accent-ink':'border-transparent text-muted hover:text-ink'}">${l}${k==='matching'&&exc?` <span class="mono text-[11px] text-warn-ink">${exc}</span>`:''}</button>`).join('')}
+   </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
+}
+function icBadge(s){return s==='matched'?'<span class="text-ok-ink text-[12px] font-medium">Ready to eliminate</span>':s==='eliminated'?statusPill('resolved'):s==='mismatch'?'<span class="text-warn-ink text-[12px] font-medium">Amount mismatch</span>':'<span class="text-bad-ink text-[12px] font-medium">Unmatched</span>';}
+function icMatching(ie){
+  const ent=id=>getEntity(id);
+  return `<div class="p-6">
+    <div class="grid grid-cols-4 gap-3 mb-5">
+      ${kpi('IC transactions',ie.t.length,'across all entities')}
+      ${kpi('Ready to eliminate',ie.matched.length,fmtMoney(ie.readyValue)+' matched')}
+      ${kpi('Exceptions',ie.mismatch.length+ie.unmatched.length,'mismatch or unbooked')}
+      ${kpi('Eliminated',ie.eliminated.length,fmtMoney(ie.elimValue)+' removed')}
+    </div>
+    <div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Intercompany matching</div><div class="ml-auto text-[11.5px] text-muted">Seller AR ↔ buyer AP · flagged for elimination on match</div></div>
+    <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+      <th class="px-4 py-2 font-semibold">Reference</th><th class="px-3 py-2 font-semibold">Flow</th><th class="px-3 py-2 font-semibold">Description</th>
+      <th class="px-3 py-2 font-semibold text-right">Seller AR</th><th class="px-3 py-2 font-semibold text-right">Buyer AP</th><th class="px-3 py-2 font-semibold text-right">Δ</th>
+      <th class="px-3 py-2 font-semibold">Status</th><th class="px-4 py-2 font-semibold text-right">Action</th></tr></thead><tbody>
+      ${ie.t.map(x=>{const s=ent(x.seller),b=ent(x.buyer);return `<tr class="border-b border-line-soft">
+        <td class="px-4 py-2.5 mono">${x.ref}</td>
+        <td class="px-3 py-2.5 whitespace-nowrap"><span class="chip">${s.code}</span> <span class="text-faint">→</span> <span class="chip">${b.code}</span></td>
+        <td class="px-3 py-2.5 text-ink-soft">${esc(x.desc)}</td>
+        <td class="px-3 py-2.5 text-right mono">${fmtMoney(x.arINR)}</td>
+        <td class="px-3 py-2.5 text-right mono ${x.apINR==null?'text-bad-ink':''}">${x.apINR==null?'— missing':fmtMoney(x.apINR)}</td>
+        <td class="px-3 py-2.5 text-right mono ${x.delta?'text-warn-ink':'text-faint'}">${x.delta==null?'—':fmtMoney(x.delta)}</td>
+        <td class="px-3 py-2.5">${icBadge(x.status)}</td>
+        <td class="px-4 py-2.5 text-right">${x.status==='matched'?`<button data-act="ic-eliminate" data-id="${x.id}" class="btn btn-sm btn-primary">Eliminate</button>`:x.status==='eliminated'?`<button data-act="ic-eliminate" data-id="${x.id}" class="btn btn-sm btn-ghost">Undo</button>`:'<span class="text-[12px] text-faint">Review</span>'}</td></tr>`;}).join('')}
+    </tbody></table></div></div>`;
+}
+function icEntities(){
+  const canon=[['Cash & equivalents','1000'],['Accounts receivable','1100'],['Intercompany receivable','1150'],['Revenue','4000'],['Intercompany revenue','4050']];
+  return `<div class="p-6">
+    <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Legal entities</div><div class="ml-auto text-[11.5px] text-muted">Common reporting currency · INR</div></div>
+    <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Entity</th><th class="px-3 py-2 font-semibold">Code</th><th class="px-3 py-2 font-semibold">Functional currency</th><th class="px-3 py-2 font-semibold">Accounting standard</th><th class="px-4 py-2 font-semibold text-right">FX → INR</th></tr></thead><tbody>
+     ${DB.entities.map(e=>`<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${esc(e.name)}</td><td class="px-3 py-2.5"><span class="chip">${e.code}</span></td><td class="px-3 py-2.5 mono">${e.currency}</td><td class="px-3 py-2.5 text-muted">${e.coa}</td><td class="px-4 py-2.5 text-right mono">${e.fx.toFixed(2)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Chart-of-accounts mapping</div><div class="ml-auto text-[11.5px] text-muted">Local COA → common reporting standard</div></div>
+    <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Common account</th><th class="px-3 py-2 font-semibold">Group</th><th class="px-3 py-2 font-semibold">IN · Ind AS</th><th class="px-3 py-2 font-semibold">US · GAAP</th><th class="px-3 py-2 font-semibold">UK · IFRS</th></tr></thead><tbody>
+     ${canon.map(([l,code])=>`<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${l}</td><td class="px-3 py-2.5 mono text-muted">${code}</td><td class="px-3 py-2.5 mono text-faint">${code}·IN</td><td class="px-3 py-2.5 mono text-faint">${code}·US</td><td class="px-3 py-2.5 mono text-faint">${code}·UK</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+function icPricing(){
+  const ent=id=>getEntity(id);
+  const sb=s=>s==='compliant'?'<span class="text-ok-ink text-[12px] font-medium">Within policy</span>':s==='below-policy'?'<span class="text-bad-ink text-[12px] font-medium">Below policy</span>':'<span class="text-warn-ink text-[12px] font-medium">Needs review</span>';
+  return `<div class="p-6"><div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Transfer pricing validation</div><div class="ml-auto text-[11.5px] text-muted">Actual vs. agreed intercompany margins</div></div>
+    <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Flow</th><th class="px-3 py-2 font-semibold">Category</th><th class="px-3 py-2 font-semibold">Method</th><th class="px-3 py-2 font-semibold text-right">Agreed</th><th class="px-3 py-2 font-semibold text-right">Actual</th><th class="px-3 py-2 font-semibold text-right">Variance</th><th class="px-4 py-2 font-semibold">Status</th></tr></thead><tbody>
+     ${DB.transferPricing.map(t=>{const f=ent(t.from),to=ent(t.to);const v=(t.actual-t.agreed).toFixed(1);return `<tr class="border-b border-line-soft">
+       <td class="px-4 py-2.5 whitespace-nowrap"><span class="chip">${f.code}</span> <span class="text-faint">→</span> <span class="chip">${to.code}</span></td>
+       <td class="px-3 py-2.5 text-ink-soft">${esc(t.category)}</td><td class="px-3 py-2.5 text-muted">${t.method}</td>
+       <td class="px-3 py-2.5 text-right mono">${t.agreed.toFixed(1)}%</td><td class="px-3 py-2.5 text-right mono">${t.actual.toFixed(1)}%</td>
+       <td class="px-3 py-2.5 text-right mono ${Math.abs(t.actual-t.agreed)>2?'text-warn-ink':'text-faint'}">${v>0?'+':''}${v}pp</td>
+       <td class="px-4 py-2.5">${sb(t.status)}</td></tr>`;}).join('')}
+    </tbody></table></div></div>`;
+}
+function icConsolidation(ie){
+  const rev=DB.entityRevenue;
+  const totalStandalone=DB.entities.reduce((s,e)=>s+(rev[e.id]||0),0);
+  const elim=ie.elimValue, flagged=ie.readyValue, consolidated=totalStandalone-elim;
+  return `<div class="p-6">
+    <div class="grid grid-cols-3 gap-3 mb-5">
+      ${kpi('Standalone revenue',fmtMoney(totalStandalone),`${DB.entities.length} entities combined`)}
+      ${kpi('Eliminations applied',fmtMoney(elim),ie.eliminated.length+' intercompany entries')}
+      ${kpi('Consolidated revenue',fmtMoney(consolidated),flagged?fmtMoney(flagged)+' more pending':'all eliminations applied')}
+    </div>
+    <div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Consolidation ledger</div><div class="ml-auto text-[11.5px] text-muted">Standalone → eliminations → consolidated (INR)</div></div>
+    <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Entity</th><th class="px-3 py-2 font-semibold">Currency</th><th class="px-4 py-2 font-semibold text-right">Standalone revenue</th></tr></thead><tbody>
+     ${DB.entities.map(e=>`<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${esc(e.name)}</td><td class="px-3 py-2.5 mono text-muted">${e.currency}</td><td class="px-4 py-2.5 text-right mono">${fmtMoney(rev[e.id]||0)}</td></tr>`).join('')}
+     <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium text-bad-ink">Intercompany eliminations</td><td></td><td class="px-4 py-2.5 text-right mono text-bad-ink">(${fmtMoney(elim)})</td></tr>
+    </tbody><tfoot><tr class="border-t border-line"><td class="px-4 py-2.5 font-bold" colspan="2">Consolidated revenue</td><td class="px-4 py-2.5 text-right mono font-bold text-[14px]">${fmtMoney(consolidated)}</td></tr></tfoot></table>
+    ${flagged?`<div class="px-4 py-3 border-t border-line text-[12px] text-muted flex items-center gap-2">${icon('alert','w-4 h-4 text-warn')}${fmtMoney(flagged)} of matched intercompany revenue is ready to eliminate but not yet applied — apply it in the Matching engine.</div>`:''}</div></div>`;
+}
+
+// ═══════════════════════════════════════ render ═══════════════════════════════════════
+function render(){
+  const r=DB.route; let v;
+  if(r.name==='recon') v=viewRecon();
+  else if(r.name==='ingestion') v=viewIngestion();
+  else if(r.name==='intercompany') v=viewIntercompany();
+  else if(r.name==='exceptions') v=viewExceptions();
+  else if(r.name==='close') v=viewClose();
+  else if(r.name==='settings') v=viewSettings();
+  else v=viewDashboard();
+  $('#app').innerHTML=shell(v);
+  save();
+}
+
+// ═══════════════════════════════════════ actions ═══════════════════════════════════════
+function logAudit(action,detail){(DB.audit=DB.audit||[]).unshift({at:todayISO()+'T'+new Date().toTimeString().slice(0,5),user:DB.user.name,action,detail});if(DB.audit.length>60)DB.audit.pop();}
+const ACT={
+  goto:d=>{DB.route={name:d.r};DB.ui.editRule=null;render();},
+  'open-recon':d=>{DB.route={name:'recon',recId:d.id,tab:'overview'};DB.ui.editRule=null;render();},
+  'open-recon-tab':d=>{DB.route={name:'recon',recId:d.id,tab:d.t};render();},
+  'recon-tab':d=>{DB.route.tab=d.t;DB.ui.editRule=null;render();},
+  'new-recon':()=>{DB.ui.newType='payments';modalNew();},
+  'new-type':d=>{DB.ui.newType=d.t;modalNew();},
+  'create-recon':()=>{const t=DB.ui.newType||'payments';const name=($('#new-name').value.trim())||`${TYPE_META[t].a} ↔ ${TYPE_META[t].b}`;
+    const rec=buildRec(t,name,DB.user.name);const res=engine(rec);rec.lastRun={at:todayISO()+'T'+new Date().toTimeString().slice(0,5),rate:res.rate,matched:res.matched.length,breaks:res.breaks.length,history:seedTrend(res.rate)};
+    DB.recs.push(rec);closeModal();DB.route={name:'recon',recId:rec.id,tab:'rules'};render();toast('Reconciliation created');},
+  'close-modal':(d,el,e)=>{if(el.dataset.backdrop&&e.target!==el)return;closeModal();},
+  'run-recon':d=>{const rec=getRec(d.id);const res=engine(rec);const prev=rec.lastRun?rec.lastRun.history:seedTrend(res.rate);
+    rec.lastRun={at:todayISO()+'T'+new Date().toTimeString().slice(0,5),rate:res.rate,matched:res.matched.length,breaks:res.breaks.length,history:[...prev.slice(-11),res.rate]};
+    logAudit('Ran reconciliation',`${rec.name} · ${res.rate.toFixed(1)}% matched, ${res.breaks.length} breaks`);
+    render();toast(`Run complete · ${res.rate.toFixed(1)}% matched`);},
+  'close-period':()=>{DB.period.status='closed';logAudit('Closed period',DB.period.label);render();toast(`${DB.period.label} closed`);},
+  'toast-soon':()=>toast('Connection flow is mocked in this prototype','warn'),
+  'ic-tab':d=>{DB.route.tab=d.t;render();},
+  'ic-eliminate':d=>{const x=DB.icTxns.find(t=>t.id===d.id);x.eliminated=!x.eliminated;logAudit(x.eliminated?'Eliminated intercompany':'Reversed elimination',`${x.ref} · ${fmtMoney(x.arINR)}`);render();toast(x.eliminated?'Flagged & eliminated':'Elimination reversed');},
+  'edit-rule':d=>{DB.ui.editRule=DB.ui.editRule===d.rule?null:d.rule;render();},
+  'toggle-rule':d=>{const rec=getRec(d.id);const rl=rec.rules.find(x=>x.id===d.rule);rl.enabled=!rl.enabled;render();},
+  'add-rule':d=>{const rec=getRec(d.id);const maxP=Math.max(0,...rec.rules.map(r=>r.priority));
+    const rl=ruleC('New rule',true,maxP+1,'exact',{mode:'exact',value:0},{days:2},85);rec.rules.push(rl);DB.ui.editRule=rl.id;render();},
+  'del-rule':d=>{const rec=getRec(d.id);rec.rules=rec.rules.filter(r=>r.id!==d.rule);reprioritize(rec);DB.ui.editRule=null;render();toast('Rule deleted','warn');},
+  'rule-up':d=>moveRule(d.id,d.rule,-1),'rule-down':d=>moveRule(d.id,d.rule,1),
+  'revert-rules':d=>{const rec=getRec(d.id);DB=JSON.parse(localStorage.getItem(STORE_KEY));render();},
+  'mfilter':d=>{DB.filters.m=d.f;render();},
+  'accept-sugg':d=>{const rec=getRec(d.id);rec.confirmed.push({aId:d.a,bId:d.b});const a=rec.records.find(x=>x.id===d.a);logAudit('Confirmed match',`${rec.name} · ${a?esc(a.counterparty):''} ${a?fmtMoney(a.amount):''}`);render();toast('Match confirmed');},
+  'reject-sugg':d=>{const rec=getRec(d.id);(rec.rejected=rec.rejected||[]).push({aId:d.a,bId:d.b});render();toast('Suggestion dismissed','warn');},
+  'resolve-break':d=>{const rec=getRec(d.id);const r=rec.records.find(x=>x.id===d.recItem);r.resolution=d.mode;
+    const lbl=d.mode==='writeoff'?'Wrote off break':d.mode==='journal'?'Manual journal entry':'Marked for investigation';
+    logAudit(lbl,`${rec.name} · ${esc(r.counterparty)} ${fmtMoney(r.amount)} — ${breakReason(rec,r)}`);
+    render();toast(d.mode==='writeoff'?'Written off':d.mode==='journal'?'Journal entry created':'Marked for investigation');},
+  'unresolve':d=>{const rec=getRec(d.id);const r=rec.records.find(x=>x.id===d.recItem);r.resolution=null;render();},
+  reset:()=>{resetAll();toast('Sample data restored');},
+};
+function reprioritize(rec){rec.rules.slice().sort((a,b)=>a.priority-b.priority).forEach((r,i)=>r.priority=i+1);}
+function moveRule(recId,ruleId,dir){const rec=getRec(recId);const sorted=rec.rules.slice().sort((a,b)=>a.priority-b.priority);
+  const i=sorted.findIndex(r=>r.id===ruleId);const j=i+dir;if(j<0||j>=sorted.length)return;
+  const p=sorted[i].priority;sorted[i].priority=sorted[j].priority;sorted[j].priority=p;render();}
+
+// ═══════════════════════════════════════ listeners ═══════════════════════════════════════
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');if(!el)return;
+  const act=el.dataset.act;if(!ACT[act])return;
+  if(act!=='close-modal')e.preventDefault();
+  ACT[act](el.dataset,el,e);
+});
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(t.dataset.thresh){const rec=getRec(t.dataset.thresh);rec.threshold=+t.value;render();return;}
+  if(t.dataset.rf){applyRuleField(t);return;}
+});
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.dataset.rf&&(t.dataset.rf==='ref'||t.dataset.rf==='amode')){applyRuleField(t);}
+});
+function applyRuleField(t){
+  const rec=getRec(DB.route.recId);if(!rec)return;const rl=rec.rules.find(r=>r.id===t.dataset.rule);if(!rl)return;
+  const f=t.dataset.rf,v=t.value;
+  if(f==='name')rl.name=v;
+  else if(f==='ref')rl.cond.ref=v;
+  else if(f==='amode'){rl.cond.amount.mode=v;if(v==='exact')rl.cond.amount.value=0;}
+  else if(f==='aval'){rl.cond.amount.value=rl.cond.amount.mode==='abs'?Math.round((+v||0)*100):(+v||0);}
+  else if(f==='date')rl.cond.date.days=clamp(+v||0,0,60);
+  else if(f==='conf')rl.confidence=clamp(+v||50,50,100);
+  // live update: re-render but keep editor open & focus
+  const active=document.activeElement;const key=active&&active.dataset?active.dataset.rf:null;const rid=active&&active.dataset?active.dataset.rule:null;const pos=active?active.selectionStart:null;
+  render();
+  if(key){const ne=document.querySelector(`[data-rf="${key}"][data-rule="${rid}"]`);if(ne){ne.focus();try{if(pos!=null&&ne.setSelectionRange)ne.setSelectionRange(pos,pos);}catch(_){}}}
+}
+
+render();
+</script>
+</body>
+</html>
