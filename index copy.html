@@ -666,6 +666,7 @@
       </div>
       <div class="p-2.5 space-y-0.5 flex-1 overflow-y-auto">
         ${navItem(r.name === 'ingestion', 'goto', 'data-r="ingestion"', 'bank', 'Data hub')}
+        ${navItem(r.name === 'reconciliation', 'goto', 'data-r="reconciliation"', 'merge', 'Reconciliation')}
       </div>
       <div class="p-2.5 border-t border-line">
         <button data-act="new-recon" class="btn btn-ghost w-full justify-center">${icon('plus', 'w-4 h-4')}New reconciliation</button>
@@ -1446,7 +1447,7 @@
       if (!file) return;
       const ext = (file.name.split('.').pop() || '').toLowerCase();
       DB.jobs = DB.jobs || [];
-      const selSource = ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'HSBC';
+      const selSource = ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'AXIS Bank Statement';
       const sourceName = `${selSource} · ${file.name}`;
       
       // Update state synchronously so green box and checkmarks render IMMEDIATELY (0ms latency)
@@ -1515,8 +1516,8 @@
       const jobsToday = jobs.filter(j => j.at.slice(0, 10) === todayISO()).length;
       const failedRows = jobs.reduce((s, j) => s + (j.status !== 'success' ? j.errors : 0), 0);
       const jobPill = s => s === 'success' ? `<span class="chip bg-ok-soft text-ok-ink border-ok-soft inline-flex items-center gap-1">${icon('check', 'w-3.5 h-3.5 text-ok-ink')}Success</span>` : s === 'partial' ? '<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Partial</span>' : '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Failed</span>';
-      const selSource = (DB.ui && DB.ui.jobSource) || 'HSBC';
-      const sourceOpts = ['HSBC', 'NEW West', 'HDFC', 'Axis', 'ICICI', 'SBI', 'Ledger'].map(s => `<option value="${s}" ${s === selSource ? 'selected' : ''}>${s}</option>`).join('');
+      const selSource = (DB.ui && DB.ui.jobSource) || 'AXIS Bank Statement';
+      const sourceOpts = ['AXIS Bank Statement', 'HDFC Bank Statement', 'HSBC Bank Statement', 'ICICI Bank Statement', 'SAP Invoice Export', 'ERP Payments Export', 'Ledger'].map(s => `<option value="${s}" ${s === selSource ? 'selected' : ''}>${s}</option>`).join('');
       const upFile = DB.lastUploadedFile;
       const dropzoneHtml = upFile ? `
         <label for="jobup" data-job-dropzone class="block cursor-pointer border-2 border-dashed border-ok-ink/40 bg-ok-soft/50 rounded-lg px-5 py-6 text-center hover:bg-ok-soft/75 transition">
@@ -1551,9 +1552,9 @@
       ${kpi('Rows in error', failedRows, 'across recent jobs')}
     </div>
     <div class="card overflow-hidden mb-4">
-      <div class="flex items-center gap-3 px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Upload a source file</div>
+      <div class="flex items-center gap-3 px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Step 1 · Upload a configured source</div><div class="text-[11px] text-faint">Known source → apply saved schema/mapping automatically → validate → normalized data</div></div>
         <select id="job-source-field" data-job-source class="field w-[160px] !py-1 text-[12.5px] font-medium">${sourceOpts}</select>
-        <div class="ml-auto text-[11.5px] text-muted">Ledger is already in the system — upload the external side only</div></div>
+        <div class="ml-auto text-[11.5px] text-muted">Happy path is automatic; mapping review is exception-driven</div></div>
       <div class="p-4">
         ${dropzoneHtml}
       </div></div>
@@ -1584,7 +1585,7 @@
     <div class="card p-4 mb-4 flex items-center gap-4">
       <div class="flex-1"><div class="lbl mb-1.5">Source schema</div>
         <select class="field max-w-sm">${schemas.map(s => `<option>${esc(s)}</option>`).join('')}</select></div>
-      <div class="text-[12px] text-muted max-w-md">Map each source field to a target field and apply a transform. Transforms run at ingestion, before matching.</div>
+      <div class="text-[12px] text-muted max-w-md"><b>Preconfigured mapping.</b> Review only; edit when a source schema changes or a field is mapped incorrectly. Mappings and transforms are applied automatically during ingestion.</div>
     </div>
     <div class="card overflow-hidden">
       <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Field mapping &amp; transforms</div>
@@ -1649,6 +1650,11 @@
       `;
 
       return `<div class="p-6">
+    <div class="card px-4 py-3 mb-4 flex items-center gap-3 bg-ok-soft/40 border-ok/20">
+      <span class="text-ok">${icon('check','w-5 h-5')}</span>
+      <div><div class="font-semibold text-[13px]">Ready for reconciliation</div><div class="text-[11.5px] text-muted">Normalized records from Step 1 are available as canonical data for Side A / Side B matching.</div></div>
+      <button data-act="goto" data-r="reconciliation" class="ml-auto btn btn-primary">Continue to Step 2 ${icon('arrowr','w-4 h-4')}</button>
+    </div>
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
         <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ || '')}" placeholder="Query staged rows — Transaction ID, counterparty, reference, amount"></div>
@@ -1679,13 +1685,87 @@
     </tbody></table></div>${paginationHtml}</div>
   </div>`;
     }
+
+    function dihReconciliation() {
+      const rows = DB.recs.map(rc => {
+        const res = engine(rc);
+        return { rc, res };
+      });
+      const selected = rows[0];
+      const rc = selected.rc, res = selected.res;
+      const recRow = (m, status) => {
+        const a = rc.records.find(x => x.id === m.aId), b = rc.records.find(x => x.id === m.bId);
+        return `<tr class="border-b border-line-soft row-hover">
+          <td class="px-4 py-2.5"><div class="font-semibold">${esc(a?.reference || a?.counterparty || 'Side A record')}</div><div class="text-[11px] text-faint">${esc(a?.date || '')} · ${esc(a?.counterparty || '')}</div></td>
+          <td class="px-3 py-2.5 text-center text-faint">${icon('arrowr','w-4 h-4 inline')}</td>
+          <td class="px-3 py-2.5"><div class="font-semibold">${esc(b?.reference || b?.counterparty || 'Side B record')}</div><div class="text-[11px] text-faint">${esc(b?.date || '')} · ${esc(b?.counterparty || '')}</div></td>
+          <td class="px-3 py-2.5 text-right mono">${fmtMoney(Math.abs(a?.amount || 0))}</td>
+          <td class="px-3 py-2.5">${statusPill(status)}</td>
+          <td class="px-3 py-2.5"><div class="text-[12px] font-medium">${esc(m.ruleName)}</div><div class="text-[11px] text-faint">Confidence ${m.confidence}%</div></td>
+        </tr>`;
+      };
+      const unmatched = res.breaks.slice(0,6).map(r => `<tr class="border-b border-line-soft row-hover">
+        <td class="px-4 py-2.5"><div class="font-semibold">${esc(r.reference || r.counterparty || r.id)}</div><div class="text-[11px] text-faint">${r.side === 'A' ? 'Side A' : 'Side B'} · ${esc(r.date)}</div></td>
+        <td class="px-3 py-2.5 text-muted">${esc(r.counterparty || r.memo || '—')}</td>
+        <td class="px-3 py-2.5 text-right mono">${fmtMoney(Math.abs(r.amount))}</td>
+        <td class="px-3 py-2.5">${statusPill('break')}</td>
+        <td class="px-4 py-2.5 text-right"><button data-act="open-recon" data-id="${rc.id}" class="btn btn-sm btn-ghost">Review</button></td>
+      </tr>`).join('');
+
+      return `<div class="p-6">
+        <div class="card p-4 mb-4 flex items-center gap-4">
+          <div class="flex-1">
+            <div class="lbl mb-1.5">Reconciliation</div>
+            <select class="field max-w-md" onchange="void(0)">
+              ${rows.map(({rc:x}) => `<option ${x.id===rc.id?'selected':''}>${esc(x.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="text-[12px] text-muted max-w-lg">Step 2 consumes the normalized Side A + Side B datasets produced in Step 1 and applies hierarchical matching rules.</div>
+          <button data-act="open-recon" data-id="${rc.id}" class="btn btn-primary">${icon('play','w-4 h-4')}Open reconciliation</button>
+        </div>
+
+        <div class="grid grid-cols-4 gap-3 mb-4">
+          ${kpi('Auto-matched', res.matched.length, `${res.rate.toFixed(1)}% match rate`)}
+          ${kpi('Suggested', res.suggested.length, 'requires review / approval')}
+          ${kpi('Unmatched', res.breaks.length, fmtMoney(res.breakVal) + ' open value')}
+          ${kpi('Active rules', rc.rules.filter(x=>x.enabled).length, 'hierarchical rule set')}
+        </div>
+
+        <div class="card overflow-hidden mb-4">
+          <div class="flex items-center px-4 h-11 border-b border-line">
+            <div><div class="font-semibold text-[13px]">Rule-based reconciliation</div><div class="text-[11px] text-faint">Exact → tolerance / partial → many-to-one / one-to-many</div></div>
+            <div class="ml-auto flex gap-2">${rc.rules.map((r,i)=>`<span class="chip">${i+1}. ${esc(r.name)}</span>`).join('')}</div>
+          </div>
+          <table class="w-full text-[13px]">
+            <thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Side A</th><th></th><th class="px-3 py-2">Side B</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Result</th><th class="px-3 py-2">Matched by</th></tr></thead>
+            <tbody>
+              ${res.matched.slice(0,4).map(m=>recRow(m,'matched')).join('')}
+              ${res.suggested.slice(0,3).map(m=>recRow(m,'suggested')).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card overflow-hidden">
+          <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Unmatched / exceptions</div><div class="ml-auto text-[11.5px] text-muted">Continue to manual reconciliation for unresolved records</div></div>
+          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Record</th><th class="px-3 py-2">Counterparty / memo</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Status</th><th></th></tr></thead><tbody>
+            ${unmatched || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No unmatched records.</td></tr>`}
+          </tbody></table>
+        </div>
+      </div>`;
+    }
+
+    function viewAutoReconciliation() {
+      return topbar('Reconciliation', 'Step 2 · Automated reconciliation of normalized Side A and Side B data', '')
+        + `<div class="flex-1 overflow-y-auto">${dihReconciliation()}</div>`;
+    }
+
     function viewIngestion() {
       dihInit();
       const tab = DB.route.tab || 'jobs';
       const TABS = [['jobs', 'Ingestion Jobs'], ['mapping', 'Schemas & Mapping'], ['data', 'Data Explorer']];
       const body = tab === 'mapping' ? dihMapping() : tab === 'data' ? dihData() : dihJobs();
       const hasFailed = (DB.jobs || []).some(j => j.status === 'failed');
-      return topbar('Data Integration Hub', 'Ingest, map, and stage external data before it reaches the ledger', '')
+      return topbar('Data Integration Hub', 'Step 1 · Ingest, map, validate, and normalize source data', '')
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
       ${TABS.map(([k, l]) => `<button data-act="dih-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'jobs' && hasFailed ? ` <span class="mono text-[11px] text-bad-ink">!</span>` : ''}</button>`).join('')}
     </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
@@ -1850,6 +1930,7 @@
       else if (r.name === 'reconciliations') v = viewReconciliations();
       else if (r.name === 'transactions') v = viewTransactions();
       else if (r.name === 'ingestion') v = viewIngestion();
+      else if (r.name === 'reconciliation') v = viewAutoReconciliation();
       else if (r.name === 'import') v = viewImport();
       else if (r.name === 'intercompany') v = viewIntercompany();
       else if (r.name === 'exceptions') v = viewExceptions();
