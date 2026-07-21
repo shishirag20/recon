@@ -946,7 +946,14 @@ function fmtSize(b){if(b<1024)return b+' B';if(b<1048576)return Math.round(b/102
 function handleFiles(files,category,ref){
   if(!files||!files.length)return;
   DB.docs=DB.docs||[];
-  [...files].forEach(f=>DB.docs.unshift({id:uid('doc'),name:f.name,size:f.size,type:f.type||'file',category:category||'other',ref:ref||null,uploadedBy:DB.user.name,at:todayISO()+'T'+new Date().toTimeString().slice(0,5)}));
+  [...files].forEach(f=>{
+    DB.docs.unshift({id:uid('doc'),name:f.name,size:f.size,type:f.type||'file',category:category||'other',ref:ref||null,uploadedBy:DB.user.name,at:todayISO()+'T'+new Date().toTimeString().slice(0,5)});
+    if((f.name||'').toLowerCase().endsWith('.csv')||f.type==='text/csv'){
+      const rd=new FileReader();
+      rd.onload=()=>{const {headers}=parseCSV(String(rd.result));populateMappingsFromHeaders(headers,f.name);render();};
+      rd.readAsText(f);
+    }
+  });
   logAudit('Uploaded document',`${files.length} file(s)${ref?' · '+ref:''}${category?' · '+category:''}`);
   save();render();toast(`${files.length} document${files.length>1?'s':''} uploaded`,'ok');
 }
@@ -1009,6 +1016,7 @@ function ingestFile(file,side){
   if(ext==='csv'||ext==='tsv'||file.type==='text/csv'){
     const rd=new FileReader();
     rd.onload=()=>{const {headers,rows}=parseCSV(String(rd.result));
+      populateMappingsFromHeaders(headers,file.name);
       ch[side]={fileName:file.name,size:file.size,ftype:ext,parsed:true,headers,rows:rows.slice(0,200),total:rows.length};
       logAudit('Imported file',`${label} · ${file.name} (${rows.length} rows)`);save();render();toast(`${file.name} · ${rows.length} rows imported`);};
     rd.readAsText(file);
@@ -1066,34 +1074,91 @@ function viewImport(){
   </div>`;
 }
 // ── Data Integration Hub ──
-const LEDGER_FIELDS=['Transaction date','Reference','Counterparty','Description','Amount','Currency','GL account'];
+const LEDGER_FIELDS=['Transaction ID','Transaction date','Reference','Counterparty','Description','Amount','Currency'];
 const TRANSFORMS=[['none','No transform'],['trim','Trim whitespace'],['upper','Uppercase'],['lower','Lowercase'],['date','Parse date'],['negate','Negate (×-1)'],['div100','Divide by 100'],['mult','Multiply by…'],['const','Constant value'],['regex','Extract (regex)']];
 const mapNeedsParam=t=>['date','mult','const','regex'].includes(t);
 function buildJobs(){const T=todayISO();return [
   {id:uid('job'),source:'HDFC Operating · statement',kind:'auto',format:'MT940',rows:642,status:'success',errors:0,at:T+'T06:00'},
   {id:uid('job'),source:'Stripe payouts',kind:'auto',format:'API',rows:318,status:'success',errors:0,at:T+'T06:05'},
-  {id:uid('job'),source:'hdfc-operating-jul.csv',kind:'manual',format:'CSV',rows:64,status:'success',errors:0,at:addDays(T,-1)+'T10:12'},
+  {id:uid('job'),source:'bank_statement(in).csv',kind:'manual',format:'CSV',rows:5,status:'success',errors:0,at:addDays(T,-1)+'T10:12'},
   {id:uid('job'),source:'warehouse-count-w28.xlsx',kind:'manual',format:'XLSX',rows:1204,status:'partial',errors:11,at:addDays(T,-1)+'T15:22'},
   {id:uid('job'),source:'Amex corporate card',kind:'auto',format:'OFX',rows:96,status:'failed',errors:96,at:addDays(T,-1)+'T02:00'},
   {id:uid('job'),source:'vendor-bills-jul.csv',kind:'manual',format:'CSV',rows:210,status:'success',errors:0,at:addDays(T,-2)+'T09:40'},
 ];}
-function buildStaging(){const T=todayISO();const co=['Aster Goods','Halo Beauty','Nook Living','Office Lease','Rune Studio','Tidewell','Pax Athletics','Ember Coffee','GST Authority','Volt Mobility'];
-  const out=[];for(let i=0;i<12;i++){const dep=rnd()<0.6;const amt=Math.round(2000+rnd()*90000);
-    out.push({id:uid('stg'),date:addDays(T,-Math.floor(rnd()*18)),description:pick(co),reference:(rnd()<0.85?'ch_'+(10000+Math.floor(rnd()*89999)):''),amount:dep?amt:-amt,currency:'INR',status:rnd()<0.15?'error':(rnd()<0.5?'mapped':'staged')});}
-  return out;}
+function buildStaging(){
+  return [
+    {id:uid('stg'),txnId:'TXN-9001',date:'2026-06-06',reference:'REF-77112',counterparty:'Globex Corp Wire',description:'Globex Corp Wire transfer',amount:4250.5,currency:'USD',status:'mapped'},
+    {id:uid('stg'),txnId:'TXN-9002',date:'2026-06-12',reference:'REF-77234',counterparty:'Initech LLC',description:'Initech LLC service fee',amount:890.0,currency:'USD',status:'mapped'},
+    {id:uid('stg'),txnId:'TXN-9003',date:'2026-06-16',reference:'REF-77389',counterparty:'Acme Corporation',description:'Acme Equipment order',amount:3195.0,currency:'USD',status:'mapped'},
+    {id:uid('stg'),txnId:'TXN-9004',date:'2026-06-21',reference:'REF-77401',counterparty:'Wayne Ent. Invoice 006',description:'Wayne Ent. Invoice 006',amount:5200.0,currency:'USD',status:'mapped'},
+    {id:uid('stg'),txnId:'TXN-9005',date:'2026-06-23',reference:'REF-77520',counterparty:'Globex Corp',description:'Globex Corp monthly payout',amount:1150.0,currency:'USD',status:'mapped'},
+  ];
+}
 function buildMappings(){return [
-  {id:uid('mp'),src:'Txn Date',ledger:'Transaction date',transform:'date',param:'DD-MM-YYYY'},
-  {id:uid('mp'),src:'Narration',ledger:'Description',transform:'trim',param:''},
-  {id:uid('mp'),src:'Reference',ledger:'Reference',transform:'none',param:''},
-  {id:uid('mp'),src:'Withdrawal',ledger:'Amount',transform:'negate',param:''},
-  {id:uid('mp'),src:'Deposit',ledger:'Amount',transform:'none',param:''},
-  {id:uid('mp'),src:'(fixed)',ledger:'Currency',transform:'const',param:'INR'},
+  {id:uid('mp'),src:'Transaction_ID',ledger:'Transaction ID',transform:'none',param:''},
+  {id:uid('mp'),src:'Payment_Date',ledger:'Transaction date',transform:'date',param:'MM/DD/YYYY'},
+  {id:uid('mp'),src:'Amount',ledger:'Amount',transform:'none',param:''},
+  {id:uid('mp'),src:'Currency',ledger:'Currency',transform:'none',param:''},
+  {id:uid('mp'),src:'Payer_Name',ledger:'Counterparty',transform:'none',param:''},
+  {id:uid('mp'),src:'Bank_Reference',ledger:'Reference',transform:'none',param:''},
 ];}
 function dihInit(){DB.jobs=DB.jobs||buildJobs();DB.staging=DB.staging||buildStaging();DB.mappings=DB.mappings||buildMappings();}
+function populateMappingsFromHeaders(headers,fileName,csvRows){
+  if(!headers||!headers.length)return;
+  DB.uploadedHeaders=headers;
+  if(fileName)DB.lastUploadedCsvName=fileName;
+  DB.mappings=headers.map(h=>{
+    const hl=h.toLowerCase().trim();
+    let ledger='Description',transform='none',param='';
+    if(hl.includes('transaction_id')||hl.includes('transaction id')||hl.includes('txn_id')||hl.includes('txnid')||(hl.includes('transaction')&&hl.includes('id'))){ledger='Transaction ID';transform='none';}
+    else if(hl.includes('date')||hl.includes('time')||hl.includes('payment_date')){ledger='Transaction date';transform='date';param='MM/DD/YYYY';}
+    else if(hl.includes('bank_reference')||hl.includes('ref')||hl.includes('num')){ledger='Reference';}
+    else if(hl.includes('payer_name')||hl.includes('payer')||hl.includes('counterparty')||hl.includes('payee')||hl.includes('vendor')||hl.includes('customer')||hl.includes('name')){ledger='Counterparty';}
+    else if(hl.includes('amt')||hl.includes('amount')||hl.includes('debit')||hl.includes('credit')||hl.includes('withdrawal')||hl.includes('deposit')||hl.includes('val')){ledger='Amount';if(hl.includes('withdrawal')||hl.includes('debit'))transform='negate';}
+    else if(hl.includes('cur')||hl.includes('currency')){ledger='Currency';}
+    return {id:uid('mp'),src:h.trim(),ledger,transform,param};
+  });
+  if(csvRows&&csvRows.length){
+    const getIdx=p=>headers.findIndex(h=>h.toLowerCase().includes(p));
+    const txnIdx=getIdx('transaction_id')>=0?getIdx('transaction_id'):(getIdx('transaction')>=0?getIdx('transaction'):getIdx('txn'));
+    const dateIdx=getIdx('payment_date')>=0?getIdx('payment_date'):getIdx('date');
+    const amtIdx=getIdx('amount')>=0?getIdx('amount'):getIdx('amt');
+    const curIdx=getIdx('currency')>=0?getIdx('currency'):getIdx('cur');
+    const payerIdx=getIdx('payer_name')>=0?getIdx('payer_name'):(getIdx('payer')>=0?getIdx('payer'):(getIdx('name')>=0?getIdx('name'):getIdx('party')));
+    const refIdx=getIdx('bank_reference')>=0?getIdx('bank_reference'):getIdx('ref');
+
+    DB.staging=csvRows.slice(0,100).map((row,idx)=>{
+      const txnId=txnIdx>=0&&row[txnIdx]?row[txnIdx]:`TXN-${9001+idx}`;
+      let dateVal=dateIdx>=0&&row[dateIdx]?row[dateIdx]:todayISO();
+      if(dateVal&&dateVal.includes('/')){
+        const p=dateVal.split('/');
+        if(p.length===3){const m=p[0].padStart(2,'0'),d=p[1].padStart(2,'0'),y=p[2].length===2?'20'+p[2]:p[2];dateVal=`${y}-${m}-${d}`;}
+      }
+      const amount=amtIdx>=0&&row[amtIdx]?parseFloat(row[amtIdx])||0:1000;
+      const currency=curIdx>=0&&row[curIdx]?row[curIdx]:'USD';
+      const counterparty=payerIdx>=0&&row[payerIdx]?row[payerIdx]:'Sample Payer';
+      const reference=refIdx>=0&&row[refIdx]?row[refIdx]:`REF-${77112+idx}`;
+      return {
+        id:uid('stg'),
+        txnId,
+        date:dateVal||todayISO(),
+        reference,
+        counterparty,
+        description:`${counterparty} transfer`,
+        amount,
+        currency,
+        status:'mapped'
+      };
+    });
+  }
+  save();
+}
 function ingestJob(file){
   if(!file)return;const ext=(file.name.split('.').pop()||'').toLowerCase();DB.jobs=DB.jobs||[];
-  const mk=rows=>{DB.jobs.unshift({id:uid('job'),source:file.name,kind:'manual',format:(ext||'file').toUpperCase(),rows,status:'success',errors:0,at:todayISO()+'T'+new Date().toTimeString().slice(0,5)});logAudit('Ingestion job',`${file.name} · ${rows} rows`);save();render();toast(`Ingested ${file.name} · ${rows} rows`);};
-  if(ext==='csv'||ext==='tsv'){const rd=new FileReader();rd.onload=()=>{const {rows}=parseCSV(String(rd.result));mk(rows.length);};rd.readAsText(file);}
+  const selSource = ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'HSBC';
+  const sourceName = `${selSource} · ${file.name}`;
+  const mk=rows=>{DB.jobs.unshift({id:uid('job'),source:sourceName,kind:'manual',format:(ext||'file').toUpperCase(),rows,status:'success',errors:0,at:todayISO()+'T'+new Date().toTimeString().slice(0,5)});logAudit('Ingestion job',`${sourceName} · ${rows} rows`);save();render();toast(`${file.name} uploaded successfully (${selSource} · ${rows.toLocaleString('en-IN')} rows)`,'ok');};
+  if(ext==='csv'||ext==='tsv'){const rd=new FileReader();rd.onload=()=>{const {headers,rows}=parseCSV(String(rd.result));populateMappingsFromHeaders(headers,file.name,rows);mk(rows.length);};rd.readAsText(file);}
   else mk(Math.round(50+Math.random()*400));
 }
 function modalInsertRow(){
@@ -1114,13 +1179,16 @@ function dihJobs(){
   const jobsToday=jobs.filter(j=>j.at.slice(0,10)===todayISO()).length;
   const failedRows=jobs.reduce((s,j)=>s+(j.status!=='success'?j.errors:0),0);
   const jobPill=s=>s==='success'?'<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Success</span>':s==='partial'?'<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Partial</span>':'<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Failed</span>';
+  const selSource = (DB.ui && DB.ui.jobSource) || 'HSBC';
+  const sourceOpts = ['HSBC','NEW West','HDFC','Axis','ICICI','SBI'].map(s=>`<option value="${s}" ${s===selSource?'selected':''}>${s}</option>`).join('');
   return `<div class="p-6">
     <div class="grid grid-cols-2 gap-3 mb-5">
       ${kpi('Jobs today',jobsToday,'automated + manual runs')}
       ${kpi('Rows in error',failedRows,'across recent jobs')}
     </div>
     <div class="card overflow-hidden mb-4">
-      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Upload a source file</div>
+      <div class="flex items-center gap-3 px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Upload a source file</div>
+        <select id="job-source-field" data-job-source class="field w-[160px] !py-1 text-[12.5px] font-medium">${sourceOpts}</select>
         <div class="ml-auto text-[11.5px] text-muted">Ledger is already in the system — upload the external side only</div></div>
       <div class="p-4">
         <label for="jobup" data-job-dropzone class="block cursor-pointer border-2 border-dashed border-line rounded-lg px-5 py-7 text-center hover:border-accent hover:bg-accent-soft/40 transition">
@@ -1145,57 +1213,73 @@ function dihJobs(){
 function dihMapping(){
   const lopts=sel=>LEDGER_FIELDS.map(f=>`<option ${f===sel?'selected':''}>${f}</option>`).join('');
   const topts=sel=>TRANSFORMS.map(([k,l])=>`<option value="${k}" ${k===sel?'selected':''}>${l}</option>`).join('');
+  const schemas = DB.lastUploadedCsvName ? [`Uploaded CSV · ${DB.lastUploadedCsvName}`, 'Bank statement · hdfc-operating.csv', 'Warehouse count · warehouse-count-w28.xlsx'] : ['Bank statement · hdfc-operating.csv', 'Warehouse count · warehouse-count-w28.xlsx'];
+  const uHeaders = DB.uploadedHeaders || [];
   return `<div class="p-6">
     <div class="card p-4 mb-4 flex items-center gap-4">
       <div class="flex-1"><div class="lbl mb-1.5">Source schema</div>
-        <select class="field max-w-sm"><option>Bank statement · hdfc-operating.csv</option><option>Warehouse count · warehouse-count-w28.xlsx</option></select></div>
+        <select class="field max-w-sm">${schemas.map(s=>`<option>${esc(s)}</option>`).join('')}</select></div>
       <div class="text-[12px] text-muted max-w-md">Map each source field to a target field and apply a transform. Transforms run at ingestion, before matching.</div>
     </div>
     <div class="card overflow-hidden">
       <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Field mapping &amp; transforms</div>
+        ${uHeaders.length?`<span class="ml-3 text-[11.5px] text-ok-ink bg-ok-soft px-2.5 py-0.5 rounded-full font-medium border border-ok-soft flex items-center gap-1">${icon('check','w-3 h-3')}${uHeaders.length} headers extracted from ${esc(DB.lastUploadedCsvName||'uploaded CSV')}</span>`:''}
         <button data-act="map-add" class="ml-auto btn btn-ghost btn-sm">${icon('plus','w-3.5 h-3.5')}Add mapping</button></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
         <th class="px-4 py-2 font-semibold">Source field</th><th class="px-2 py-2"></th><th class="px-3 py-2 font-semibold">Target field</th>
         <th class="px-3 py-2 font-semibold">Transform</th><th class="px-3 py-2 font-semibold">Parameter</th><th class="w-8"></th></tr></thead><tbody>
-      ${(DB.mappings||[]).map(m=>`<tr class="border-b border-line-soft">
-        <td class="px-4 py-2.5"><input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}"></td>
+      ${(DB.mappings||[]).map(m=>{
+        const srcCell = uHeaders.length ? `<select class="field" data-map="src" data-id="${m.id}">${uHeaders.map(h=>`<option value="${esc(h)}" ${h===m.src?'selected':''}>${esc(h)}</option>`).concat(!uHeaders.includes(m.src)?`<option value="${esc(m.src)}" selected>${esc(m.src)}</option>`:'').join('')}</select>` : `<input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}">`;
+        return `<tr class="border-b border-line-soft">
+        <td class="px-4 py-2.5">${srcCell}</td>
         <td class="px-2 py-2.5 text-faint text-center">${icon('arrowr','w-4 h-4')}</td>
         <td class="px-3 py-2.5"><select class="field" data-map="ledger" data-id="${m.id}">${lopts(m.ledger)}</select></td>
         <td class="px-3 py-2.5"><select class="field" data-map="transform" data-id="${m.id}">${topts(m.transform)}</select></td>
         <td class="px-3 py-2.5"><input class="field ${mapNeedsParam(m.transform)?'':'opacity-40 pointer-events-none'}" data-map="param" data-id="${m.id}" value="${esc(m.param||'')}" placeholder="${mapNeedsParam(m.transform)?'value / format':'—'}"></td>
-        <td class="px-2 py-2.5 text-right"><button data-act="map-del" data-id="${m.id}" class="text-faint hover:text-bad-ink">${icon('trash','w-4 h-4')}</button></td></tr>`).join('')}
+        <td class="px-2 py-2.5 text-right"><button data-act="map-del" data-id="${m.id}" class="text-faint hover:text-bad-ink">${icon('trash','w-4 h-4')}</button></td></tr>`;
+      }).join('')}
       </tbody></table>
       <div class="px-4 py-3 border-t border-line text-[11.5px] text-muted flex items-center gap-2 flex-wrap">${icon('bolt','w-3.5 h-3.5 text-accent')}Example: <span class="mono">Txn Date "01-07-2026"</span> → parse date → <span class="mono">2026-07-01</span> · <span class="mono">Withdrawal "216.00"</span> → negate → <span class="mono">-216.00</span></div>
     </div></div>`;
 }
 function dihData(){
   const q=(DB.filters.stgQ||'').toLowerCase();const st=DB.filters.stgStatus||'all';
-  const sort=DB.filters.stgSort||{field:'date',dir:'desc'};
+  const sort=DB.filters.stgSort||{field:'txnId',dir:'asc'};
   let rows=(DB.staging||[]).filter(r=>{
     if(st!=='all'&&r.status!==st)return false;
     if(!q)return true;
-    return [r.date,r.description,r.reference,String(r.amount),r.currency].join(' ').toLowerCase().includes(q);});
-  rows=rows.slice().sort((a,b)=>{let x=a[sort.field],y=b[sort.field];if(typeof x==='string'){x=x.toLowerCase();y=(y||'').toLowerCase();}const c=x<y?-1:x>y?1:0;return sort.dir==='asc'?c:-c;});
+    return [r.txnId,r.date,r.counterparty,r.description,r.reference,String(r.amount),r.currency].join(' ').toLowerCase().includes(q);});
+  rows=rows.slice().sort((a,b)=>{let x=a[sort.field]||a.id,y=b[sort.field]||b.id;if(typeof x==='string'){x=x.toLowerCase();y=(y||'').toLowerCase();}const c=x<y?-1:x>y?1:0;return sort.dir==='asc'?c:-c;});
   const th=(f,l,extra='')=>`<th class="px-3 py-2 font-semibold cursor-pointer select-none ${extra}" data-act="stg-sort" data-field="${f}"><span class="inline-flex items-center gap-1">${l}${sort.field===f?`<span class="text-accent-ink">${sort.dir==='asc'?'↑':'↓'}</span>`:''}</span></th>`;
   const stpill=s=>s==='error'?'<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Error</span>':s==='mapped'?'<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Mapped</span>':'<span class="chip">Staged</span>';
   return `<div class="p-6">
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search','w-4 h-4')}</span>
-        <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ||'')}" placeholder="Query staged rows — description, reference, amount"></div>
+        <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ||'')}" placeholder="Query staged rows — Transaction ID, counterparty, reference, amount"></div>
       <select data-stg-status class="field w-[150px]"><option value="all">All statuses</option><option value="staged" ${st==='staged'?'selected':''}>Staged</option><option value="mapped" ${st==='mapped'?'selected':''}>Mapped</option><option value="error" ${st==='error'?'selected':''}>Error</option></select>
       <button data-act="stg-insert" class="btn btn-primary btn-sm ml-auto">${icon('plus','w-3.5 h-3.5')}Insert row</button>
     </div>
-    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check','w-3.5 h-3.5 text-ok')}Secure staging area · ${rows.length} of ${(DB.staging||[]).length} rows · every insert &amp; edit is written to the audit trail</div>
+    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check','w-3.5 h-3.5 text-ok')}Secure staging area · ${rows.length} of ${(DB.staging||[]).length} rows · mapped target fields shown as column headers</div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
-      ${th('date','Date')}${th('description','Description')}${th('reference','Reference')}${th('amount','Amount','text-right')}${th('currency','Currency')}${th('status','Status')}<th class="w-8"></th></tr></thead><tbody>
+      ${th('txnId','Transaction ID')}
+      ${th('date','Transaction date')}
+      ${th('reference','Reference')}
+      ${th('counterparty','Counterparty')}
+      ${th('description','Description')}
+      ${th('amount','Amount','text-right')}
+      ${th('currency','Currency')}
+      ${th('status','Status')}
+      <th class="w-8"></th></tr></thead><tbody>
       ${rows.length?rows.map(r=>`<tr class="border-b border-line-soft row-hover">
+        <td class="px-3 py-2.5 mono text-[12px] font-semibold text-accent-ink">${esc(r.txnId||r.id)}</td>
         <td class="px-3 py-2.5 mono text-muted">${fmtDate(r.date)}</td>
-        <td class="px-3 py-2.5 font-medium">${esc(r.description)}</td>
         <td class="px-3 py-2.5 mono text-[12px] text-faint">${esc(r.reference||'—')}</td>
-        <td class="px-3 py-2.5 text-right mono ${r.amount<0?'text-bad-ink':''}">${fmtMoney(r.amount*100,r.currency)}</td>
-        <td class="px-3 py-2.5 mono text-muted">${r.currency}</td>
+        <td class="px-3 py-2.5 font-medium">${esc(r.counterparty||r.description||'—')}</td>
+        <td class="px-3 py-2.5 text-muted">${esc(r.description||'—')}</td>
+        <td class="px-3 py-2.5 text-right mono ${r.amount<0?'text-bad-ink':'font-medium'}">${fmtMoney(r.amount*100,r.currency||'USD')}</td>
+        <td class="px-3 py-2.5 mono text-muted">${r.currency||'USD'}</td>
         <td class="px-3 py-2.5">${stpill(r.status)}</td>
-        <td class="px-2 py-2.5 text-right"><button data-act="stg-del" data-id="${r.id}" class="text-faint hover:text-bad-ink">${icon('trash','w-4 h-4')}</button></td></tr>`).join(''):`<tr><td colspan="7" class="px-4 py-10 text-center text-muted">No rows match your query.</td></tr>`}
+        <td class="px-2 py-2.5 text-right"><button data-act="stg-del" data-id="${r.id}" class="text-faint hover:text-bad-ink">${icon('trash','w-4 h-4')}</button></td></tr>`).join(''):`<tr><td colspan="9" class="px-4 py-10 text-center text-muted">No rows match your query.</td></tr>`}
     </tbody></table></div></div>
   </div>`;
 }
@@ -1451,6 +1535,7 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
   const t=e.target;
+  if(t.hasAttribute&&t.hasAttribute('data-job-source')){DB.ui=DB.ui||{};DB.ui.jobSource=t.value;save();render();return;}
   if(t.matches&&t.matches('input[data-importupload]')){ingestFile(t.files[0],t.dataset.importSide);t.value='';return;}
   if(t.matches&&t.matches('input[data-jobupload]')){ingestJob(t.files[0]);t.value='';return;}
   if(t.hasAttribute&&t.hasAttribute('data-stg-status')){DB.filters.stgStatus=t.value;render();return;}
