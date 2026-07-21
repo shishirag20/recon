@@ -1448,14 +1448,19 @@
       DB.jobs = DB.jobs || [];
       const selSource = ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'HSBC';
       const sourceName = `${selSource} · ${file.name}`;
+      
+      // Update state synchronously so green box and checkmarks render IMMEDIATELY (0ms latency)
+      DB.lastUploadedFile = {
+        name: file.name,
+        rows: 0,
+        source: selSource,
+        at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
+      };
+      DB.lastUploadedCsvName = file.name;
+      render();
+
       const mk = rows => {
-        DB.lastUploadedFile = {
-          name: file.name,
-          rows: rows,
-          source: selSource,
-          at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
-        };
-        DB.lastUploadedCsvName = file.name;
+        if (DB.lastUploadedFile) DB.lastUploadedFile.rows = rows;
         DB.jobs.unshift({
           id: uid('job'),
           source: sourceName,
@@ -1509,7 +1514,7 @@
       const feeds = DB.accounts; const jobs = DB.jobs || [];
       const jobsToday = jobs.filter(j => j.at.slice(0, 10) === todayISO()).length;
       const failedRows = jobs.reduce((s, j) => s + (j.status !== 'success' ? j.errors : 0), 0);
-      const jobPill = s => s === 'success' ? '<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Success</span>' : s === 'partial' ? '<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Partial</span>' : '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Failed</span>';
+      const jobPill = s => s === 'success' ? `<span class="chip bg-ok-soft text-ok-ink border-ok-soft inline-flex items-center gap-1">${icon('check', 'w-3.5 h-3.5 text-ok-ink')}Success</span>` : s === 'partial' ? '<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Partial</span>' : '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Failed</span>';
       const selSource = (DB.ui && DB.ui.jobSource) || 'HSBC';
       const sourceOpts = ['HSBC', 'NEW West', 'HDFC', 'Axis', 'ICICI', 'SBI', 'Ledger'].map(s => `<option value="${s}" ${s === selSource ? 'selected' : ''}>${s}</option>`).join('');
       const upFile = DB.lastUploadedFile;
