@@ -440,6 +440,8 @@
         { paymentId: 'PAY-502', customerId: 'CUST-002', bankTxnId: 'BANK-902', totalReceived: 240000, unappliedAmount: 0 },
         { paymentId: 'PAY-503', customerId: null, bankTxnId: 'BANK-903', totalReceived: 50000, unappliedAmount: 50000 },
       ];
+      // Kept as reference/source data only — the "Payment ↔ Invoice allocation" phase now derives
+      // matches live via its rule list (amount + due date) instead of reading this lookup table.
       const paymentAllocations = [
         { paymentId: 'PAY-501', invoiceId: 'INV-101', amount: 100000 },
         { paymentId: 'PAY-502', invoiceId: 'INV-102', amount: 240000 },
@@ -495,6 +497,31 @@
       return rec;
     }
 
+    // The AR reconciliation's 5 fixed phases. Each phase owns its own cascading, addable/deletable
+    // rule list — same Ref/Amount-tolerance/Date-window/Confidence shape as the generic engine's
+    // rules, evaluated first-match-wins in priority order within that phase.
+    const AR_PHASES = [
+      { key: 'bank-match', priority: 1, label: 'Bank ↔ Payment verification', hint: 'Matches bank_statements to payments' },
+      { key: 'allocation', priority: 2, label: 'Payment ↔ Invoice allocation', hint: 'Matches payments to invoices by amount + due date (no lookup table — derived live)' },
+      { key: 'short-pay', priority: 3, label: 'Invoice settlement / short-pay', hint: 'Amount tolerance below which a shortfall is not flagged as a dispute' },
+      { key: 'unapplied', priority: 4, label: 'Unapplied cash', hint: 'Amount tolerance below which leftover cash is not flagged' },
+      { key: 'gl-check', priority: 5, label: 'AR Sub-ledger ↔ GL control', hint: 'Amount tolerance below which a GL variance is not flagged' },
+    ];
+    // Reuses ruleC() from the generic engine — AR rules are the exact same shape, just tagged with a phase.
+    function arRuleC(phase, name, priority, ref, amount, date, confidence) {
+      return Object.assign(ruleC(name, true, priority, ref, amount, date, confidence), { phase });
+    }
+    function buildARRules() {
+      return [
+        arRuleC('bank-match', 'Exact bank reference', 1, 'exact', { mode: 'exact', value: 0 }, { days: 2 }, 99),
+        arRuleC('allocation', 'Exact amount match', 1, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 95),
+        arRuleC('allocation', 'Partial-payment tolerant (±10%)', 2, 'off', { mode: 'pct', value: 10 }, { days: 30 }, 75),
+        arRuleC('short-pay', 'Shortfall tolerance', 1, 'off', { mode: 'abs', value: 100 }, { days: 0 }, 100),
+        arRuleC('unapplied', 'Unapplied cash threshold', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
+        arRuleC('gl-check', 'GL variance tolerance', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
+      ];
+    }
+
     function seed() {
       _sr = 20240720; _uid = 0;
       const recs = [
@@ -506,12 +533,10 @@
         buildRec('inventory', 'Goods Receipt ↔ Invoices', 'Sam Whitlock'),
         buildRec('close', 'AR Subledger ↔ GL', 'Priya Nair'),
       ];
-      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
       recs.push(arRec);
-      recs.forEach(r => {
-        const res = r.type === 'ar-reconciliation' ? arEngine(r) : engine(r);
-        r.lastRun = { at: addDays(todayISO(), -1) + 'T18:20', rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: seedTrend(res.rate) };
-      });
+      // No precomputation — every reconciliation starts unrun. Results only appear once
+      // "Run reconciliation" is pressed; Rules Studio still shows a live simulation preview.
       const acct = (name, institution, kind, currency, balance, status, sync, feed) => ({ id: uid('ac'), name, institution, kind, currency, balance, status, sync, feed });
       const accounts = [
         acct('Operating', 'HDFC Bank', 'checking', 'INR', 6842000000, 'connected', '2h ago', 'Operating Bank ↔ GL Cash'),
@@ -632,6 +657,7 @@
     }
     const recById2 = engine; // alias guard
     function getEngineResult(rec) { return rec.type === 'ar-reconciliation' ? arEngine(rec) : engine(rec); }
+    function logAudit(action, detail) { (DB.audit = DB.audit || []).unshift({ at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), user: DB.user.name, action, detail }); if (DB.audit.length > 60) DB.audit.pop(); }
     function getEntity(id) { return (DB.entities || []).find(e => e.id === id); }
     function icEngine() {
       const t = (DB.icTxns || []).map(x => {
@@ -651,8 +677,24 @@
     //  Phase 2c — Sub-Ledger vs GL Control Total Check (glControlBalances.variance)
     // Every discrepancy is written to a reconciliationExceptions[] log with a type, status, and resolutionNotes,
     // matching the reconciliation_exceptions table in the spec.
+    // Cascading first-match-wins matcher shared by AR phases 1 & 2 — same loop shape as engine(),
+    // reusing evalPair() so a rule's Ref/Amount/Date/Confidence behaves identically everywhere.
+    function cascadeMatch(A, B, rules) {
+      const usedA = new Set(), usedB = new Set(), matches = [];
+      rules.filter(r => r.enabled).slice().sort((x, y) => x.priority - y.priority).forEach(rule => {
+        A.forEach(a => {
+          if (usedA.has(a.id)) return; let best = null, bs = Infinity;
+          B.forEach(b => {
+            if (usedB.has(b.id)) return;
+            if (evalPair(a, b, rule.cond)) { const sc = Math.abs(Math.abs(a.amount) - Math.abs(b.amount)) * 100 + Math.abs(dateDiff(a.date, b.date)); if (sc < bs) { bs = sc; best = b; } }
+          });
+          if (best) { usedA.add(a.id); usedB.add(best.id); matches.push({ aId: a.id, bId: best.id, ruleId: rule.id, ruleName: rule.name, confidence: rule.confidence }); }
+        });
+      });
+      return matches;
+    }
     function arEngine(rec) {
-      if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
+      if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], perRule: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
       const ar = rec.arData;
       const cust = id => ar.customers.find(c => c.customerId === id);
       const invoices = ar.invoices.map(i => ({ ...i })); // working copies so status can be updated by the engine
@@ -663,39 +705,68 @@
       const flagException = (type, relatedId, description, amount) =>
         exceptions.push({ id: 'EXC-' + String(++_exN).padStart(3, '0'), type, relatedId, description, amount, status: 'Open', resolutionNotes: null });
 
-      // ── Phase 2a: Bank-to-Ledger Cash Matching ──
+      const arRules = rec.arRules || [];
+      const rulesFor = k => arRules.filter(r => r.phase === k);
+      // Phases 3–5 are single-record threshold checks, not pairwise matches — they use the
+      // highest-priority enabled rule's Amount tolerance only (Ref/Date don't apply to a solo value).
+      const firstEnabled = k => rulesFor(k).filter(r => r.enabled).sort((a, b) => a.priority - b.priority)[0] || null;
+      const thresholdOf = (rule, base) => {
+        if (!rule) return Infinity; // no enabled rule in this phase → check is off
+        const c = rule.cond.amount;
+        if (c.mode === 'exact') return 0;
+        if (c.mode === 'pct') return Math.round((c.value / 100) * base);
+        return c.value; // abs, already in cents
+      };
+
+      // ── Phase 1: Bank ↔ Payment verification (cascading match) ──
+      const bankRules = rulesFor('bank-match');
+      const bankA = bankStatements.map(bs => ({ id: bs.bankTxnId, reference: bs.bankTxnId, amount: bs.amount, date: bs.transactionDate }));
+      const payB1 = payments.map(p => ({ id: p.paymentId, reference: p.bankTxnId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
+      const bankMatches = bankRules.some(r => r.enabled) ? cascadeMatch(bankA, payB1, bankRules) : [];
+      let bankMatchedCount = 0;
       bankStatements.forEach(bs => {
-        const pay = payments.find(p => p.bankTxnId === bs.bankTxnId);
-        if (pay && pay.customerId) {
-          bs.clearingStatus = 'Reconciled';
-        } else if (pay && !pay.customerId) {
-          bs.clearingStatus = 'Exception';
-          flagException('Unapplied Payment', bs.bankTxnId, `${bs.payerName} sent ${fmtMoney(bs.amount * 100)} with no matching customer/invoice`, bs.amount);
-        } else {
-          bs.clearingStatus = 'Exception';
-          flagException('Timing Difference', bs.bankTxnId, `${fmtMoney(bs.amount * 100)} received from ${bs.payerName} has no recorded payment yet`, bs.amount);
+        const m = bankMatches.find(x => x.aId === bs.bankTxnId);
+        if (!m) {
+          bs.clearingStatus = bankRules.some(r => r.enabled) ? 'Exception' : 'Not checked';
+          if (bankRules.some(r => r.enabled)) flagException('Timing Difference', bs.bankTxnId, `${fmtMoney(bs.amount * 100)} received from ${bs.payerName} has no recorded payment yet`, bs.amount);
+          return;
         }
+        const pay = payments.find(p => p.paymentId === m.bId);
+        if (pay.customerId) { bs.clearingStatus = 'Reconciled'; bankMatchedCount++; }
+        else { bs.clearingStatus = 'Exception'; flagException('Unapplied Payment', bs.bankTxnId, `${bs.payerName} sent ${fmtMoney(bs.amount * 100)} with no matching customer/invoice`, bs.amount); }
       });
 
-      // ── Phase 2b: Invoice-to-Remittance Allocation (Cash Application) ──
+      // ── Phase 2: Payment ↔ Invoice allocation (cascading match — derived live, no lookup table) ──
+      const allocRules = rulesFor('allocation');
+      const payA2 = payments.map(p => ({ id: p.paymentId, reference: p.paymentId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
+      const invB2 = invoices.map(inv => ({ id: inv.invoiceId, reference: inv.invoiceNumber, amount: inv.totalAmount, date: inv.dueDate }));
+      const allocMatches = allocRules.some(r => r.enabled) ? cascadeMatch(payA2, invB2, allocRules) : [];
+
+      // ── Phase 3: Invoice settlement / short-pay ──
+      const shortPayRule = firstEnabled('short-pay');
       const matches = [], shortPays = [], overpays = [], unmatchedInvoices = [];
       const matchedPayIds = new Set();
       invoices.forEach(inv => {
-        const alloc = ar.paymentAllocations.find(pa => pa.invoiceId === inv.invoiceId);
-        const pay = alloc ? payments.find(p => p.paymentId === alloc.paymentId) : null;
-        if (alloc && pay) {
+        const m = allocMatches.find(x => x.bId === inv.invoiceId);
+        const pay = m ? payments.find(p => p.paymentId === m.aId) : null;
+        if (pay) {
           matchedPayIds.add(pay.paymentId);
-          const diff = alloc.amount - inv.totalAmount;
+          const diff = pay.totalReceived - inv.totalAmount;
           if (diff < 0) {
             const shortage = Math.abs(diff);
             inv.status = 'Open'; // partially paid — remains open
-            shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: alloc.amount, shortage, paymentId: pay.paymentId });
             pay.unappliedAmount = 0; // fully applied to this invoice, remainder is a short-pay, not unapplied cash
-            flagException('Disputed Invoice', inv.invoiceId, `${cust(inv.customerId).companyName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage * 100)}`, shortage);
+            const tolerance = thresholdOf(shortPayRule, inv.totalAmount);
+            if (shortage > tolerance) {
+              shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: pay.totalReceived, shortage, paymentId: pay.paymentId });
+              flagException('Disputed Invoice', inv.invoiceId, `${cust(inv.customerId).companyName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage * 100)}`, shortage);
+            } else {
+              matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paymentId: pay.paymentId });
+            }
           } else {
             inv.status = 'Paid';
             pay.unappliedAmount = Math.max(0, diff);
-            if (diff > 0) overpays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: alloc.amount, overage: diff, paymentId: pay.paymentId });
+            if (diff > 0) overpays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: pay.totalReceived, overage: diff, paymentId: pay.paymentId });
             else matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paymentId: pay.paymentId });
           }
         } else {
@@ -703,19 +774,28 @@
         }
       });
 
-      // ── Unapplied cash: payments with leftover / no customer that never got allocated ──
-      const unapplied = payments.filter(p => !matchedPayIds.has(p.paymentId) && p.unappliedAmount > 0)
+      // ── Phase 4: Unapplied cash — payments with leftover / no customer that never got allocated ──
+      const unappliedRule = firstEnabled('unapplied');
+      const unapplied = payments
+        .filter(p => !matchedPayIds.has(p.paymentId) && p.unappliedAmount > thresholdOf(unappliedRule, p.totalReceived))
         .map(p => ({ paymentId: p.paymentId, amount: p.unappliedAmount, customer: p.customerId ? cust(p.customerId).companyName : 'Unknown payer', bankTxnId: p.bankTxnId }));
 
-      // ── Phase 2c: Sub-Ledger vs GL Control Total Check ──
+      // ── Phase 5: AR Sub-Ledger vs GL Control Total Check ──
       // Open-invoice face value, not netted against partial payments — a short-paid invoice still
       // carries its full amount on the sub-ledger until the dispute is resolved and it's marked Paid.
-      const subledgerBalance = invoices.filter(i => i.status !== 'Paid').reduce((s, inv) => s + inv.totalAmount, 0);
-      const glBalance = ar.glControlBalances.glBalance;
-      const variance = glBalance - subledgerBalance;
-      const glMismatch = variance !== 0 ? { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) } : null;
-      if (glMismatch) flagException('GL Mismatch', ar.glControlBalances.account, `Sub-ledger ${fmtMoney(subledgerBalance * 100)} vs GL ${fmtMoney(glBalance * 100)} — unposted adjustment suspected`, glMismatch.variance);
-      const glControlBalances = { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) };
+      const glRule = firstEnabled('gl-check');
+      let glMismatch = null, glControlBalances = null;
+      if (glRule) {
+        const subledgerBalance = invoices.filter(i => i.status !== 'Paid').reduce((s, inv) => s + inv.totalAmount, 0);
+        const glBalance = ar.glControlBalances.glBalance;
+        const variance = glBalance - subledgerBalance;
+        const tolerance = thresholdOf(glRule, glBalance);
+        if (Math.abs(variance) > tolerance) {
+          glMismatch = { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) };
+          flagException('GL Mismatch', ar.glControlBalances.account, `Sub-ledger ${fmtMoney(subledgerBalance * 100)} vs GL ${fmtMoney(glBalance * 100)} — unposted adjustment suspected`, glMismatch.variance);
+        }
+        glControlBalances = { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) };
+      }
 
       // ── Metrics ──
       const breaks = [...unmatchedInvoices, ...shortPays, ...unapplied];
@@ -726,15 +806,17 @@
       const matchedVal = matches.reduce((s, m) => s + m.amount, 0);
       const breakVal = [...unmatchedInvoices.map(i => i.totalAmount), ...shortPays.map(s => s.shortage), ...unapplied.map(u => u.amount)].reduce((s, v) => s + v, 0) + (glMismatch ? glMismatch.variance : 0);
 
-      // Read-only "rule" cards for the Rules Studio tab — these are the fixed phases of the AR
-      // process, not user-editable conditions, but shown the same way so the page stays familiar.
-      const perRule = [
-        { rule: { priority: 1, name: 'Bank ↔ Payment verification', enabled: true, confidence: 100, description: 'bank_txn_id exact match between bank_statements and payments' }, count: bankStatements.filter(b => b.clearingStatus === 'Reconciled').length },
-        { rule: { priority: 2, name: 'Payment ↔ Invoice allocation', enabled: true, confidence: 100, description: 'payment_allocations connect received cash to specific invoices' }, count: ar.paymentAllocations.length },
-        { rule: { priority: 3, name: 'Invoice settlement / short-pay', enabled: true, confidence: 100, description: 'allocated amount < invoice total → Disputed Invoice exception' }, count: shortPays.length },
-        { rule: { priority: 4, name: 'Unapplied cash', enabled: true, confidence: 100, description: 'payment received with no customer or invoice allocation → Unapplied Payment exception' }, count: unapplied.length },
-        { rule: { priority: 5, name: 'AR Sub-ledger ↔ GL control', enabled: true, confidence: 100, description: 'open invoice face value must equal GL control account 1200-AR' }, count: glMismatch ? 1 : 0 },
-      ];
+      // Live per-rule result counts, driving both the Rules Studio cards and the Overview's
+      // "Rule performance" table — reflects rec.arRules, so edits/adds/deletes show up immediately.
+      const countFor = rl => {
+        if (rl.phase === 'bank-match') return bankMatches.filter(m => m.ruleId === rl.id).length;
+        if (rl.phase === 'allocation') return allocMatches.filter(m => m.ruleId === rl.id).length;
+        if (rl.phase === 'short-pay') return shortPayRule && shortPayRule.id === rl.id ? shortPays.length : 0;
+        if (rl.phase === 'unapplied') return unappliedRule && unappliedRule.id === rl.id ? unapplied.length : 0;
+        if (rl.phase === 'gl-check') return glRule && glRule.id === rl.id && glMismatch ? 1 : 0;
+        return 0;
+      };
+      const perRule = arRules.slice().sort((a, b) => a.priority - b.priority).map(rl => ({ rule: rl, count: rl.enabled ? countFor(rl) : 0 }));
 
       return {
         invoices, payments, bankStatements, glControlBalances,
@@ -795,7 +877,7 @@
     }
     function shell(inner) {
       const r = DB.route;
-      const totalBreaks = DB.recs.reduce((s, rc) => s + getEngineResult(rc).breaks.length, 0);
+      const totalBreaks = DB.recs.reduce((s, rc) => s + (rc.lastRun ? getEngineResult(rc).breaks.length : 0), 0);
       return `<div class="flex h-screen overflow-hidden">
     <aside class="w-[236px] flex-none bg-surface border-r border-line flex flex-col">
       <div class="h-[52px] flex items-center gap-2.5 px-4 border-b border-line">
@@ -913,30 +995,46 @@
     // ═══════════════════════════════════════ view: reconciliation ═══════════════════════════════════════
     const RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matches'], ['exceptions', 'Exceptions'], ['sources', 'Sources']];
     const AR_RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matched'], ['exceptions', 'Exceptions']];
+    // Overview / Matches / Exceptions / Sources only render once a reconciliation has actually
+    // been run — Rules Studio stays available pre-run since it's a live simulation, not a result.
+    function reconNotRun(rec, res, tabLabel) {
+      const isAR = rec.type === 'ar-reconciliation';
+      return `<div class="flex-1 flex items-center justify-center p-6">
+        <div class="text-center max-w-sm">
+          <div class="w-12 h-12 rounded-full bg-sunken flex items-center justify-center mx-auto mb-4 text-faint">${icon('play', 'w-5 h-5')}</div>
+          <div class="font-semibold text-[14px] mb-1.5">Not run yet</div>
+          <div class="text-[12.5px] text-muted mb-5">${esc(tabLabel || 'This tab')} will populate once this reconciliation runs${isAR ? ' — bank matching, invoice allocation, and the GL check all execute at that point' : ' against the configured rules'}. Configure rules first in Rules Studio if needed.</div>
+          <button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary mx-auto">${icon('play', 'w-4 h-4')}Run reconciliation</button>
+        </div>
+      </div>`;
+    }
     function viewRecon() {
       const rec = getRec(DB.route.recId); if (!rec) return viewDashboard();
       const isAR = rec.type === 'ar-reconciliation';
+      const hasRun = !!rec.lastRun;
       const tab = DB.route.tab || 'overview';
       const res = getEngineResult(rec);
       const meta = TYPE_META[rec.type];
       const runBtn = `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
-      const lastRun = rec.lastRun ? `<span class="text-[11.5px] text-muted mono">last run ${rec.lastRun.at.replace('T', ' ')}</span>` : '';
+      const lastRun = rec.lastRun ? `<span class="text-[11.5px] text-muted mono">last run ${rec.lastRun.at.replace('T', ' ')}</span>` : `<span class="text-[11.5px] text-faint mono">never run</span>`;
       let body = '';
       const tabs = isAR ? AR_RECON_TABS : RECON_TABS;
-      const exceptionsCount = isAR ? res.exceptions.length : res.breaks.length;
-      if (tab === 'overview') body = isAR ? arReconOverview(rec, res) : reconOverview(rec, res);
+      const exceptionsCount = hasRun ? (isAR ? res.exceptions.length : res.breaks.length) : 0;
+      const tabLabels = { overview: 'Overview', matches: isAR ? 'Matched' : 'Matches', exceptions: 'Exceptions', sources: 'Sources' };
+      if (tab === 'overview') body = hasRun ? (isAR ? arReconOverview(rec, res) : reconOverview(rec, res)) : reconNotRun(rec, res, tabLabels.overview);
       else if (tab === 'rules') body = isAR ? arReconRules(rec, res) : reconRules(rec, res);
-      else if (tab === 'matches') body = isAR ? arReconMatches(rec, res) : reconMatches(rec, res);
-      else if (tab === 'exceptions') body = isAR ? arReconExceptions(rec, res) : reconExceptions(rec, res);
-      else if (tab === 'sources' && !isAR) body = reconSources(rec, res);
+      else if (tab === 'matches') body = hasRun ? (isAR ? arReconMatches(rec, res) : reconMatches(rec, res)) : reconNotRun(rec, res, tabLabels.matches);
+      else if (tab === 'exceptions') body = hasRun ? (isAR ? arReconExceptions(rec, res) : reconExceptions(rec, res)) : reconNotRun(rec, res, tabLabels.exceptions);
+      else if (tab === 'sources' && !isAR) body = hasRun ? reconSources(rec, res) : reconNotRun(rec, res, tabLabels.sources);
       return topbar(esc(rec.name), `${meta.a} <span class="text-faint">↔</span> ${meta.b} · ${rec.cadence}`, `${lastRun}${runBtn}`)
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
       ${tabs.map(([k, l]) => `<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'exceptions' && exceptionsCount ? ` <span class="mono text-[11px] text-warn-ink">${exceptionsCount}</span>` : ''}</button>`).join('')}
-    </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
+    </div><div class="flex-1 overflow-y-auto fade-in flex flex-col">${body}</div>`;
     }
 
     // ═══════════════════════════════════════ views: work queues ═══════════════════════════════════════
     function recStatus(rc, res) {
+      if (!rc.lastRun) return 'Not run yet';
       if (res.breaks.length === 0) return 'Review ready';
       if (res.rate >= 90) return 'In progress';
       return 'Needs resolution';
@@ -946,7 +1044,14 @@
       const mine = all.filter(x => x.rc.owner === DB.user.name);
       const ordered = [...mine, ...all.filter(x => x.rc.owner !== DB.user.name)].slice(0, 6);
       const task = x => {
-        const { rc, res } = x; const action = res.breaks.length ? 'Resolve exceptions' : res.rate < 95 ? 'Prepare reconciliation' : 'Review & submit'; return `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}">
+        const { rc, res } = x;
+        if (!rc.lastRun) return `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}">
+    <td class="px-4 py-3"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${TYPE_META[rc.type].label} · ${rc.cadence}</div></td>
+    <td class="px-3 py-3"><span class="chip">${esc(rc.owner === DB.user.name ? 'Assigned to me' : 'Waiting on ' + rc.owner.split(' ')[0])}</span></td>
+    <td class="px-3 py-3"><div class="font-medium text-muted">Run reconciliation</div><div class="text-[11px] text-faint">Never run</div></td>
+    <td class="px-3 py-3 mono text-[12px] text-faint">—</td>
+    <td class="px-4 py-3 text-right text-[12px] font-medium text-muted">—</td></tr>`;
+        const action = res.breaks.length ? 'Resolve exceptions' : res.rate < 95 ? 'Prepare reconciliation' : 'Review & submit'; return `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}">
     <td class="px-4 py-3"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${TYPE_META[rc.type].label} · ${rc.cadence}</div></td>
     <td class="px-3 py-3"><span class="chip">${esc(rc.owner === DB.user.name ? 'Assigned to me' : 'Waiting on ' + rc.owner.split(' ')[0])}</span></td>
     <td class="px-3 py-3"><div class="font-medium ${res.breaks.length ? 'text-warn-ink' : 'text-ok-ink'}">${action}</div><div class="text-[11px] text-faint">${res.breaks.length ? res.breaks.length + ' open exception' + (res.breaks.length === 1 ? '' : 's') : res.rate.toFixed(1) + '% matched'}</div></td>
@@ -956,11 +1061,11 @@
       return topbar('My work', 'Tasks assigned to you and items waiting for your review', '') + `<div class="flex-1 overflow-y-auto p-6 fade-in">
     <div class="grid grid-cols-3 gap-3 mb-5">${kpi('Due today', mine.length, 'assigned to you')}${kpi('Overdue', all.filter(x => x.res.breaks.length > 3).length, 'need a resolution')}${kpi('Waiting on others', all.filter(x => x.rc.owner !== DB.user.name).length, 'preparer-owned')}</div>
     <div class="card overflow-hidden mb-5"><div class="h-12 px-4 flex items-center border-b border-line"><div><div class="font-semibold text-[13px]">Your task queue</div><div class="text-[11px] text-muted">Filter by assignment, role, or due date</div></div><div class="ml-auto flex gap-2"><button class="btn btn-ghost btn-sm">Assigned to me</button><button class="btn btn-ghost btn-sm">Due this week</button></div></div><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Reconciliation</th><th class="px-3 py-2">Assignment</th><th class="px-3 py-2">Next action</th><th class="px-3 py-2">Exposure</th><th class="px-4 py-2 text-right">Due</th></tr></thead><tbody>${ordered.map(task).join('')}</tbody></table></div>
-    <div class="grid grid-cols-2 gap-5"><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting for your review</div>${all.filter(x => x.res.rate >= 90).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full bg-ok"></span><span class="flex-1 font-medium">${esc(x.rc.name)}</span><span class="mono text-[12px] text-muted">${x.res.rate}%</span></button>`).join('')}</div><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting on others</div>${all.filter(x => x.rc.owner !== DB.user.name).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full ${x.res.breaks.length ? 'bg-warn' : 'bg-ok'}"></span><span class="flex-1"><span class="block font-medium">${esc(x.rc.name)}</span><span class="block text-[11px] text-faint">${esc(x.rc.owner)}</span></span><span class="mono text-[12px] text-muted">${x.res.breaks.length} open</span></button>`).join('')}</div></div></div>`;
+    <div class="grid grid-cols-2 gap-5"><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting for your review</div>${all.filter(x => x.rc.lastRun && x.res.rate >= 90).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full bg-ok"></span><span class="flex-1 font-medium">${esc(x.rc.name)}</span><span class="mono text-[12px] text-muted">${x.res.rate}%</span></button>`).join('') || '<div class="text-[12px] text-faint text-center py-4">Nothing run yet</div>'}</div><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting on others</div>${all.filter(x => x.rc.owner !== DB.user.name).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full ${x.res.breaks.length ? 'bg-warn' : 'bg-ok'}"></span><span class="flex-1"><span class="block font-medium">${esc(x.rc.name)}</span><span class="block text-[11px] text-faint">${esc(x.rc.owner)}</span></span><span class="mono text-[12px] text-muted">${x.res.breaks.length} open</span></button>`).join('')}</div></div></div>`;
     }
     function viewReconciliations() {
       const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
-      return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="flex items-center gap-2 mb-4"><div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input class="field pl-9" placeholder="Search reconciliations"></div><button class="btn btn-ghost">${icon('filter', 'w-4 h-4')}Filters</button><button class="btn btn-ghost">Saved views</button></div><div class="card overflow-hidden"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Name</th><th class="px-3 py-2">Type / entity</th><th class="px-3 py-2">Owner · reviewer</th><th class="px-3 py-2">Status</th><th class="px-3 py-2 text-right">Match rate</th><th class="px-3 py-2 text-right">Open exceptions</th><th class="px-3 py-2 text-right">Unreconciled value</th><th class="px-4 py-2 text-right">Due</th></tr></thead><tbody>${all.map(({ rc, res }) => `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}"><td class="px-4 py-3"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${rc.cadence} · last run ${rc.lastRun.at.slice(0, 10)}</div></td><td class="px-3 py-3"><div>${TYPE_META[rc.type].label}</div><div class="text-[11px] text-faint">Meridian India</div></td><td class="px-3 py-3"><div>${esc(rc.owner)}</div><div class="text-[11px] text-faint">Reviewer · Alex Rivera</div></td><td class="px-3 py-3"><span class="chip ${res.breaks.length ? 'bg-warn-soft text-warn-ink border-warn-soft' : 'bg-ok-soft text-ok-ink border-ok-soft'}">${recStatus(rc, res)}</span></td><td class="px-3 py-3 text-right mono font-semibold ${res.rate >= 95 ? 'text-ok-ink' : 'text-warn-ink'}">${res.rate}%</td><td class="px-3 py-3 text-right mono">${res.breaks.length}</td><td class="px-3 py-3 text-right mono">${fmtMoney(res.breakVal)}</td><td class="px-4 py-3 text-right text-muted">Jul ${20 + ((rc.name.length) % 5)}</td></tr>`).join('')}</tbody></table></div></div>`;
+      return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="flex items-center gap-2 mb-4"><div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input class="field pl-9" placeholder="Search reconciliations"></div><button class="btn btn-ghost">${icon('filter', 'w-4 h-4')}Filters</button><button class="btn btn-ghost">Saved views</button></div><div class="card overflow-hidden"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Name</th><th class="px-3 py-2">Type / entity</th><th class="px-3 py-2">Owner · reviewer</th><th class="px-3 py-2">Status</th><th class="px-3 py-2 text-right">Match rate</th><th class="px-3 py-2 text-right">Open exceptions</th><th class="px-3 py-2 text-right">Unreconciled value</th><th class="px-4 py-2 text-right">Due</th></tr></thead><tbody>${all.map(({ rc, res }) => `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}"><td class="px-4 py-3"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${rc.cadence} · ${rc.lastRun ? 'last run ' + rc.lastRun.at.slice(0, 10) : 'never run'}</div></td><td class="px-3 py-3"><div>${TYPE_META[rc.type].label}</div><div class="text-[11px] text-faint">Meridian India</div></td><td class="px-3 py-3"><div>${esc(rc.owner)}</div><div class="text-[11px] text-faint">Reviewer · Alex Rivera</div></td><td class="px-3 py-3"><span class="chip ${!rc.lastRun ? '' : res.breaks.length ? 'bg-warn-soft text-warn-ink border-warn-soft' : 'bg-ok-soft text-ok-ink border-ok-soft'}">${recStatus(rc, res)}</span></td><td class="px-3 py-3 text-right mono font-semibold ${!rc.lastRun ? 'text-faint' : res.rate >= 95 ? 'text-ok-ink' : 'text-warn-ink'}">${rc.lastRun ? res.rate + '%' : '—'}</td><td class="px-3 py-3 text-right mono ${rc.lastRun ? '' : 'text-faint'}">${rc.lastRun ? res.breaks.length : '—'}</td><td class="px-3 py-3 text-right mono ${rc.lastRun ? '' : 'text-faint'}">${rc.lastRun ? fmtMoney(res.breakVal) : '—'}</td><td class="px-4 py-3 text-right text-muted">Jul ${20 + ((rc.name.length) % 5)}</td></tr>`).join('')}</tbody></table></div></div>`;
     }
     function viewTransactions() {
       const txnStatus = (rc, r) => { const e = getEngineResult(rc); if (r.resolution) return 'resolved'; if (e.matched.some(m => m.aId === r.id || m.bId === r.id)) return 'matched'; if (e.suggested.some(m => m.aId === r.id || m.bId === r.id)) return 'suggested'; return 'break'; };
@@ -1025,19 +1130,71 @@
         </tbody></table></div>
         <div class="card overflow-hidden">
           <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr','w-3.5 h-3.5')}</button></div>
-          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">#</th><th class="px-3 py-2">Rule / calculation</th><th class="px-3 py-2">Logic</th><th class="px-3 py-2 text-right">Results</th><th class="px-3 py-2">Status</th></tr></thead><tbody>
-          ${res.perRule.map(({rule,count})=>`<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 mono text-faint">${rule.priority}</td><td class="px-3 py-2.5 font-medium">${rule.name}</td><td class="px-3 py-2.5 text-muted text-[12px]">${rule.description}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5"><span class="text-ok-ink text-[12px] font-medium">● Active</span></td></tr>`).join('')}
+          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Phase</th><th class="px-3 py-2">Rule</th><th class="px-3 py-2">Conditions</th><th class="px-3 py-2 text-right">Results</th><th class="px-3 py-2">Status</th></tr></thead><tbody>
+          ${res.perRule.map(({rule,count})=>`<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 text-muted text-[12px]">${esc((AR_PHASES.find(p=>p.key===rule.phase)||{}).label||rule.phase)}</td><td class="px-3 py-2.5 font-medium">${esc(rule.name)}</td><td class="px-3 py-2.5">${condChips(rule.cond)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5">${rule.enabled?'<span class="text-ok-ink text-[12px] font-medium">● Active</span>':'<span class="text-faint text-[12px]">○ Off</span>'}</td></tr>`).join('')}
           </tbody></table>
         </div></div>`;
     }
+    // Field(s) unique to each AR rule phase — only 3 of 5 phases have a real tunable number;
+    // the other two (bank match, allocation) are exact-match lookups with nothing to tune.
+    // Same card/editor shape as the generic engine's ruleCard/ruleEditor (Ref/Amount/Date/Confidence),
+    // reused via condChips() for exact visual parity — just scoped to one AR phase's rule list.
+    function arRuleCard(rec, rl, i, total, count) {
+      const editing = DB.ui.editRule === rl.id;
+      return `<div class="card ${rl.enabled ? '' : 'opacity-60'} ${editing ? 'ring-1 ring-accent' : ''}">
+    <div class="flex items-center gap-3 px-3.5 py-3">
+      <div class="flex flex-col text-faint">
+        <button data-act="ar-rule-up" data-id="${rec.id}" data-rule="${rl.id}" class="hover:text-ink ${i === 0 ? 'invisible' : ''}">${icon('up', 'w-3.5 h-3.5')}</button>
+        <button data-act="ar-rule-down" data-id="${rec.id}" data-rule="${rl.id}" class="hover:text-ink ${i === total - 1 ? 'invisible' : ''}">${icon('down', 'w-3.5 h-3.5')}</button></div>
+      <div class="mono text-[12px] text-faint w-4">${rl.priority}</div>
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold text-[13px] flex items-center gap-2">${esc(rl.name)}${count ? `<span class="text-[11px] font-medium text-muted mono">· ${count} matched</span>` : ''}</div>
+        <div class="mt-1.5">${condChips(rl.cond)}</div></div>
+      <div class="flex items-center gap-3">
+        ${confBar(rl.confidence)}
+        <button data-act="edit-rule" data-rule="${rl.id}" class="btn btn-ghost btn-sm">${editing ? 'Done' : 'Edit'}</button>
+        <div class="switch" data-on="${rl.enabled}" data-act="toggle-ar-rule" data-id="${rec.id}" data-rule="${rl.id}"></div></div>
+    </div>
+    ${editing ? arRuleEditor(rec, rl) : ''}</div>`;
+    }
+    function arRuleEditor(rec, rl) {
+      const c = rl.cond;
+      return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-4 gap-4 fade-in">
+    <div><label class="lbl block mb-1.5">Rule name</label><input class="field" value="${esc(rl.name)}" data-arf="name" data-rule="${rl.id}"></div>
+    <div><label class="lbl block mb-1.5">Reference</label><select class="field" data-arf="ref" data-rule="${rl.id}">
+      <option value="exact" ${c.ref === 'exact' ? 'selected' : ''}>Exact match</option>
+      <option value="fuzzy" ${c.ref === 'fuzzy' ? 'selected' : ''}>Fuzzy match</option>
+      <option value="off" ${c.ref === 'off' ? 'selected' : ''}>Ignore</option></select></div>
+    <div><label class="lbl block mb-1.5">Amount tolerance</label>
+      <div class="flex gap-1.5"><select class="field" data-arf="amode" data-rule="${rl.id}" style="flex:1.2">
+        <option value="exact" ${c.amount.mode === 'exact' ? 'selected' : ''}>Exact</option>
+        <option value="pct" ${c.amount.mode === 'pct' ? 'selected' : ''}>Percent ±</option>
+        <option value="abs" ${c.amount.mode === 'abs' ? 'selected' : ''}>Amount ±</option></select>
+        <input class="field ${c.amount.mode === 'exact' ? 'opacity-40 pointer-events-none' : ''}" style="flex:1" type="number" step="0.1" value="${c.amount.mode === 'abs' ? (c.amount.value / 100) : c.amount.value}" data-arf="aval" data-rule="${rl.id}"></div></div>
+    <div><label class="lbl block mb-1.5">Date window (± days)</label><input class="field" type="number" min="0" value="${c.date.days}" data-arf="date" data-rule="${rl.id}"></div>
+    <div class="col-span-4 flex items-center gap-4">
+      <div class="flex items-center gap-3 flex-1"><label class="lbl">Confidence</label>
+        <input type="range" min="50" max="100" value="${rl.confidence}" data-arf="conf" data-rule="${rl.id}" class="flex-1 max-w-[220px]">
+        <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>
+      <button data-act="del-ar-rule" data-id="${rec.id}" data-rule="${rl.id}" class="btn btn-ghost btn-sm text-bad-ink">${icon('trash', 'w-3.5 h-3.5')}Delete rule</button></div></div>`;
+    }
     function arReconRules(rec, res) {
+      const countOf = id => (res.perRule.find(p => p.rule.id === id) || {}).count || 0;
       return `<div class="p-6 fade-in">
-        <div class="flex items-center mb-4"><div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Evaluated as a fixed end-to-end AR control process across the Data Hub datasets — not user-editable like the generic engine's rules.</div></div></div>
-        <div class="space-y-3">${res.perRule.map(({rule,count})=>`<div class="card p-4 flex items-start gap-4">
-          <div class="w-8 h-8 rounded border border-line flex items-center justify-center mono text-faint flex-none">${rule.priority}</div>
-          <div class="flex-1"><div class="font-semibold">${rule.name}</div><div class="text-[12px] text-muted mt-1">${rule.description}</div>
-          <div class="mt-2 flex gap-2"><span class="chip">Active</span><span class="chip">${count} result${count===1?'':'s'}</span></div></div></div>`).join('')}
+        <div class="flex items-center mb-4">
+          <div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Each phase runs its own cascading rule list — add, edit, reorder, or delete rules to see matching change live. This is what the reconciliation runs against.</div></div>
+          <button data-act="reset-ar-rules" data-id="${rec.id}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Reset to defaults</button>
         </div>
+        <div class="space-y-6">${AR_PHASES.map(ph => {
+          const rules = (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority);
+          return `<div>
+            <div class="flex items-center mb-2.5">
+              <div><div class="font-semibold text-[13px]">${ph.priority}. ${esc(ph.label)}</div><div class="text-[11.5px] text-faint">${esc(ph.hint)}</div></div>
+              <button data-act="add-ar-rule" data-id="${rec.id}" data-phase="${ph.key}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add rule</button>
+            </div>
+            <div class="space-y-2.5">${rules.length ? rules.map((rl, i) => arRuleCard(rec, rl, i, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}</div>
+          </div>`;
+        }).join('')}</div>
       </div>`;
     }
     function arReconMatches(rec, res) {
@@ -2065,7 +2222,7 @@
     // ═══════════════════════════════════════ view: period close ═══════════════════════════════════════
     function viewClose() {
       const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
-      const ready = all.filter(x => x.res.breaks.length === 0);
+      const ready = all.filter(x => x.rc.lastRun && x.res.breaks.length === 0);
       const allReady = ready.length === all.length;
       const cashTotal = DB.accounts.filter(a => a.kind !== 'gateway').reduce((s, a) => s + toINR(a), 0);
       const closed = DB.period.status === 'closed';
@@ -2078,6 +2235,12 @@
         <div class="ml-auto text-[12px] ${allReady ? 'text-ok-ink' : 'text-warn-ink'} font-semibold mono">${ready.length}/${all.length} ready</div></div>
       <table class="w-full text-[13px]"><tbody>
         ${all.map(({ rc, res }) => {
+          if (!rc.lastRun) return `<tr class="border-b border-line-soft last:border-0 row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}">
+          <td class="px-4 py-2.5 w-8"><span class="text-faint">${icon('clock', 'w-4 h-4')}</span></td>
+          <td class="px-2 py-2.5"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${TYPE_META[rc.type].label} · ${rc.cadence}</div></td>
+          <td class="px-3 py-2.5"><span class="mono text-faint">—</span></td>
+          <td class="px-3 py-2.5 text-right"><span class="text-[12px] text-muted font-medium">Not run yet</span></td>
+          <td class="px-3 text-faint">${icon('chevR', 'w-4 h-4')}</td></tr>`;
           const ok = res.breaks.length === 0; return `<tr class="border-b border-line-soft last:border-0 row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}">
           <td class="px-4 py-2.5 w-8">${ok ? `<span class="text-ok">${icon('check', 'w-4 h-4')}</span>` : `<span class="text-warn">${icon('alert', 'w-4 h-4')}</span>`}</td>
           <td class="px-2 py-2.5"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${TYPE_META[rc.type].label} · ${rc.cadence}</div></td>
@@ -2289,8 +2452,8 @@
       'new-type': d => { DB.ui.newType = d.t; modalNew(); },
       'create-recon': () => {
         const t = DB.ui.newType || 'payments'; const name = ($('#new-name').value.trim()) || `${TYPE_META[t].a} ↔ ${TYPE_META[t].b}`;
-        const rec = buildRec(t, name, DB.user.name); const res = engine(rec); rec.lastRun = { at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: seedTrend(res.rate) };
-        DB.recs.push(rec); closeModal(); DB.route = { name: 'recon', recId: rec.id, tab: 'rules' }; render(); toast('Reconciliation created');
+        const rec = buildRec(t, name, DB.user.name);
+        DB.recs.push(rec); closeModal(); DB.route = { name: 'recon', recId: rec.id, tab: 'rules' }; render(); toast('Reconciliation created — configure rules, then run it');
       },
       'close-modal': (d, el, e) => { if (el.dataset.backdrop && e.target !== el) return; closeModal(); },
       'run-recon': d => {
@@ -2314,6 +2477,15 @@
       'del-rule': d => { const rec = getRec(d.id); rec.rules = rec.rules.filter(r => r.id !== d.rule); reprioritize(rec); DB.ui.editRule = null; render(); toast('Rule deleted', 'warn'); },
       'rule-up': d => moveRule(d.id, d.rule, -1), 'rule-down': d => moveRule(d.id, d.rule, 1),
       'revert-rules': d => { const rec = getRec(d.id); DB = JSON.parse(localStorage.getItem(STORE_KEY)); render(); },
+      'toggle-ar-rule': d => { const rec = getRec(d.id); const rl = (rec.arRules || []).find(x => x.id === d.rule); if (rl) rl.enabled = !rl.enabled; render(); },
+      'add-ar-rule': d => {
+        const rec = getRec(d.id); const inPhase = (rec.arRules || []).filter(r => r.phase === d.phase); const maxP = Math.max(0, ...inPhase.map(r => r.priority));
+        const rl = arRuleC(d.phase, 'New rule', maxP + 1, 'off', { mode: 'exact', value: 0 }, { days: 2 }, 85);
+        rec.arRules = rec.arRules || []; rec.arRules.push(rl); DB.ui.editRule = rl.id; render();
+      },
+      'del-ar-rule': d => { const rec = getRec(d.id); const rl = (rec.arRules || []).find(r => r.id === d.rule); if (!rl) return; rec.arRules = rec.arRules.filter(r => r.id !== d.rule); reprioritizeARPhase(rec, rl.phase); DB.ui.editRule = null; render(); toast('Rule deleted', 'warn'); },
+      'ar-rule-up': d => moveARRule(d.id, d.rule, -1), 'ar-rule-down': d => moveARRule(d.id, d.rule, 1),
+      'reset-ar-rules': d => { const rec = getRec(d.id); rec.arRules = buildARRules(); DB.ui.editRule = null; render(); toast('AR rules reset to defaults', 'ok'); },
       'mfilter': d => { DB.filters.m = d.f; render(); },
       'accept-sugg': d => { const rec = getRec(d.id); rec.confirmed.push({ aId: d.a, bId: d.b }); const a = rec.records.find(x => x.id === d.a); logAudit('Confirmed match', `${rec.name} · ${a ? esc(a.counterparty) : ''} ${a ? fmtMoney(a.amount) : ''}`); render(); toast('Match confirmed'); },
       'reject-sugg': d => { const rec = getRec(d.id); (rec.rejected = rec.rejected || []).push({ aId: d.a, bId: d.b }); render(); toast('Suggestion dismissed', 'warn'); },
@@ -2349,6 +2521,13 @@
       const i = sorted.findIndex(r => r.id === ruleId); const j = i + dir; if (j < 0 || j >= sorted.length) return;
       const p = sorted[i].priority; sorted[i].priority = sorted[j].priority; sorted[j].priority = p; render();
     }
+    function reprioritizeARPhase(rec, phase) { (rec.arRules || []).filter(r => r.phase === phase).sort((a, b) => a.priority - b.priority).forEach((r, i) => r.priority = i + 1); }
+    function moveARRule(recId, ruleId, dir) {
+      const rec = getRec(recId); const rl = (rec.arRules || []).find(r => r.id === ruleId); if (!rl) return;
+      const sorted = rec.arRules.filter(r => r.phase === rl.phase).sort((a, b) => a.priority - b.priority);
+      const i = sorted.findIndex(r => r.id === ruleId); const j = i + dir; if (j < 0 || j >= sorted.length) return;
+      const p = sorted[i].priority; sorted[i].priority = sorted[j].priority; sorted[j].priority = p; render();
+    }
 
     // ═══════════════════════════════════════ listeners ═══════════════════════════════════════
     document.addEventListener('click', e => {
@@ -2365,6 +2544,7 @@
       if (t.dataset.txnSearch) { DB.filters.txnQ = t.value; clearTimeout(txnSearchTimer); txnSearchTimer = setTimeout(render, 250); return; }
       if (t.dataset.thresh) { const rec = getRec(t.dataset.thresh); rec.threshold = +t.value; render(); return; }
       if (t.dataset.rf) { applyRuleField(t); return; }
+      if (t.dataset.arf) { applyARRuleField(t); return; }
     });
     document.addEventListener('change', e => {
       const t = e.target;
@@ -2383,6 +2563,7 @@
       if (t.dataset.txnStatus) { DB.filters.txnStatus = t.value; render(); return; }
       if (t.matches && t.matches('select[data-act="dih-select"]')) { DB.ui = DB.ui || {}; DB.ui.dihRecId = t.value; render(); return; }
       if (t.dataset.rf && (t.dataset.rf === 'ref' || t.dataset.rf === 'amode')) { applyRuleField(t); }
+      if (t.dataset.arf && (t.dataset.arf === 'ref' || t.dataset.arf === 'amode')) { applyARRuleField(t); }
     });
     document.addEventListener('keydown', e => {
       const t = e.target;
@@ -2415,6 +2596,19 @@
       const active = document.activeElement; const key = active && active.dataset ? active.dataset.rf : null; const rid = active && active.dataset ? active.dataset.rule : null; const pos = active ? active.selectionStart : null;
       render();
       if (key) { const ne = document.querySelector(`[data-rf="${key}"][data-rule="${rid}"]`); if (ne) { ne.focus(); try { if (pos != null && ne.setSelectionRange) ne.setSelectionRange(pos, pos); } catch (_) { } } }
+    }
+    function applyARRuleField(t) {
+      const rec = getRec(DB.route.recId); if (!rec) return; const rl = (rec.arRules || []).find(r => r.id === t.dataset.rule); if (!rl) return;
+      const f = t.dataset.arf, v = t.value;
+      if (f === 'name') rl.name = v;
+      else if (f === 'ref') rl.cond.ref = v;
+      else if (f === 'amode') { rl.cond.amount.mode = v; if (v === 'exact') rl.cond.amount.value = 0; }
+      else if (f === 'aval') { rl.cond.amount.value = rl.cond.amount.mode === 'abs' ? Math.round((+v || 0) * 100) : (+v || 0); }
+      else if (f === 'date') rl.cond.date.days = clamp(+v || 0, 0, 60);
+      else if (f === 'conf') rl.confidence = clamp(+v || 50, 50, 100);
+      const active = document.activeElement; const key = active && active.dataset ? active.dataset.arf : null; const rid = active && active.dataset ? active.dataset.rule : null; const pos = active ? active.selectionStart : null;
+      render();
+      if (key) { const ne = document.querySelector(`[data-arf="${key}"][data-rule="${rid}"]`); if (ne) { ne.focus(); try { if (pos != null && ne.setSelectionRange) ne.setSelectionRange(pos, pos); } catch (_) { } } }
     }
 
     render();
