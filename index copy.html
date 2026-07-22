@@ -349,6 +349,7 @@
       ap: { label: 'Accounts Payable', icon: 'doc', a: 'Vendor bills', b: 'Sent payments', aKind: 'AP ledger', bKind: 'Bank' },
       payroll: { label: 'Payroll', icon: 'bank', a: 'Bank withdrawals', b: 'Payroll register', aKind: 'Bank', bKind: 'HR system' },
       inventory: { label: 'Inventory', icon: 'db', a: 'Goods receipts', b: 'Vendor invoices', aKind: 'Warehouse', bKind: 'AP ledger' },
+      'ar-reconciliation': { label: 'AR Reconciliation', icon: 'card', a: 'Bank deposits', b: 'Invoices', aKind: 'Bank', bKind: 'AR ledger' },
     };
 
     function ruleC(name, enabled, priority, ref, amount, date, confidence) { return { id: uid('rl'), name, enabled, priority, cond: { ref, amount, date }, confidence }; }
@@ -403,7 +404,7 @@
       payroll: () => [ruleC('Batch reference', true, 1, 'exact', { mode: 'exact', value: 0 }, { days: 2 }, 98), ruleC('Amount + pay date', true, 2, 'off', { mode: 'exact', value: 0 }, { days: 1 }, 90), ruleC('Net-of-fee tolerant (±$1)', true, 3, 'off', { mode: 'abs', value: 100 }, { days: 3 }, 75)],
       inventory: () => [ruleC('GRN ↔ invoice number', true, 1, 'exact', { mode: 'exact', value: 0 }, { days: 7 }, 99), ruleC('Amount + receipt date', true, 2, 'off', { mode: 'exact', value: 0 }, { days: 5 }, 86), ruleC('Qty variance tolerant (±3%)', true, 3, 'fuzzy', { mode: 'pct', value: 3 }, { days: 7 }, 70)],
     };
-    const CADENCE = { payments: 'Daily', bank: 'Daily', close: 'Monthly', ar: 'Daily', ap: 'Weekly', payroll: 'Per pay run', inventory: 'Monthly' };
+    const CADENCE = { payments: 'Daily', bank: 'Daily', close: 'Monthly', ar: 'Daily', ap: 'Weekly', payroll: 'Per pay run', inventory: 'Monthly', 'ar-reconciliation': 'Daily' };
     function genThreeway() {
       const v = _VEND.slice(0, 6); const out = []; for (let i = 0; i < 5; i++) {
         const amt = Math.round((20000 + rnd() * 180000) * 100);
@@ -414,6 +415,38 @@
     function genTax() {
       const j = [['Federal income', 1], ['State — CA', 1], ['FICA / Medicare', 1], ['State — NY', 0]];
       return j.map(([jur, ok]) => { const accrued = Math.round((300000 + rnd() * 900000) * 100); const paid = ok ? accrued : Math.round(accrued * 0.88); return { jur, accrued, paid, status: accrued === paid ? 'ok' : 'variance' }; });
+    }
+    // Sample dataset mirrors the AR reconciliation schema: customers, invoices, bank_statements,
+    // payments + payment_allocations, and gl_control_balances. Amounts stored in cents (fmtMoney /100).
+    function genARData() {
+      const customers = [
+        { customerId: 'CUST-001', companyName: 'Acme Corp', paymentTerms: 'Net 30', creditLimit: 5000000, currencyCode: 'USD' },
+        { customerId: 'CUST-002', companyName: 'Globex Inc', paymentTerms: 'Net 15', creditLimit: 2500000, currencyCode: 'USD' },
+        { customerId: 'CUST-003', companyName: 'Stark Industries', paymentTerms: 'Net 30', creditLimit: 10000000, currencyCode: 'USD' },
+      ];
+      const invoices = [
+        { invoiceId: 'INV-101', customerId: 'CUST-001', invoiceNumber: 'INV-2026-001', issueDate: '2026-06-01', dueDate: '2026-07-01', totalAmount: 100000, status: 'Open' },
+        { invoiceId: 'INV-102', customerId: 'CUST-002', invoiceNumber: 'INV-2026-002', issueDate: '2026-06-10', dueDate: '2026-06-25', totalAmount: 250000, status: 'Open' },
+        { invoiceId: 'INV-103', customerId: 'CUST-003', invoiceNumber: 'INV-2026-003', issueDate: '2026-06-15', dueDate: '2026-07-15', totalAmount: 500000, status: 'Open' },
+      ];
+      const bankStatements = [
+        { bankTxnId: 'BANK-901', transactionDate: '2026-06-20', bankReferenceNumber: 'ACH-883920', payerName: 'Acme Corp', amount: 100000, clearingStatus: 'Pending' },
+        { bankTxnId: 'BANK-902', transactionDate: '2026-06-22', bankReferenceNumber: 'WIRE-112233', payerName: 'Globex Inc', amount: 240000, clearingStatus: 'Pending' },
+        { bankTxnId: 'BANK-903', transactionDate: '2026-06-28', bankReferenceNumber: 'ACH-994821', payerName: 'Mystery Payer', amount: 50000, clearingStatus: 'Pending' },
+      ];
+      // Payment 1: perfect match. Payment 2: short-pay (2,400 applied vs 2,500 invoice). Payment 3: unapplied cash, no customer.
+      const payments = [
+        { paymentId: 'PAY-501', customerId: 'CUST-001', bankTxnId: 'BANK-901', totalReceived: 100000, unappliedAmount: 0 },
+        { paymentId: 'PAY-502', customerId: 'CUST-002', bankTxnId: 'BANK-902', totalReceived: 240000, unappliedAmount: 0 },
+        { paymentId: 'PAY-503', customerId: null, bankTxnId: 'BANK-903', totalReceived: 50000, unappliedAmount: 50000 },
+      ];
+      const paymentAllocations = [
+        { paymentId: 'PAY-501', invoiceId: 'INV-101', amount: 100000 },
+        { paymentId: 'PAY-502', invoiceId: 'INV-102', amount: 240000 },
+      ];
+      // GL control account 1200 reports 7,800 vs the 7,500 the sub-ledger will calculate — $300 variance by design.
+      const glControlBalances = { account: '1200-AR', glBalance: 780000 };
+      return { customers, invoices, bankStatements, payments, paymentAllocations, glControlBalances };
     }
 
     function genRecords(recId, type) {
@@ -473,7 +506,12 @@
         buildRec('inventory', 'Goods Receipt ↔ Invoices', 'Sam Whitlock'),
         buildRec('close', 'AR Subledger ↔ GL', 'Priya Nair'),
       ];
-      recs.forEach(r => { const res = engine(r); r.lastRun = { at: addDays(todayISO(), -1) + 'T18:20', rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: seedTrend(res.rate) }; });
+      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      recs.push(arRec);
+      recs.forEach(r => {
+        const res = r.type === 'ar-reconciliation' ? arEngine(r) : engine(r);
+        r.lastRun = { at: addDays(todayISO(), -1) + 'T18:20', rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: seedTrend(res.rate) };
+      });
       const acct = (name, institution, kind, currency, balance, status, sync, feed) => ({ id: uid('ac'), name, institution, kind, currency, balance, status, sync, feed });
       const accounts = [
         acct('Operating', 'HDFC Bank', 'checking', 'INR', 6842000000, 'connected', '2h ago', 'Operating Bank ↔ GL Cash'),
@@ -593,6 +631,7 @@
       };
     }
     const recById2 = engine; // alias guard
+    function getEngineResult(rec) { return rec.type === 'ar-reconciliation' ? arEngine(rec) : engine(rec); }
     function getEntity(id) { return (DB.entities || []).find(e => e.id === id); }
     function icEngine() {
       const t = (DB.icTxns || []).map(x => {
@@ -605,6 +644,105 @@
       const elimValue = by('eliminated').reduce((s, x) => s + x.arINR, 0);
       const readyValue = by('matched').reduce((s, x) => s + x.arINR, 0);
       return { t, matched: by('matched'), eliminated: by('eliminated'), mismatch: by('mismatch'), unmatched: by('unmatched'), elimValue, readyValue };
+    }
+    // Runs the three-phase AR reconciliation described in the workflow:
+    //  Phase 2a — Bank-to-Ledger Cash Matching (bank_statements ↔ payments, sets clearingStatus)
+    //  Phase 2b — Invoice-to-Remittance Allocation (payment_allocations applied to invoices, sets invoice.status + payment.unappliedAmount)
+    //  Phase 2c — Sub-Ledger vs GL Control Total Check (glControlBalances.variance)
+    // Every discrepancy is written to a reconciliationExceptions[] log with a type, status, and resolutionNotes,
+    // matching the reconciliation_exceptions table in the spec.
+    function arEngine(rec) {
+      if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
+      const ar = rec.arData;
+      const cust = id => ar.customers.find(c => c.customerId === id);
+      const invoices = ar.invoices.map(i => ({ ...i })); // working copies so status can be updated by the engine
+      const payments = ar.payments.map(p => ({ ...p }));
+      const bankStatements = ar.bankStatements.map(b => ({ ...b }));
+      const exceptions = [];
+      let _exN = 0;
+      const flagException = (type, relatedId, description, amount) =>
+        exceptions.push({ id: 'EXC-' + String(++_exN).padStart(3, '0'), type, relatedId, description, amount, status: 'Open', resolutionNotes: null });
+
+      // ── Phase 2a: Bank-to-Ledger Cash Matching ──
+      bankStatements.forEach(bs => {
+        const pay = payments.find(p => p.bankTxnId === bs.bankTxnId);
+        if (pay && pay.customerId) {
+          bs.clearingStatus = 'Reconciled';
+        } else if (pay && !pay.customerId) {
+          bs.clearingStatus = 'Exception';
+          flagException('Unapplied Payment', bs.bankTxnId, `${bs.payerName} sent ${fmtMoney(bs.amount * 100)} with no matching customer/invoice`, bs.amount);
+        } else {
+          bs.clearingStatus = 'Exception';
+          flagException('Timing Difference', bs.bankTxnId, `${fmtMoney(bs.amount * 100)} received from ${bs.payerName} has no recorded payment yet`, bs.amount);
+        }
+      });
+
+      // ── Phase 2b: Invoice-to-Remittance Allocation (Cash Application) ──
+      const matches = [], shortPays = [], overpays = [], unmatchedInvoices = [];
+      const matchedPayIds = new Set();
+      invoices.forEach(inv => {
+        const alloc = ar.paymentAllocations.find(pa => pa.invoiceId === inv.invoiceId);
+        const pay = alloc ? payments.find(p => p.paymentId === alloc.paymentId) : null;
+        if (alloc && pay) {
+          matchedPayIds.add(pay.paymentId);
+          const diff = alloc.amount - inv.totalAmount;
+          if (diff < 0) {
+            const shortage = Math.abs(diff);
+            inv.status = 'Open'; // partially paid — remains open
+            shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: alloc.amount, shortage, paymentId: pay.paymentId });
+            pay.unappliedAmount = 0; // fully applied to this invoice, remainder is a short-pay, not unapplied cash
+            flagException('Disputed Invoice', inv.invoiceId, `${cust(inv.customerId).companyName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage * 100)}`, shortage);
+          } else {
+            inv.status = 'Paid';
+            pay.unappliedAmount = Math.max(0, diff);
+            if (diff > 0) overpays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: alloc.amount, overage: diff, paymentId: pay.paymentId });
+            else matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paymentId: pay.paymentId });
+          }
+        } else {
+          unmatchedInvoices.push(inv);
+        }
+      });
+
+      // ── Unapplied cash: payments with leftover / no customer that never got allocated ──
+      const unapplied = payments.filter(p => !matchedPayIds.has(p.paymentId) && p.unappliedAmount > 0)
+        .map(p => ({ paymentId: p.paymentId, amount: p.unappliedAmount, customer: p.customerId ? cust(p.customerId).companyName : 'Unknown payer', bankTxnId: p.bankTxnId }));
+
+      // ── Phase 2c: Sub-Ledger vs GL Control Total Check ──
+      // Open-invoice face value, not netted against partial payments — a short-paid invoice still
+      // carries its full amount on the sub-ledger until the dispute is resolved and it's marked Paid.
+      const subledgerBalance = invoices.filter(i => i.status !== 'Paid').reduce((s, inv) => s + inv.totalAmount, 0);
+      const glBalance = ar.glControlBalances.glBalance;
+      const variance = glBalance - subledgerBalance;
+      const glMismatch = variance !== 0 ? { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) } : null;
+      if (glMismatch) flagException('GL Mismatch', ar.glControlBalances.account, `Sub-ledger ${fmtMoney(subledgerBalance * 100)} vs GL ${fmtMoney(glBalance * 100)} — unposted adjustment suspected`, glMismatch.variance);
+      const glControlBalances = { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) };
+
+      // ── Metrics ──
+      const breaks = [...unmatchedInvoices, ...shortPays, ...unapplied];
+      if (glMismatch) breaks.push({ type: 'gl-mismatch', ...glMismatch });
+      const matched = [...matches, ...overpays];
+      const total = invoices.length + payments.length;
+      const rate = total ? +(matched.length / total * 100).toFixed(1) : 0;
+      const matchedVal = matches.reduce((s, m) => s + m.amount, 0);
+      const breakVal = [...unmatchedInvoices.map(i => i.totalAmount), ...shortPays.map(s => s.shortage), ...unapplied.map(u => u.amount)].reduce((s, v) => s + v, 0) + (glMismatch ? glMismatch.variance : 0);
+
+      // Read-only "rule" cards for the Rules Studio tab — these are the fixed phases of the AR
+      // process, not user-editable conditions, but shown the same way so the page stays familiar.
+      const perRule = [
+        { rule: { priority: 1, name: 'Bank ↔ Payment verification', enabled: true, confidence: 100, description: 'bank_txn_id exact match between bank_statements and payments' }, count: bankStatements.filter(b => b.clearingStatus === 'Reconciled').length },
+        { rule: { priority: 2, name: 'Payment ↔ Invoice allocation', enabled: true, confidence: 100, description: 'payment_allocations connect received cash to specific invoices' }, count: ar.paymentAllocations.length },
+        { rule: { priority: 3, name: 'Invoice settlement / short-pay', enabled: true, confidence: 100, description: 'allocated amount < invoice total → Disputed Invoice exception' }, count: shortPays.length },
+        { rule: { priority: 4, name: 'Unapplied cash', enabled: true, confidence: 100, description: 'payment received with no customer or invoice allocation → Unapplied Payment exception' }, count: unapplied.length },
+        { rule: { priority: 5, name: 'AR Sub-ledger ↔ GL control', enabled: true, confidence: 100, description: 'open invoice face value must equal GL control account 1200-AR' }, count: glMismatch ? 1 : 0 },
+      ];
+
+      return {
+        invoices, payments, bankStatements, glControlBalances,
+        matches, shortPays, overpays, unapplied, unmatchedInvoices, glMismatch, exceptions, perRule,
+        rate, matchedVal, breakVal, breaks, matched,
+        A: invoices.map((inv, i) => ({ id: `inv-${i}`, side: 'A', amount: inv.totalAmount, date: inv.issueDate, reference: inv.invoiceNumber, counterparty: cust(inv.customerId).companyName, memo: `Invoice ${inv.invoiceNumber}`, kind: 'invoice' })),
+        B: payments.map((p, i) => ({ id: `pay-${i}`, side: 'B', amount: p.totalReceived, date: 'N/A', reference: p.paymentId, counterparty: p.customerId ? cust(p.customerId).companyName : 'Unknown', memo: p.paymentId, kind: 'payment' }))
+      };
     }
 
     // ═══════════════════════════════════════ small components ═══════════════════════════════════════
@@ -657,7 +795,7 @@
     }
     function shell(inner) {
       const r = DB.route;
-      const totalBreaks = DB.recs.reduce((s, rc) => s + engine(rc).breaks.length, 0);
+      const totalBreaks = DB.recs.reduce((s, rc) => s + getEngineResult(rc).breaks.length, 0);
       return `<div class="flex h-screen overflow-hidden">
     <aside class="w-[236px] flex-none bg-surface border-r border-line flex flex-col">
       <div class="h-[52px] flex items-center gap-2.5 px-4 border-b border-line">
@@ -696,7 +834,7 @@
     }
     function toINR(a) { return a.currency === 'USD' ? Math.round(a.balance * 83.2) : a.currency === 'EUR' ? Math.round(a.balance * 90.1) : a.currency === 'GBP' ? Math.round(a.balance * 105.3) : a.currency === 'SGD' ? Math.round(a.balance * 61.8) : a.balance; }
     function viewDashboard() {
-      const all = DB.recs.map(rc => ({ rc, res: engine(rc) }));
+      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
       const totBreaks = all.reduce((s, x) => s + x.res.breaks.length, 0);
       const totVal = all.reduce((s, x) => s + x.res.breakVal, 0);
       const avgRate = +(all.reduce((s, x) => s + x.res.rate, 0) / all.length).toFixed(1);
@@ -774,22 +912,26 @@
 
     // ═══════════════════════════════════════ view: reconciliation ═══════════════════════════════════════
     const RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matches'], ['exceptions', 'Exceptions'], ['sources', 'Sources']];
+    const AR_RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matched'], ['exceptions', 'Exceptions']];
     function viewRecon() {
       const rec = getRec(DB.route.recId); if (!rec) return viewDashboard();
+      const isAR = rec.type === 'ar-reconciliation';
       const tab = DB.route.tab || 'overview';
-      const res = engine(rec);
+      const res = getEngineResult(rec);
       const meta = TYPE_META[rec.type];
       const runBtn = `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
       const lastRun = rec.lastRun ? `<span class="text-[11.5px] text-muted mono">last run ${rec.lastRun.at.replace('T', ' ')}</span>` : '';
       let body = '';
-      if (tab === 'overview') body = reconOverview(rec, res);
-      else if (tab === 'rules') body = reconRules(rec, res);
-      else if (tab === 'matches') body = reconMatches(rec, res);
-      else if (tab === 'exceptions') body = reconExceptions(rec, res);
-      else if (tab === 'sources') body = reconSources(rec, res);
+      const tabs = isAR ? AR_RECON_TABS : RECON_TABS;
+      const exceptionsCount = isAR ? res.exceptions.length : res.breaks.length;
+      if (tab === 'overview') body = isAR ? arReconOverview(rec, res) : reconOverview(rec, res);
+      else if (tab === 'rules') body = isAR ? arReconRules(rec, res) : reconRules(rec, res);
+      else if (tab === 'matches') body = isAR ? arReconMatches(rec, res) : reconMatches(rec, res);
+      else if (tab === 'exceptions') body = isAR ? arReconExceptions(rec, res) : reconExceptions(rec, res);
+      else if (tab === 'sources' && !isAR) body = reconSources(rec, res);
       return topbar(esc(rec.name), `${meta.a} <span class="text-faint">↔</span> ${meta.b} · ${rec.cadence}`, `${lastRun}${runBtn}`)
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
-      ${RECON_TABS.map(([k, l]) => `<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'exceptions' && res.breaks.length ? ` <span class="mono text-[11px] text-warn-ink">${res.breaks.length}</span>` : ''}</button>`).join('')}
+      ${tabs.map(([k, l]) => `<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'exceptions' && exceptionsCount ? ` <span class="mono text-[11px] text-warn-ink">${exceptionsCount}</span>` : ''}</button>`).join('')}
     </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
     }
 
@@ -800,7 +942,7 @@
       return 'Needs resolution';
     }
     function viewMyWork() {
-      const all = DB.recs.map(rc => ({ rc, res: engine(rc) }));
+      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
       const mine = all.filter(x => x.rc.owner === DB.user.name);
       const ordered = [...mine, ...all.filter(x => x.rc.owner !== DB.user.name)].slice(0, 6);
       const task = x => {
@@ -817,11 +959,11 @@
     <div class="grid grid-cols-2 gap-5"><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting for your review</div>${all.filter(x => x.res.rate >= 90).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full bg-ok"></span><span class="flex-1 font-medium">${esc(x.rc.name)}</span><span class="mono text-[12px] text-muted">${x.res.rate}%</span></button>`).join('')}</div><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting on others</div>${all.filter(x => x.rc.owner !== DB.user.name).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full ${x.res.breaks.length ? 'bg-warn' : 'bg-ok'}"></span><span class="flex-1"><span class="block font-medium">${esc(x.rc.name)}</span><span class="block text-[11px] text-faint">${esc(x.rc.owner)}</span></span><span class="mono text-[12px] text-muted">${x.res.breaks.length} open</span></button>`).join('')}</div></div></div>`;
     }
     function viewReconciliations() {
-      const all = DB.recs.map(rc => ({ rc, res: engine(rc) }));
+      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
       return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="flex items-center gap-2 mb-4"><div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input class="field pl-9" placeholder="Search reconciliations"></div><button class="btn btn-ghost">${icon('filter', 'w-4 h-4')}Filters</button><button class="btn btn-ghost">Saved views</button></div><div class="card overflow-hidden"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Name</th><th class="px-3 py-2">Type / entity</th><th class="px-3 py-2">Owner · reviewer</th><th class="px-3 py-2">Status</th><th class="px-3 py-2 text-right">Match rate</th><th class="px-3 py-2 text-right">Open exceptions</th><th class="px-3 py-2 text-right">Unreconciled value</th><th class="px-4 py-2 text-right">Due</th></tr></thead><tbody>${all.map(({ rc, res }) => `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}"><td class="px-4 py-3"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${rc.cadence} · last run ${rc.lastRun.at.slice(0, 10)}</div></td><td class="px-3 py-3"><div>${TYPE_META[rc.type].label}</div><div class="text-[11px] text-faint">Meridian India</div></td><td class="px-3 py-3"><div>${esc(rc.owner)}</div><div class="text-[11px] text-faint">Reviewer · Alex Rivera</div></td><td class="px-3 py-3"><span class="chip ${res.breaks.length ? 'bg-warn-soft text-warn-ink border-warn-soft' : 'bg-ok-soft text-ok-ink border-ok-soft'}">${recStatus(rc, res)}</span></td><td class="px-3 py-3 text-right mono font-semibold ${res.rate >= 95 ? 'text-ok-ink' : 'text-warn-ink'}">${res.rate}%</td><td class="px-3 py-3 text-right mono">${res.breaks.length}</td><td class="px-3 py-3 text-right mono">${fmtMoney(res.breakVal)}</td><td class="px-4 py-3 text-right text-muted">Jul ${20 + ((rc.name.length) % 5)}</td></tr>`).join('')}</tbody></table></div></div>`;
     }
     function viewTransactions() {
-      const txnStatus = (rc, r) => { const e = engine(rc); if (r.resolution) return 'resolved'; if (e.matched.some(m => m.aId === r.id || m.bId === r.id)) return 'matched'; if (e.suggested.some(m => m.aId === r.id || m.bId === r.id)) return 'suggested'; return 'break'; };
+      const txnStatus = (rc, r) => { const e = getEngineResult(rc); if (r.resolution) return 'resolved'; if (e.matched.some(m => m.aId === r.id || m.bId === r.id)) return 'matched'; if (e.suggested.some(m => m.aId === r.id || m.bId === r.id)) return 'suggested'; return 'break'; };
       const q = (DB.filters.txnQ || '').toLowerCase(), filter = DB.filters.txnStatus || 'all';
       const rows = DB.recs.flatMap(rc => rc.records.map(r => ({ rc, r, status: txnStatus(rc, r) }))).filter(x => filter === 'all' || x.status === filter).filter(x => !q || [x.r.counterparty, x.r.memo, x.r.reference, fmtMoney(x.r.amount, x.r.currency), x.rc.name].join(' ').toLowerCase().includes(q)).slice(0, 100);
       return topbar('Transactions', 'Forensic search across normalized source records', '') + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="flex items-center gap-2 mb-2"><div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input data-txn-search class="field pl-9" value="${esc(DB.filters.txnQ || '')}" placeholder="Search reference, counterparty, amount, or reconciliation"></div><select data-txn-status class="field w-[170px]"><option value="all">All statuses</option><option value="matched" ${filter === 'matched' ? 'selected' : ''}>Matched</option><option value="suggested" ${filter === 'suggested' ? 'selected' : ''}>Suggested</option><option value="break" ${filter === 'break' ? 'selected' : ''}>Exception</option><option value="resolved" ${filter === 'resolved' ? 'selected' : ''}>Resolved</option></select></div><div class="text-[12px] text-muted mb-4">${rows.length} transaction${rows.length === 1 ? '' : 's'} shown · click a row to inspect source, matching, and activity history</div><div class="card overflow-hidden"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Transaction</th><th class="px-3 py-2">Source</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Reconciliation</th><th class="px-3 py-2">Status</th><th class="px-4 py-2 text-right">Amount</th></tr></thead><tbody>${rows.length ? rows.map(({ rc, r, status }) => `<tr data-act="open-transaction" data-rec="${rc.id}" data-record="${r.id}" class="border-b border-line-soft row-hover cursor-pointer"><td class="px-4 py-2.5"><div class="font-medium">${esc(r.counterparty)}</div><div class="text-[11px] text-faint">${esc(r.memo)}</div></td><td class="px-3 py-2.5"><span class="chip">${r.side === 'A' ? TYPE_META[rc.type].aKind : TYPE_META[rc.type].bKind}</span></td><td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(r.reference || '—')}</td><td class="px-3 py-2.5 text-muted">${esc(rc.name)}</td><td class="px-3 py-2.5">${statusPill(status)}</td><td class="px-4 py-2.5 text-right mono font-semibold">${fmtMoney(r.amount, r.currency)}</td></tr>`).join('') : `<tr><td colspan="6" class="px-4 py-12 text-center text-muted">No transactions match the current search and status filter.</td></tr>`}</tbody></table></div></div>`;
@@ -853,6 +995,76 @@
       }
       return '';
     }
+    // ═══════════════════════════════════════ AR Reconciliation views ═══════════════════════════════════════
+    function arReconOverview(rec, res) {
+      const ar = rec.arData;
+      const kpi_ = (label, value, sub) => `<div class="card p-4"><div class="lbl">${label}</div><div class="mono text-[24px] font-semibold mt-1.5 leading-none">${value}</div><div class="text-[11.5px] text-muted mt-1.5">${sub||''}</div></div>`;
+      const matchRate = (res.matched.length / (res.invoices.length + res.payments.length) * 100).toFixed(1);
+      return `<div class="p-6 fade-in">
+        <div class="grid grid-cols-4 gap-3 mb-5">
+          ${kpi_('Total invoices', res.invoices.length, fmtMoney(res.invoices.reduce((s,i)=>s+i.totalAmount,0)*100)+' billed')}
+          ${kpi_('Matched', res.matches.length, `${matchRate}% reconciled`)}
+          ${kpi_('Open exceptions', res.exceptions.length, `${res.exceptions.filter(e=>e.status==='Open').length} unresolved`)}
+          ${kpi_('Unapplied cash', res.unapplied.length, fmtMoney(res.unapplied.reduce((s,u)=>s+u.amount,0)*100))}
+        </div>
+        ${res.glMismatch ? `<div class="card bg-warn-soft border border-warn-soft mb-5 p-4"><div class="flex items-start gap-3">
+          <span class="text-warn text-[20px] leading-none mt-0.5">${icon('alert','w-5 h-5')}</span>
+          <div class="flex-1"><div class="font-semibold text-[13px]">GL control account ${esc(res.glMismatch.account)} mismatch</div>
+          <div class="text-[12px] text-warn-ink mt-1">Sub-ledger ${fmtMoney(res.glMismatch.subledgerBalance*100)} vs GL ${fmtMoney(res.glMismatch.glBalance*100)} = ${fmtMoney(res.glMismatch.variance*100)} variance</div></div></div></div>` : ''}
+        <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Invoice status summary</div></div>
+        <table class="w-full text-[13px]"><tbody>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Fully matched (Paid)</td><td class="px-3 py-2.5">${res.matches.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.matches.reduce((s,m)=>s+m.amount,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Over-payments</td><td class="px-3 py-2.5">${res.overpays.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.overpays.reduce((s,o)=>s+o.overage,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Short-payments</td><td class="px-3 py-2.5">${res.shortPays.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.shortPays.reduce((s,p)=>s+p.shortage,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s,i)=>s+i.totalAmount,0)*100)}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
+          <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s,u)=>s+u.amount,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
+        </tbody></table></div>
+        <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Phase 2a · bank_statements.clearing_status</div></div>
+        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
+        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount*100)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus==='Reconciled'?statusPill('matched'):statusPill('break')}</td></tr>`).join('')}
+        </tbody></table></div>
+        <div class="card overflow-hidden">
+          <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr','w-3.5 h-3.5')}</button></div>
+          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">#</th><th class="px-3 py-2">Rule / calculation</th><th class="px-3 py-2">Logic</th><th class="px-3 py-2 text-right">Results</th><th class="px-3 py-2">Status</th></tr></thead><tbody>
+          ${res.perRule.map(({rule,count})=>`<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 mono text-faint">${rule.priority}</td><td class="px-3 py-2.5 font-medium">${rule.name}</td><td class="px-3 py-2.5 text-muted text-[12px]">${rule.description}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5"><span class="text-ok-ink text-[12px] font-medium">● Active</span></td></tr>`).join('')}
+          </tbody></table>
+        </div></div>`;
+    }
+    function arReconRules(rec, res) {
+      return `<div class="p-6 fade-in">
+        <div class="flex items-center mb-4"><div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Evaluated as a fixed end-to-end AR control process across the Data Hub datasets — not user-editable like the generic engine's rules.</div></div></div>
+        <div class="space-y-3">${res.perRule.map(({rule,count})=>`<div class="card p-4 flex items-start gap-4">
+          <div class="w-8 h-8 rounded border border-line flex items-center justify-center mono text-faint flex-none">${rule.priority}</div>
+          <div class="flex-1"><div class="font-semibold">${rule.name}</div><div class="text-[12px] text-muted mt-1">${rule.description}</div>
+          <div class="mt-2 flex gap-2"><span class="chip">Active</span><span class="chip">${count} result${count===1?'':'s'}</span></div></div></div>`).join('')}
+        </div>
+      </div>`;
+    }
+    function arReconMatches(rec, res) {
+      return `<div class="p-6 fade-in"><div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Matched invoices & payments (${res.matches.length + res.overpays.length})</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
+      ${[...res.matches, ...res.overpays].map(m => {
+        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount*100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage?` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage*100)}</span>`:''}</td></tr>`;
+      }).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+      </tbody></table></div></div>`;
+    }
+    function arReconExceptions(rec, res) {
+      const typeBadge = t => {
+        const m = { 'Timing Difference': 'bg-sunken text-muted', 'Unapplied Payment': 'bg-warn-soft text-warn-ink', 'Disputed Invoice': 'bg-bad-soft text-bad-ink', 'GL Mismatch': 'bg-bad-soft text-bad-ink' };
+        return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${m[t]||'bg-sunken text-muted'}">${t}</span>`;
+      };
+      return `<div class="p-6 fade-in">
+      <div class="card overflow-hidden mb-4"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Reconciliation exceptions (${res.exceptions.length})</div><div class="ml-auto text-[11.5px] text-muted">Phase 3 · reconciliation_exceptions log</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Exception ID</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Related record</th><th class="px-3 py-2">Description</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
+      ${res.exceptions.length ? res.exceptions.map(e => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium mono text-[12px]">${e.id}</td><td class="px-3 py-2.5">${typeBadge(e.type)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${e.relatedId}</td><td class="px-3 py-2.5 text-ink-soft">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono font-semibold text-bad-ink">${fmtMoney(e.amount*100)}</td><td class="px-4 py-2.5 text-right">${e.status==='Resolved'?statusPill('resolved'):statusPill('break')}</td></tr>`).join('') : `<tr><td colspan="6" class="px-4 py-8 text-center text-muted">No open exceptions — everything reconciled.</td></tr>`}
+      </tbody></table></div>
+      ${res.unmatchedInvoices.length ? `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Open invoices awaiting payment (${res.unmatchedInvoices.length})</div><div class="ml-auto text-[11.5px] text-muted">Not logged as an exception — simply not yet paid</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Due date</th><th class="px-3 py-2 text-right">Amount</th></tr></thead><tbody>
+      ${res.unmatchedInvoices.map(ui => {const c=rec.arData.customers.find(x=>x.customerId===ui.customerId);return `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${ui.invoiceNumber}</td><td class="px-3 py-2.5">${esc(c.companyName)}</td><td class="px-3 py-2.5 text-muted">${fmtDate(ui.dueDate)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(ui.totalAmount*100)}</td></tr>`;}).join('')}
+      </tbody></table></div>` : ''}
+      </div>`;
+    }
+
     function reconOverview(rec, res) {
       const auto = res.matches.length ? Math.round(res.matched.length / res.matches.length * 100) : 0;
       return `<div class="p-6 grid grid-cols-3 gap-5">
@@ -1121,7 +1333,7 @@
 
     // ═══════════════════════════════════════ view: global exceptions ═══════════════════════════════════════
     function viewExceptions() {
-      const all = DB.recs.map(rc => ({ rc, res: engine(rc) })).filter(x => x.res.breaks.length);
+      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) })).filter(x => x.res.breaks.length);
       const tot = all.reduce((s, x) => s + x.res.breaks.length, 0);
       const val = all.reduce((s, x) => s + x.res.breakVal, 0);
       return topbar('Exceptions', `${tot} open breaks across all reconciliations`, '')
@@ -1163,7 +1375,7 @@
     <div class="text-[15px] font-bold mb-1">New reconciliation</div>
     <div class="text-[12.5px] text-muted mb-4">Pick a template — sources and a starter rule set come pre-configured.</div>
     <div class="grid grid-cols-3 gap-2.5 mb-5">
-      ${Object.entries(TYPE_META).map(([k, m]) => `<button data-act="new-type" data-t="${k}" class="card p-3 text-left transition ${t === k ? 'ring-1 ring-accent border-accent' : ''}">
+      ${Object.entries(TYPE_META).filter(([k]) => k !== 'ar-reconciliation').map(([k, m]) => `<button data-act="new-type" data-t="${k}" class="card p-3 text-left transition ${t === k ? 'ring-1 ring-accent border-accent' : ''}">
         <div class="w-8 h-8 rounded-md ${t === k ? 'bg-accent text-white' : 'bg-sunken text-muted'} flex items-center justify-center mb-2">${icon(m.icon, 'w-4 h-4')}</div>
         <div class="font-semibold text-[12.5px]">${m.label}</div><div class="text-[11px] text-faint mt-0.5">${m.a} ↔ ${m.b}</div></button>`).join('')}
     </div>
@@ -1199,7 +1411,7 @@
       return openModal(`<div class="w-[580px]"><div class="text-[15px] font-bold">${title}</div><div class="text-[12.5px] text-muted mt-1">${help}</div>${context}<div class="grid grid-cols-2 gap-3 mb-3"><div><label class="lbl block mb-1.5">Posting account</label><input id="resolution-account" class="field" value="${account}"></div><div><label class="lbl block mb-1.5">Accounting period</label><input class="field" value="${esc(DB.period.label)}" disabled></div></div><div class="grid grid-cols-2 gap-3 mb-3"><div><label class="lbl block mb-1.5">Amount</label><input class="field mono" value="${amount}" disabled></div><div><label class="lbl block mb-1.5">${isJournal ? 'Entry type' : 'Write-off reason'}</label><select id="resolution-reason" class="field">${isJournal ? '<option>Adjusting journal</option><option>Accrual correction</option><option>FX revaluation</option>' : '<option>Below materiality threshold</option><option>Unrecoverable balance</option><option>Approved customer concession</option>'}</select></div></div><label class="lbl block mb-1.5">Supporting rationale</label><textarea id="resolution-note" class="field h-20 resize-none mb-5" placeholder="Add the business reason and evidence reference."></textarea><div class="flex items-center gap-2 text-[11.5px] text-muted mb-5">${icon('clock', 'w-4 h-4 text-warn')} ${isJournal ? 'Routes to reviewer before ERP posting.' : 'Routes for approval under the write-off policy.'}</div><div class="flex justify-end gap-2"><button data-act="close-modal" class="btn btn-ghost">Cancel</button><button data-act="save-resolution" data-mode="${mode}" data-id="${rec.id}" data-rec-item="${r.id}" class="btn btn-primary">${icon('check', 'w-4 h-4')}${action}</button></div></div>`);
     }
     function modalTransaction(rec, r) {
-      const res = engine(rec); const match = res.matches.find(m => m.aId === r.id || m.bId === r.id); const other = match ? rec.records.find(x => x.id === (match.aId === r.id ? match.bId : match.aId)) : null;
+      const res = getEngineResult(rec); const match = res.matches.find(m => m.aId === r.id || m.bId === r.id); const other = match ? rec.records.find(x => x.id === (match.aId === r.id ? match.bId : match.aId)) : null;
       const status = r.resolution ? 'resolved' : match ? (match.confidence >= rec.threshold ? 'matched' : 'suggested') : 'break';
       openModal(`<div class="w-[620px]"><div class="flex items-start gap-3"><div class="flex-1"><div class="text-[15px] font-bold">Transaction detail</div><div class="text-[12.5px] text-muted mt-1">Canonical record, source lineage, and reconciliation outcome</div></div>${statusPill(status)}</div><div class="grid grid-cols-2 gap-x-6 gap-y-3 py-5 text-[12.5px]"><div><div class="lbl mb-1">Counterparty</div><div class="font-medium">${esc(r.counterparty)}</div></div><div><div class="lbl mb-1">Amount</div><div class="mono font-semibold">${fmtMoney(r.amount, r.currency)}</div></div><div><div class="lbl mb-1">Transaction date</div><div>${fmtDate(r.date)}</div></div><div><div class="lbl mb-1">Reference</div><div class="mono">${esc(r.reference || '—')}</div></div><div><div class="lbl mb-1">Source</div><div>${r.side === 'A' ? TYPE_META[rec.type].a : TYPE_META[rec.type].b}</div></div><div><div class="lbl mb-1">Canonical ID</div><div class="mono text-[11px]">${esc(r.id)}</div></div></div><div class="card p-3.5 mb-4"><div class="lbl mb-1.5">Reconciliation</div><div class="font-medium">${esc(rec.name)}</div>${match ? `<div class="text-[12px] text-muted mt-1">${match.confidence >= rec.threshold ? 'Matched' : 'Suggested'} with ${esc(other?.counterparty || 'counterpart')} by <span class="font-medium">${esc(match.ruleName)}</span> · ${match.confidence}% confidence</div>` : r.resolutionDetail ? `<div class="text-[12px] text-muted mt-1">${r.resolution === 'journal' ? 'Journal proposal' : 'Write-off request'} · ${esc(r.resolutionDetail.status)} · ${esc(r.resolutionDetail.account)}</div>` : `<div class="text-[12px] text-warn-ink mt-1">Open exception · ${esc(breakReason(rec, r))}</div>`}</div><div class="card p-3.5 mb-5"><div class="lbl mb-1.5">Raw source fields retained</div><div class="grid grid-cols-2 gap-1.5 mono text-[11.5px] text-muted"><span>external_id: ${esc(r.reference || r.id)}</span><span>source_side: ${r.side}</span><span>description: ${esc(r.memo)}</span><span>currency: ${esc(r.currency)}</span></div></div><div class="flex justify-end gap-2"><button data-act="close-modal" class="btn btn-ghost">Close</button><button data-act="open-recon" data-id="${rec.id}" class="btn btn-primary">Open reconciliation</button></div></div>`);
     }
@@ -1378,12 +1590,13 @@
       ];
     }
     function buildStaging() {
+      const seed = { jobId: 'seed', sourceLabel: 'Sample seed data' };
       return [
-        { id: uid('stg'), txnId: 'TXN-9001', date: '2026-06-06', reference: 'REF-77112', counterparty: 'Globex Corp Wire', description: 'Globex Corp Wire transfer', amount: 4250.5, currency: 'USD', status: 'mapped' },
-        { id: uid('stg'), txnId: 'TXN-9002', date: '2026-06-12', reference: 'REF-77234', counterparty: 'Initech LLC', description: 'Initech LLC service fee', amount: 890.0, currency: 'USD', status: 'mapped' },
-        { id: uid('stg'), txnId: 'TXN-9003', date: '2026-06-16', reference: 'REF-77389', counterparty: 'Acme Corporation', description: 'Acme Equipment order', amount: 3195.0, currency: 'USD', status: 'mapped' },
-        { id: uid('stg'), txnId: 'TXN-9004', date: '2026-06-21', reference: 'REF-77401', counterparty: 'Wayne Ent. Invoice 006', description: 'Wayne Ent. Invoice 006', amount: 5200.0, currency: 'USD', status: 'mapped' },
-        { id: uid('stg'), txnId: 'TXN-9005', date: '2026-06-23', reference: 'REF-77520', counterparty: 'Globex Corp', description: 'Globex Corp monthly payout', amount: 1150.0, currency: 'USD', status: 'mapped' },
+        { id: uid('stg'), txnId: 'TXN-9001', date: '2026-06-06', reference: 'REF-77112', counterparty: 'Globex Corp Wire', description: 'Globex Corp Wire transfer', amount: 4250.5, currency: 'USD', status: 'mapped', ...seed },
+        { id: uid('stg'), txnId: 'TXN-9002', date: '2026-06-12', reference: 'REF-77234', counterparty: 'Initech LLC', description: 'Initech LLC service fee', amount: 890.0, currency: 'USD', status: 'mapped', ...seed },
+        { id: uid('stg'), txnId: 'TXN-9003', date: '2026-06-16', reference: 'REF-77389', counterparty: 'Acme Corporation', description: 'Acme Equipment order', amount: 3195.0, currency: 'USD', status: 'mapped', ...seed },
+        { id: uid('stg'), txnId: 'TXN-9004', date: '2026-06-21', reference: 'REF-77401', counterparty: 'Wayne Ent. Invoice 006', description: 'Wayne Ent. Invoice 006', amount: 5200.0, currency: 'USD', status: 'mapped', ...seed },
+        { id: uid('stg'), txnId: 'TXN-9005', date: '2026-06-23', reference: 'REF-77520', counterparty: 'Globex Corp', description: 'Globex Corp monthly payout', amount: 1150.0, currency: 'USD', status: 'mapped', ...seed },
       ];
     }
     function buildMappings() {
@@ -1397,7 +1610,7 @@
       ];
     }
     function dihInit() { DB.jobs = DB.jobs || buildJobs(); DB.staging = DB.staging || buildStaging(); DB.mappings = DB.mappings || buildMappings(); }
-    function populateMappingsFromHeaders(headers, fileName, csvRows) {
+    function populateMappingsFromHeaders(headers, fileName, csvRows, jobId, sourceLabel) {
       if (!headers || !headers.length) return;
       DB.uploadedHeaders = headers;
       if (fileName) DB.lastUploadedCsvName = fileName;
@@ -1416,8 +1629,10 @@
         const curIdx = getIdx('currency') >= 0 ? getIdx('currency') : getIdx('cur');
         const payerIdx = getIdx('payer_name') >= 0 ? getIdx('payer_name') : (getIdx('payer') >= 0 ? getIdx('payer') : (getIdx('name') >= 0 ? getIdx('name') : getIdx('party')));
         const refIdx = getIdx('bank_reference') >= 0 ? getIdx('bank_reference') : getIdx('ref');
+        const fJobId = jobId || uid('job');
+        const fLabel = sourceLabel || fileName || 'Uploaded file';
 
-        DB.staging = csvRows.filter(r => Array.isArray(r) && r.length > 0).slice(0, 100).map((row, idx) => {
+        const newRows = csvRows.filter(r => Array.isArray(r) && r.length > 0).slice(0, 100).map((row, idx) => {
           const txnId = txnIdx >= 0 && row[txnIdx] ? String(row[txnIdx]) : `TXN-${9001 + idx}`;
           let dateVal = dateIdx >= 0 && row[dateIdx] ? String(row[dateIdx]) : todayISO();
           if (dateVal && dateVal.includes('/')) {
@@ -1437,11 +1652,30 @@
             description: `${counterparty} transfer`,
             amount,
             currency,
-            status: 'mapped'
+            status: 'mapped',
+            jobId: fJobId,
+            sourceLabel: fLabel
           };
         });
+        // Append this upload's rows to staging — earlier uploads stay visible via the file dropdown in Data Explorer.
+        DB.staging = (DB.staging || []).concat(newRows);
       }
       save();
+    }
+    // Mock rows for non-CSV formats (XLSX/OFX/QIF/…) so every upload — not just CSV — shows up in Data Explorer.
+    function mockStagingRows(jobId, sourceLabel, count) {
+      const cos = ['Globex Corp', 'Initech LLC', 'Acme Corporation', 'Wayne Ent.', 'Umbrella Inc', 'Stark Industries', 'Soylent Corp'];
+      const out = [];
+      for (let i = 0; i < count; i++) {
+        const co = cos[i % cos.length];
+        out.push({
+          id: uid('stg'), txnId: `TXN-${9100 + i}`, date: addDays(todayISO(), -Math.floor(rnd() * 25)),
+          reference: `REF-${78000 + Math.floor(rnd() * 2000)}`, counterparty: co, description: `${co} transfer`,
+          amount: Math.round((100 + rnd() * 9000) * 100) / 100, currency: 'USD', status: 'staged',
+          jobId, sourceLabel
+        });
+      }
+      return out;
     }
     function ingestJob(file) {
       if (!file) return;
@@ -1449,7 +1683,8 @@
       DB.jobs = DB.jobs || [];
       const selSource = ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'AXIS Bank Statement';
       const sourceName = `${selSource} · ${file.name}`;
-      
+      const jobId = uid('job');
+
       // Update state synchronously so green box and checkmarks render IMMEDIATELY (0ms latency)
       DB.lastUploadedFile = {
         name: file.name,
@@ -1463,7 +1698,7 @@
       const mk = rows => {
         if (DB.lastUploadedFile) DB.lastUploadedFile.rows = rows;
         DB.jobs.unshift({
-          id: uid('job'),
+          id: jobId,
           source: sourceName,
           kind: 'manual',
           format: (ext || 'file').toUpperCase(),
@@ -1472,6 +1707,7 @@
           errors: 0,
           at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
         });
+        DB.filters = DB.filters || {}; DB.filters.stgJobId = jobId; DB.filters.stgPage = 1;
         logAudit('Ingestion job', `${sourceName} · ${rows} rows`);
         save();
         render();
@@ -1485,7 +1721,7 @@
             const parsed = parseCSV(String(rd.result || ''));
             const headers = parsed.headers || [];
             const rows = parsed.rows || [];
-            populateMappingsFromHeaders(headers, file.name, rows);
+            populateMappingsFromHeaders(headers, file.name, rows, jobId, sourceName);
             mk(rows.length);
           } catch (err) {
             console.error('CSV Parse error:', err);
@@ -1495,7 +1731,9 @@
         rd.onerror = () => mk(1);
         rd.readAsText(file);
       } else {
-        mk(Math.round(50 + Math.random() * 400));
+        const rowCount = Math.round(50 + Math.random() * 400);
+        DB.staging = (DB.staging || []).concat(mockStagingRows(jobId, sourceName, Math.min(rowCount, 100)));
+        mk(rowCount);
       }
     }
     function modalInsertRow() {
@@ -1610,8 +1848,20 @@
     }
     function dihData() {
       const q = (DB.filters.stgQ || '').toLowerCase(); const st = DB.filters.stgStatus || 'all';
+      const jobFilter = DB.filters.stgJobId || 'all';
       const sort = DB.filters.stgSort || { field: 'txnId', dir: 'asc' };
-      let rows = (DB.staging || []).filter(r => {
+      const staging = DB.staging || [];
+      // Distinct uploaded files (in upload order, most recent first) driving the file picker below.
+      const seenFiles = new Set();
+      const files = [];
+      staging.forEach(r => {
+        const id = r.jobId || 'seed';
+        if (seenFiles.has(id)) return;
+        seenFiles.add(id);
+        files.push({ id, label: r.sourceLabel || 'Sample seed data', count: staging.filter(x => (x.jobId || 'seed') === id).length });
+      });
+      let rows = staging.filter(r => {
+        if (jobFilter !== 'all' && (r.jobId || 'seed') !== jobFilter) return false;
         if (st !== 'all' && r.status !== st) return false;
         if (!q) return true;
         return [r.txnId, r.date, r.counterparty, r.description, r.reference, String(r.amount), r.currency].join(' ').toLowerCase().includes(q);
@@ -1658,10 +1908,11 @@
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
         <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ || '')}" placeholder="Query staged rows — Transaction ID, counterparty, reference, amount"></div>
+      <select data-stg-job class="field w-[220px]"><option value="all">All files (${staging.length})</option>${files.map(f => `<option value="${f.id}" ${jobFilter === f.id ? 'selected' : ''}>${esc(f.label)} (${f.count})</option>`).join('')}</select>
       <select data-stg-status class="field w-[150px]"><option value="all">All statuses</option><option value="staged" ${st === 'staged' ? 'selected' : ''}>Staged</option><option value="mapped" ${st === 'mapped' ? 'selected' : ''}>Mapped</option><option value="error" ${st === 'error' ? 'selected' : ''}>Error</option></select>
       <button data-act="stg-insert" class="btn btn-primary btn-sm ml-auto">${icon('plus', 'w-3.5 h-3.5')}Insert row</button>
     </div>
-    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · ${totalRows} rows staged · 10 rows per page</div>
+    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · ${totalRows} rows${jobFilter !== 'all' ? ` from ${esc((files.find(f => f.id === jobFilter) || {}).label || 'selected file')}` : ' staged across ' + files.length + ' file' + (files.length === 1 ? '' : 's')} · 10 rows per page</div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
       ${th('txnId', 'Transaction ID')}
       ${th('date', 'Transaction date')}
@@ -1686,13 +1937,55 @@
   </div>`;
     }
 
+    function dihARPreview(rc, res, picker) {
+      return `<div class="p-6">
+        <div class="card p-4 mb-4 flex items-center gap-4">
+          <div class="flex-1">
+            <div class="lbl mb-1.5">Reconciliation</div>
+            ${picker}
+          </div>
+          <div class="text-[12px] text-muted max-w-lg">Runs bank-to-ledger cash matching, invoice-to-remittance allocation, and a sub-ledger vs. GL control check.</div>
+          <button data-act="open-recon" data-id="${rc.id}" class="btn btn-primary">${icon('play','w-4 h-4')}Open reconciliation</button>
+        </div>
+
+        <div class="grid grid-cols-4 gap-3 mb-4">
+          ${kpi('Matched', res.matches.length + res.overpays.length, `${res.rate.toFixed(1)}% of invoices + payments`)}
+          ${kpi('Short-pays', res.shortPays.length, fmtMoney(res.shortPays.reduce((s,p)=>s+p.shortage,0)*100) + ' underpaid')}
+          ${kpi('Exceptions', res.exceptions.length, fmtMoney(res.breakVal*100) + ' at risk')}
+          ${kpi('GL variance', res.glMismatch ? fmtMoney(res.glMismatch.variance*100) : '₹0.00', res.glMismatch ? esc(res.glMismatch.account) + ' mismatch' : 'sub-ledger = GL')}
+        </div>
+
+        <div class="card overflow-hidden mb-4">
+          <div class="flex items-center px-4 h-11 border-b border-line">
+            <div><div class="font-semibold text-[13px]">Invoice ↔ payment matching</div><div class="text-[11px] text-faint">Customer + amount matching via payment_allocations</div></div>
+          </div>
+          <table class="w-full text-[13px]">
+            <thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2 text-right">Result</th></tr></thead>
+            <tbody>
+              ${[...res.matches, ...res.overpays].slice(0,5).map(m => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(m.amount*100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card overflow-hidden">
+          <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Open exceptions</div><div class="ml-auto text-[11.5px] text-muted">Continue to the full reconciliation for resolution</div></div>
+          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Type</th><th class="px-3 py-2">Description</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Status</th><th></th></tr></thead><tbody>
+            ${res.exceptions.slice(0,6).map(e => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${e.type}</td><td class="px-3 py-2.5 text-muted">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono text-bad-ink">${fmtMoney(e.amount*100)}</td><td class="px-3 py-2.5">${statusPill('break')}</td><td class="px-4 py-2.5 text-right"><button data-act="open-recon" data-id="${rc.id}" class="btn btn-sm btn-ghost">Review</button></td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No open exceptions.</td></tr>`}
+          </tbody></table>
+        </div>
+      </div>`;
+    }
     function dihReconciliation() {
       const rows = DB.recs.map(rc => {
-        const res = engine(rc);
+        const res = getEngineResult(rc);
         return { rc, res };
       });
-      const selected = rows[0];
+      const selected = rows.find(x => x.rc.id === DB.ui.dihRecId) || rows[0];
       const rc = selected.rc, res = selected.res;
+      const picker = `<select data-act="dih-select" class="field max-w-md">
+              ${rows.map(({rc:x}) => `<option value="${x.id}" ${x.id===rc.id?'selected':''}>${esc(x.name)}</option>`).join('')}
+            </select>`;
+      if (rc.type === 'ar-reconciliation') return dihARPreview(rc, res, picker);
       const recRow = (m, status) => {
         const a = rc.records.find(x => x.id === m.aId), b = rc.records.find(x => x.id === m.bId);
         return `<tr class="border-b border-line-soft row-hover">
@@ -1716,9 +2009,7 @@
         <div class="card p-4 mb-4 flex items-center gap-4">
           <div class="flex-1">
             <div class="lbl mb-1.5">Reconciliation</div>
-            <select class="field max-w-md" onchange="void(0)">
-              ${rows.map(({rc:x}) => `<option ${x.id===rc.id?'selected':''}>${esc(x.name)}</option>`).join('')}
-            </select>
+            ${picker}
           </div>
           <div class="text-[12px] text-muted max-w-lg">Step 2 consumes the normalized Side A + Side B datasets produced in Step 1 and applies hierarchical matching rules.</div>
           <button data-act="open-recon" data-id="${rc.id}" class="btn btn-primary">${icon('play','w-4 h-4')}Open reconciliation</button>
@@ -1773,7 +2064,7 @@
 
     // ═══════════════════════════════════════ view: period close ═══════════════════════════════════════
     function viewClose() {
-      const all = DB.recs.map(rc => ({ rc, res: engine(rc) }));
+      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
       const ready = all.filter(x => x.res.breaks.length === 0);
       const allReady = ready.length === all.length;
       const cashTotal = DB.accounts.filter(a => a.kind !== 'gateway').reduce((s, a) => s + toINR(a), 0);
@@ -1969,11 +2260,12 @@
         ['GL-9004', '2026-06-21', 'REF-77401', 'Wayne Ent. Invoice 006', 'GL Posting - Revenue Clearing', '5200.00', 'USD'],
         ['GL-9005', '2026-06-23', 'REF-77520', 'Globex Corp', 'GL Posting - Operating Cash', '1150.00', 'USD']
       ];
-      populateMappingsFromHeaders(headers, 'ledger_statement_sample.csv', rows);
+      const jobId = uid('job'); const sourceName = 'Ledger · ledger_statement_sample.csv';
+      populateMappingsFromHeaders(headers, 'ledger_statement_sample.csv', rows, jobId, sourceName);
       DB.jobs = DB.jobs || [];
       DB.jobs.unshift({
-        id: uid('job'),
-        source: 'Ledger · ledger_statement_sample.csv',
+        id: jobId,
+        source: sourceName,
         kind: 'manual',
         format: 'CSV',
         rows: 5,
@@ -1981,7 +2273,8 @@
         errors: 0,
         at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
       });
-      logAudit('Ingestion job', 'Ledger · ledger_statement_sample.csv · 5 rows');
+      DB.filters = DB.filters || {}; DB.filters.stgJobId = jobId; DB.filters.stgPage = 1;
+      logAudit('Ingestion job', sourceName + ' · 5 rows');
       save();
       render();
       toast('ledger_statement_sample.csv loaded successfully (Ledger · 5 rows)', 'ok');
@@ -2001,7 +2294,7 @@
       },
       'close-modal': (d, el, e) => { if (el.dataset.backdrop && e.target !== el) return; closeModal(); },
       'run-recon': d => {
-        const rec = getRec(d.id); const res = engine(rec); const prev = rec.lastRun ? rec.lastRun.history : seedTrend(res.rate);
+        const rec = getRec(d.id); const res = getEngineResult(rec); const prev = rec.lastRun ? rec.lastRun.history : seedTrend(res.rate);
         rec.lastRun = { at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: [...prev.slice(-11), res.rate] };
         logAudit('Ran reconciliation', `${rec.name} · ${res.rate.toFixed(1)}% matched, ${res.breaks.length} breaks`);
         render(); toast(`Run complete · ${res.rate.toFixed(1)}% matched`);
@@ -2043,7 +2336,7 @@
       'stg-page': d => { DB.filters.stgPage = +d.page; render(); },
       'stg-sort': d => { const s = DB.filters.stgSort || { field: 'date', dir: 'desc' }; DB.filters.stgSort = (s.field === d.field) ? { field: d.field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field: d.field, dir: 'asc' }; DB.filters.stgPage = 1; render(); },
       'stg-insert': () => modalInsertRow(),
-      'stg-add': () => { const r = { id: uid('stg'), date: $('#ins-date').value || todayISO(), description: ($('#ins-desc').value || '(untitled)'), reference: ($('#ins-ref').value || ''), amount: +($('#ins-amt').value || 0), currency: $('#ins-cur').value || 'INR', status: 'staged' }; DB.staging = DB.staging || []; DB.staging.unshift(r); logAudit('Inserted staging row', `${r.description} ${fmtMoney(r.amount * 100, r.currency)}`); save(); closeModal(); render(); toast('Row inserted to staging'); },
+      'stg-add': () => { const r = { id: uid('stg'), date: $('#ins-date').value || todayISO(), description: ($('#ins-desc').value || '(untitled)'), reference: ($('#ins-ref').value || ''), amount: +($('#ins-amt').value || 0), currency: $('#ins-cur').value || 'INR', status: 'staged', jobId: 'manual', sourceLabel: 'Manually added' }; DB.staging = DB.staging || []; DB.staging.unshift(r); logAudit('Inserted staging row', `${r.description} ${fmtMoney(r.amount * 100, r.currency)}`); save(); closeModal(); render(); toast('Row inserted to staging'); },
       'stg-del': d => { DB.staging = (DB.staging || []).filter(x => x.id !== d.id); save(); render(); toast('Row removed', 'warn'); },
       'map-add': () => { DB.mappings = DB.mappings || []; DB.mappings.push({ id: uid('mp'), src: 'New field', ledger: LEDGER_FIELDS[0], transform: 'none', param: '' }); render(); },
       'map-del': d => { DB.mappings = (DB.mappings || []).filter(x => x.id !== d.id); render(); },
@@ -2079,6 +2372,7 @@
       if (t.matches && t.matches('input[data-importupload]')) { ingestFile(t.files[0], t.dataset.importSide); t.value = ''; return; }
       if (t.matches && t.matches('input[data-jobupload]')) { const f = t.files && t.files[0]; if (f) ingestJob(f); t.value = ''; return; }
       if (t.hasAttribute && t.hasAttribute('data-stg-status')) { DB.filters.stgStatus = t.value; render(); return; }
+      if (t.hasAttribute && t.hasAttribute('data-stg-job')) { DB.filters.stgJobId = t.value; DB.filters.stgPage = 1; render(); return; }
       if (t.dataset.map && (t.dataset.map === 'ledger' || t.dataset.map === 'transform')) { const m = (DB.mappings || []).find(x => x.id === t.dataset.id); if (m) { m[t.dataset.map] = t.value; if (t.dataset.map === 'transform' && !mapNeedsParam(t.value)) m.param = ''; } render(); return; }
       if (t.matches && t.matches('input[type=file][data-upload]')) {
         const cat = t.dataset.upcat || ($('#up-cat') && $('#up-cat').value) || 'other';
@@ -2087,6 +2381,7 @@
       }
       if (t.dataset.txnSearch) { DB.filters.txnQ = t.value; render(); return; }
       if (t.dataset.txnStatus) { DB.filters.txnStatus = t.value; render(); return; }
+      if (t.matches && t.matches('select[data-act="dih-select"]')) { DB.ui = DB.ui || {}; DB.ui.dihRecId = t.value; render(); return; }
       if (t.dataset.rf && (t.dataset.rf === 'ref' || t.dataset.rf === 'amode')) { applyRuleField(t); }
     });
     document.addEventListener('keydown', e => {
