@@ -451,103 +451,6 @@
       return { customers, invoices, bankStatements, payments, paymentAllocations, glControlBalances };
     }
 
-    // ── AR source documents: uploadable CSVs that replace rec.arData's 4 required arrays ──
-    const AR_DOC_TYPES = [
-      { key: 'customers', label: 'Customers', hint: 'customer_id, company_name, payment_terms, credit_limit, currency_code' },
-      { key: 'invoices', label: 'Invoices', hint: 'invoice_id, customer_id, invoice_number, issue_date, due_date, total_amount, status' },
-      { key: 'bankStatements', label: 'Bank Statements', hint: 'bank_txn_id, transaction_date, bank_reference_number, payer_name, amount, clearing_status' },
-      { key: 'payments', label: 'Payments', hint: 'payment_id, customer_id, bank_txn_id, total_received, unapplied_amount' },
-    ];
-    // Flexible header matching — tolerant of casing, spaces, and underscores (Customer ID / customer_id / CustomerID).
-    function findCol(headers, ...aliases) {
-      const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const nh = headers.map(norm);
-      for (const a of aliases) { const i = nh.indexOf(norm(a)); if (i >= 0) return i; }
-      for (const a of aliases) { const i = nh.findIndex(h => h.includes(norm(a))); if (i >= 0) return i; }
-      return -1;
-    }
-    function normARDate(v) {
-      v = String(v || '').trim(); if (!v) return todayISO();
-      if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
-      const p = v.split('/'); if (p.length === 3) { const m = p[0].padStart(2, '0'), d = p[1].padStart(2, '0'), y = p[2].length === 2 ? '20' + p[2] : p[2]; return `${y}-${m}-${d}`; }
-      return todayISO();
-    }
-    const AR_DOC_PARSERS = {
-      customers: (headers, rows) => {
-        const iId = findCol(headers, 'customer_id', 'customerid'), iName = findCol(headers, 'company_name', 'companyname', 'name'),
-          iTerms = findCol(headers, 'payment_terms', 'paymentterms'), iLimit = findCol(headers, 'credit_limit', 'creditlimit'), iCur = findCol(headers, 'currency_code', 'currency');
-        return rows.filter(r => r.length && r.some(c => c)).map((r, i) => ({
-          customerId: iId >= 0 && r[iId] ? r[iId] : 'CUST-' + (i + 1),
-          companyName: iName >= 0 && r[iName] ? r[iName] : 'Unknown',
-          paymentTerms: iTerms >= 0 && r[iTerms] ? r[iTerms] : 'Net 30',
-          creditLimit: iLimit >= 0 ? Math.round((parseFloat(r[iLimit]) || 0) * 100) : 0,
-          currencyCode: iCur >= 0 && r[iCur] ? r[iCur] : 'USD',
-        }));
-      },
-      invoices: (headers, rows) => {
-        const iId = findCol(headers, 'invoice_id', 'invoiceid'), iCust = findCol(headers, 'customer_id', 'customerid'), iNum = findCol(headers, 'invoice_number', 'invoicenumber'),
-          iIssue = findCol(headers, 'issue_date', 'issuedate'), iDue = findCol(headers, 'due_date', 'duedate'), iAmt = findCol(headers, 'total_amount', 'totalamount', 'amount'), iStatus = findCol(headers, 'status');
-        return rows.filter(r => r.length && r.some(c => c)).map((r, i) => ({
-          invoiceId: iId >= 0 && r[iId] ? r[iId] : 'INV-' + (i + 1),
-          customerId: iCust >= 0 ? r[iCust] : '',
-          invoiceNumber: iNum >= 0 && r[iNum] ? r[iNum] : 'INV-' + (i + 1),
-          issueDate: iIssue >= 0 ? normARDate(r[iIssue]) : todayISO(),
-          dueDate: iDue >= 0 ? normARDate(r[iDue]) : todayISO(),
-          totalAmount: iAmt >= 0 ? Math.round((parseFloat(r[iAmt]) || 0) * 100) : 0,
-          status: iStatus >= 0 && r[iStatus] ? r[iStatus] : 'Open',
-        }));
-      },
-      bankStatements: (headers, rows) => {
-        const iId = findCol(headers, 'bank_txn_id', 'banktxnid'), iDate = findCol(headers, 'transaction_date', 'transactiondate', 'date'),
-          iRef = findCol(headers, 'bank_reference_number', 'bankreferencenumber', 'reference'), iPayer = findCol(headers, 'payer_name', 'payername'),
-          iAmt = findCol(headers, 'amount'), iStatus = findCol(headers, 'clearing_status', 'clearingstatus');
-        return rows.filter(r => r.length && r.some(c => c)).map((r, i) => ({
-          bankTxnId: iId >= 0 && r[iId] ? r[iId] : 'BANK-' + (i + 1),
-          transactionDate: iDate >= 0 ? normARDate(r[iDate]) : todayISO(),
-          bankReferenceNumber: iRef >= 0 ? r[iRef] : '',
-          payerName: iPayer >= 0 && r[iPayer] ? r[iPayer] : 'Unknown',
-          amount: iAmt >= 0 ? Math.round((parseFloat(r[iAmt]) || 0) * 100) : 0,
-          clearingStatus: iStatus >= 0 && r[iStatus] ? r[iStatus] : 'Pending',
-        }));
-      },
-      payments: (headers, rows) => {
-        const iId = findCol(headers, 'payment_id', 'paymentid'), iCust = findCol(headers, 'customer_id', 'customerid'), iBank = findCol(headers, 'bank_txn_id', 'banktxnid'),
-          iRecv = findCol(headers, 'total_received', 'totalreceived', 'amount'), iUnapp = findCol(headers, 'unapplied_amount', 'unappliedamount');
-        return rows.filter(r => r.length && r.some(c => c)).map((r, i) => ({
-          paymentId: iId >= 0 && r[iId] ? r[iId] : 'PAY-' + (i + 1),
-          customerId: iCust >= 0 && r[iCust] ? r[iCust] : null,
-          bankTxnId: iBank >= 0 ? r[iBank] : '',
-          totalReceived: iRecv >= 0 ? Math.round((parseFloat(r[iRecv]) || 0) * 100) : 0,
-          unappliedAmount: iUnapp >= 0 ? Math.round((parseFloat(r[iUnapp]) || 0) * 100) : 0,
-        }));
-      },
-    };
-    function arMissingDocs(rec) {
-      if (!rec.arData) return AR_DOC_TYPES.map(d => d.label);
-      return AR_DOC_TYPES.filter(d => !(rec.arData[d.key] || []).length).map(d => d.label);
-    }
-    function ingestARDoc(rec, docKey, file) {
-      if (!file) return;
-      const ext = (file.name.split('.').pop() || '').toLowerCase();
-      if (ext !== 'csv' && ext !== 'tsv') { toast('Please upload a CSV file for this source', 'bad'); return; }
-      const rd = new FileReader();
-      rd.onload = () => {
-        try {
-          const { headers, rows } = parseCSV(String(rd.result || ''));
-          const parsed = AR_DOC_PARSERS[docKey](headers, rows);
-          if (!parsed.length) { toast('No rows found in that file', 'bad'); return; }
-          rec.arData[docKey] = parsed;
-          rec.arUploads = rec.arUploads || {};
-          rec.arUploads[docKey] = { fileName: file.name, rows: parsed.length, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
-          rec.lastRun = null; // source data changed — any prior run result is now stale
-          logAudit('Uploaded AR source', `${(AR_DOC_TYPES.find(d => d.key === docKey) || {}).label} · ${file.name} · ${parsed.length} rows`);
-          save(); render(); toast(`${file.name} loaded — ${parsed.length} rows`, 'ok');
-        } catch (err) { console.error(err); toast('Could not parse that file', 'bad'); }
-      };
-      rd.onerror = () => toast('Could not read that file', 'bad');
-      rd.readAsText(file);
-    }
-
     function genRecords(recId, type) {
       const g = TYPE_GEN[type] || TYPE_GEN.close; const A = [], B = []; const T = todayISO(); let n = 0;
       const push = (side, o) => { (side === 'A' ? A : B).push(Object.assign({ id: `${recId}-${side}-${++n}`, recId, side, currency: 'INR', resolution: null }, o)); };
@@ -630,7 +533,7 @@
         buildRec('inventory', 'Goods Receipt ↔ Invoices', 'Sam Whitlock'),
         buildRec('close', 'AR Subledger ↔ GL', 'Priya Nair'),
       ];
-      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), arUploads: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
       recs.push(arRec);
       // No precomputation — every reconciliation starts unrun. Results only appear once
       // "Run reconciliation" is pressed; Rules Studio still shows a live simulation preview.
@@ -1093,20 +996,11 @@
 
     // ═══════════════════════════════════════ view: reconciliation ═══════════════════════════════════════
     const RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matches'], ['exceptions', 'Exceptions'], ['sources', 'Sources']];
-    const AR_RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['sources', 'Sources'], ['matches', 'Matched'], ['exceptions', 'Exceptions']];
-    // Overview / Matches / Exceptions only render once a reconciliation has actually been run —
-    // Rules Studio and Sources stay available pre-run since they're inputs, not results.
+    const AR_RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matched'], ['exceptions', 'Exceptions']];
+    // Overview / Matches / Exceptions / Sources only render once a reconciliation has actually
+    // been run — Rules Studio stays available pre-run since it's a live simulation, not a result.
     function reconNotRun(rec, res, tabLabel) {
       const isAR = rec.type === 'ar-reconciliation';
-      const missing = isAR ? arMissingDocs(rec) : [];
-      if (missing.length) return `<div class="flex-1 flex items-center justify-center p-6">
-        <div class="text-center max-w-sm">
-          <div class="w-12 h-12 rounded-full bg-bad-soft flex items-center justify-center mx-auto mb-4 text-bad-ink">${icon('alert', 'w-5 h-5')}</div>
-          <div class="font-semibold text-[14px] mb-1.5">Missing required source${missing.length === 1 ? '' : 's'}</div>
-          <div class="text-[12.5px] text-muted mb-5"><span class="font-medium text-bad-ink">${missing.map(esc).join(', ')}</span> ${missing.length === 1 ? 'needs' : 'need'} to be uploaded before this reconciliation can run.</div>
-          <button data-act="recon-tab" data-t="sources" class="btn btn-primary mx-auto">${icon('upload', 'w-4 h-4')}Go to Sources</button>
-        </div>
-      </div>`;
       return `<div class="flex-1 flex items-center justify-center p-6">
         <div class="text-center max-w-sm">
           <div class="w-12 h-12 rounded-full bg-sunken flex items-center justify-center mx-auto mb-4 text-faint">${icon('play', 'w-5 h-5')}</div>
@@ -1120,13 +1014,10 @@
       const rec = getRec(DB.route.recId); if (!rec) return viewDashboard();
       const isAR = rec.type === 'ar-reconciliation';
       const hasRun = !!rec.lastRun;
-      const missingDocs = isAR ? arMissingDocs(rec) : [];
       const tab = DB.route.tab || 'overview';
       const res = getEngineResult(rec);
       const meta = TYPE_META[rec.type];
-      const runBtn = missingDocs.length
-        ? `<button class="btn btn-ghost opacity-50 pointer-events-none" title="Missing: ${esc(missingDocs.join(', '))}">${icon('play', 'w-4 h-4')}Run reconciliation</button>`
-        : `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
+      const runBtn = `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
       const lastRun = rec.lastRun ? `<span class="text-[11.5px] text-muted mono">last run ${rec.lastRun.at.replace('T', ' ')}</span>` : `<span class="text-[11.5px] text-faint mono">never run</span>`;
       let body = '';
       const tabs = isAR ? AR_RECON_TABS : RECON_TABS;
@@ -1134,12 +1025,12 @@
       const tabLabels = { overview: 'Overview', matches: isAR ? 'Matched' : 'Matches', exceptions: 'Exceptions', sources: 'Sources' };
       if (tab === 'overview') body = hasRun ? (isAR ? arReconOverview(rec, res) : reconOverview(rec, res)) : reconNotRun(rec, res, tabLabels.overview);
       else if (tab === 'rules') body = isAR ? arReconRules(rec, res) : reconRules(rec, res);
-      else if (tab === 'sources') body = isAR ? arReconSources(rec) : (hasRun ? reconSources(rec, res) : reconNotRun(rec, res, tabLabels.sources));
       else if (tab === 'matches') body = hasRun ? (isAR ? arReconMatches(rec, res) : reconMatches(rec, res)) : reconNotRun(rec, res, tabLabels.matches);
       else if (tab === 'exceptions') body = hasRun ? (isAR ? arReconExceptions(rec, res) : reconExceptions(rec, res)) : reconNotRun(rec, res, tabLabels.exceptions);
+      else if (tab === 'sources' && !isAR) body = hasRun ? reconSources(rec, res) : reconNotRun(rec, res, tabLabels.sources);
       return topbar(esc(rec.name), `${meta.a} <span class="text-faint">↔</span> ${meta.b} · ${rec.cadence}`, `${lastRun}${runBtn}`)
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
-      ${tabs.map(([k, l]) => `<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'exceptions' && exceptionsCount ? ` <span class="mono text-[11px] text-warn-ink">${exceptionsCount}</span>` : ''}${k === 'sources' && isAR && missingDocs.length ? ` <span class="mono text-[11px] text-bad-ink">${missingDocs.length}</span>` : ''}</button>`).join('')}
+      ${tabs.map(([k, l]) => `<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'exceptions' && exceptionsCount ? ` <span class="mono text-[11px] text-warn-ink">${exceptionsCount}</span>` : ''}</button>`).join('')}
     </div><div class="flex-1 overflow-y-auto fade-in flex flex-col">${body}</div>`;
     }
 
@@ -1304,40 +1195,6 @@
             <div class="space-y-2.5">${rules.length ? rules.map((rl, i) => arRuleCard(rec, rl, i, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}</div>
           </div>`;
         }).join('')}</div>
-      </div>`;
-    }
-    function arReconSources(rec) {
-      const missing = arMissingDocs(rec);
-      return `<div class="p-6 fade-in">
-        ${missing.length ? `<div class="card bg-bad-soft border border-bad-soft mb-5 p-4 flex items-start gap-3">
-          <span class="text-bad text-[20px] leading-none mt-0.5">${icon('alert', 'w-5 h-5')}</span>
-          <div class="flex-1"><div class="font-semibold text-[13px]">Missing required source${missing.length === 1 ? '' : 's'}</div>
-          <div class="text-[12px] text-bad-ink mt-1">${missing.map(esc).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required before this reconciliation can run.</div></div></div>`
-          : `<div class="card bg-ok-soft border border-ok/20 mb-5 p-4 flex items-center gap-3"><span class="text-ok">${icon('check', 'w-5 h-5')}</span><div class="font-semibold text-[13px]">All 4 sources loaded — ready to run.</div></div>`}
-        <div class="grid grid-cols-2 gap-5">
-        ${AR_DOC_TYPES.map(d => {
-          const rows = (rec.arData[d.key] || []);
-          const up = (rec.arUploads || {})[d.key];
-          const has = rows.length > 0;
-          const inputId = 'ardoc-' + d.key;
-          return `<div class="card overflow-hidden">
-            <div class="flex items-center gap-2.5 px-4 h-12 border-b border-line">
-              <div class="w-7 h-7 rounded-md ${has ? 'bg-ok-soft text-ok-ink' : 'bg-bad-soft text-bad-ink'} flex items-center justify-center flex-none">${icon(has ? 'check' : 'alert', 'w-4 h-4')}</div>
-              <div class="flex-1 min-w-0"><div class="font-semibold text-[13px]">${esc(d.label)}</div>
-              <div class="text-[11px] text-faint truncate">${has ? (up ? `${esc(up.fileName)} · ${rows.length} rows` : `Sample data · ${rows.length} rows`) : 'Not uploaded — required'}</div></div>
-              ${has ? `<button data-act="clear-ar-doc" data-id="${rec.id}" data-doc="${d.key}" class="text-faint hover:text-bad-ink p-1" title="Clear this source">${icon('trash', 'w-4 h-4')}</button>` : ''}
-            </div>
-            <div class="p-3">
-              <label for="${inputId}" data-ardoc-dropzone data-doc="${d.key}" class="block cursor-pointer border-2 border-dashed border-line rounded-lg px-4 py-5 text-center hover:border-accent hover:bg-accent-soft/40 transition">
-                <input id="${inputId}" type="file" data-ardocupload data-doc="${d.key}" accept=".csv,.tsv" class="hidden">
-                <div class="flex flex-col items-center gap-1 pointer-events-none">${icon('upload', 'w-5 h-5 text-faint')}
-                  <div class="text-[12.5px] font-medium">Drag CSV here, or <span class="text-accent-ink">browse</span></div>
-                  <div class="text-[11px] text-faint">${esc(d.hint)}</div></div>
-              </label>
-            </div>
-          </div>`;
-        }).join('')}
-        </div>
       </div>`;
     }
     function arReconMatches(rec, res) {
@@ -2691,14 +2548,11 @@
       },
       'close-modal': (d, el, e) => { if (el.dataset.backdrop && e.target !== el) return; closeModal(); },
       'run-recon': d => {
-        const rec = getRec(d.id);
-        if (rec.type === 'ar-reconciliation') { const missing = arMissingDocs(rec); if (missing.length) { toast(`Missing: ${missing.join(', ')} — upload these in Sources first`, 'bad'); return; } }
-        const res = getEngineResult(rec); const prev = rec.lastRun ? rec.lastRun.history : seedTrend(res.rate);
+        const rec = getRec(d.id); const res = getEngineResult(rec); const prev = rec.lastRun ? rec.lastRun.history : seedTrend(res.rate);
         rec.lastRun = { at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: [...prev.slice(-11), res.rate] };
         logAudit('Ran reconciliation', `${rec.name} · ${res.rate.toFixed(1)}% matched, ${res.breaks.length} breaks`);
         render(); toast(`Run complete · ${res.rate.toFixed(1)}% matched`);
       },
-      'clear-ar-doc': d => { const rec = getRec(d.id); rec.arData[d.doc] = []; rec.arUploads = rec.arUploads || {}; delete rec.arUploads[d.doc]; rec.lastRun = null; render(); toast('Source cleared', 'warn'); },
       'close-period': () => { DB.period.status = 'closed'; logAudit('Closed period', DB.period.label); render(); toast(`${DB.period.label} closed`); },
       'toast-soon': () => toast('Connection flow is mocked in this prototype', 'warn'),
       'load-sample-ledger': () => loadSampleLedger(),
@@ -2817,7 +2671,6 @@
       if (t.hasAttribute && t.hasAttribute('data-job-source')) { DB.ui = DB.ui || {}; DB.ui.jobSource = t.value; save(); render(); return; }
       if (t.matches && t.matches('input[data-importupload]')) { ingestFile(t.files[0], t.dataset.importSide); t.value = ''; return; }
       if (t.matches && t.matches('input[data-jobupload]')) { const f = t.files && t.files[0]; if (f) ingestJob(f); t.value = ''; return; }
-      if (t.matches && t.matches('input[data-ardocupload]')) { const f = t.files && t.files[0]; const rec = getRec(DB.route.recId); if (f && rec) ingestARDoc(rec, t.dataset.doc, f); t.value = ''; return; }
       if (t.hasAttribute && t.hasAttribute('data-stg-status')) { DB.filters.stgStatus = t.value; render(); return; }
       if (t.hasAttribute && t.hasAttribute('data-stg-job')) { DB.filters.stgJobId = t.value; DB.filters.stgPage = 1; render(); return; }
       if (t.dataset.map && (t.dataset.map === 'ledger' || t.dataset.map === 'transform')) { const m = (DB.mappings || []).find(x => x.id === t.dataset.id); if (m) { m[t.dataset.map] = t.value; if (t.dataset.map === 'transform' && !mapNeedsParam(t.value)) m.param = ''; } render(); return; }
@@ -2836,13 +2689,11 @@
       const t = e.target;
       if (t.dataset && t.dataset.txnSearch && e.key === 'Enter') { DB.filters.txnQ = t.value; render(); }
     });
-    document.addEventListener('dragover', e => { const z = e.target.closest && e.target.closest('[data-dropzone],[data-import-dropzone],[data-job-dropzone],[data-ardoc-dropzone]'); if (z) { e.preventDefault(); z.classList.add('border-accent'); } });
-    document.addEventListener('dragleave', e => { const z = e.target.closest && e.target.closest('[data-dropzone],[data-import-dropzone],[data-job-dropzone],[data-ardoc-dropzone]'); if (z) z.classList.remove('border-accent'); });
+    document.addEventListener('dragover', e => { const z = e.target.closest && e.target.closest('[data-dropzone],[data-import-dropzone],[data-job-dropzone]'); if (z) { e.preventDefault(); z.classList.add('border-accent'); } });
+    document.addEventListener('dragleave', e => { const z = e.target.closest && e.target.closest('[data-dropzone],[data-import-dropzone],[data-job-dropzone]'); if (z) z.classList.remove('border-accent'); });
     document.addEventListener('drop', e => {
       const jz = e.target.closest && e.target.closest('[data-job-dropzone]');
       if (jz) { e.preventDefault(); jz.classList.remove('border-accent'); const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) ingestJob(f); return; }
-      const az = e.target.closest && e.target.closest('[data-ardoc-dropzone]');
-      if (az) { e.preventDefault(); az.classList.remove('border-accent'); const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; const rec = getRec(DB.route.recId); if (f && rec) ingestARDoc(rec, az.dataset.doc, f); return; }
       const iz = e.target.closest && e.target.closest('[data-import-dropzone]');
       if (iz) { e.preventDefault(); iz.classList.remove('border-accent'); ingestFile(e.dataTransfer.files[0], iz.dataset.importSide); return; }
       const z = e.target.closest && e.target.closest('[data-dropzone]'); if (z) {
