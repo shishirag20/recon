@@ -5,7 +5,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stack Books — Reconciliation</title>
+  <link rel="icon" type="image/svg+xml"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%234F46E5'/><path d='M24 16v32M24 32q0 8 10 8h10' fill='none' stroke='%23FFFFFF' stroke-width='6.5' stroke-linecap='round'/></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
+
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
@@ -980,9 +983,10 @@
       return `<div class="flex h-screen overflow-hidden">
     <aside class="w-[236px] flex-none bg-surface border-r border-line flex flex-col">
       <div class="h-[52px] flex items-center gap-2.5 px-4 border-b border-line">
-        <div class="w-7 h-7 rounded-md bg-accent flex items-center justify-center text-white">${icon('merge', 'w-4 h-4')}</div>
+        <div class="w-7 h-7 rounded-md bg-[#4F46E5] flex items-center justify-center text-white"><svg class="w-4 h-4" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"><path d="M24 16v32M24 32q0 8 10 8h10"/></svg></div>
         <div class="leading-tight"><div class="font-bold text-[14px] tracking-tight">Stack Booksgi</div></div>
       </div>
+
       <div class="p-2.5 space-y-0.5 flex-1 overflow-y-auto">
         ${navItem(r.name === 'ingestion', 'goto', 'data-r="ingestion"', 'bank', 'Data hub')}
         ${navItem(r.name === 'reconciliation', 'goto', 'data-r="reconciliation"', 'merge', 'Reconciliation')}
@@ -1295,15 +1299,15 @@
           <button data-act="reset-ar-rules" data-id="${rec.id}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Reset to defaults</button>
         </div>
         <div class="space-y-6">${AR_PHASES.map(ph => {
-          const rules = (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority);
-          return `<div>
+        const rules = (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority);
+        return `<div>
             <div class="flex items-center mb-2.5">
               <div><div class="font-semibold text-[13px]">${ph.priority}. ${esc(ph.label)}</div><div class="text-[11.5px] text-faint">${esc(ph.hint)}</div></div>
               <button data-act="add-ar-rule" data-id="${rec.id}" data-phase="${ph.key}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add rule</button>
             </div>
             <div class="space-y-2.5">${rules.length ? rules.map((rl, i) => arRuleCard(rec, rl, i, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}</div>
           </div>`;
-        }).join('')}</div>
+      }).join('')}</div>
       </div>`;
     }
     function arReconSources(rec) {
@@ -1316,11 +1320,11 @@
           : `<div class="card bg-ok-soft border border-ok/20 mb-5 p-4 flex items-center gap-3"><span class="text-ok">${icon('check', 'w-5 h-5')}</span><div class="font-semibold text-[13px]">All 4 sources loaded — ready to run.</div></div>`}
         <div class="grid grid-cols-2 gap-5">
         ${AR_DOC_TYPES.map(d => {
-          const rows = (rec.arData[d.key] || []);
-          const up = (rec.arUploads || {})[d.key];
-          const has = rows.length > 0;
-          const inputId = 'ardoc-' + d.key;
-          return `<div class="card overflow-hidden">
+            const rows = (rec.arData[d.key] || []);
+            const up = (rec.arUploads || {})[d.key];
+            const has = rows.length > 0;
+            const inputId = 'ardoc-' + d.key;
+            return `<div class="card overflow-hidden">
             <div class="flex items-center gap-2.5 px-4 h-12 border-b border-line">
               <div class="w-7 h-7 rounded-md ${has ? 'bg-ok-soft text-ok-ink' : 'bg-bad-soft text-bad-ink'} flex items-center justify-center flex-none">${icon(has ? 'check' : 'alert', 'w-4 h-4')}</div>
               <div class="flex-1 min-w-0"><div class="font-semibold text-[13px]">${esc(d.label)}</div>
@@ -1336,7 +1340,7 @@
               </label>
             </div>
           </div>`;
-        }).join('')}
+          }).join('')}
         </div>
       </div>`;
     }
@@ -2313,13 +2317,13 @@
         const rd = r.rowData || {};
         return `<tr class="border-b border-line-soft row-hover">
           ${targetFields.map((f, idx) => {
-            let val = rd[f] !== undefined ? rd[f] : (r[f] !== undefined ? r[f] : '—');
-            if (f === 'status' || f === 'clearing_status') return `<td class="px-3 py-2.5">${stpill(val)}</td>`;
-            const isId = f.includes('id') || f.includes('number');
-            const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
-            const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
-            return `<td class="px-3 py-2.5 ${cls}">${esc(val)}</td>`;
-          }).join('')}
+          let val = rd[f] !== undefined ? rd[f] : (r[f] !== undefined ? r[f] : '—');
+          if (f === 'status' || f === 'clearing_status') return `<td class="px-3 py-2.5">${stpill(val)}</td>`;
+          const isId = f.includes('id') || f.includes('number');
+          const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
+          const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
+          return `<td class="px-3 py-2.5 ${cls}">${esc(val)}</td>`;
+        }).join('')}
           <td class="px-2 py-2.5 text-right"><button data-act="stg-del" data-id="${r.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td>
         </tr>`;
       }).join('') : `<tr><td colspan="${targetFields.length + 1}" class="px-4 py-10 text-center text-muted">No rows match your query.</td></tr>`}
