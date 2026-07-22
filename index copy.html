@@ -336,7 +336,7 @@
     const icon = (k, cls = 'w-4 h-4') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${IC[k].split('M').filter(Boolean).map(p => `<path d="M${p}"/>`).join('')}</svg>`;
 
     // ═══════════════════════════════════════ seed ═══════════════════════════════════════
-    const STORE_KEY = 'truebalance.v4';
+    const STORE_KEY = 'truebalance.v7';
     let _sr = 20240720;
     const rnd = () => ((_sr = (_sr * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
     const pick = arr => arr[Math.floor(rnd() * arr.length)];
@@ -998,45 +998,45 @@
     // ═══════════════════════════════════════ AR Reconciliation views ═══════════════════════════════════════
     function arReconOverview(rec, res) {
       const ar = rec.arData;
-      const kpi_ = (label, value, sub) => `<div class="card p-4"><div class="lbl">${label}</div><div class="mono text-[24px] font-semibold mt-1.5 leading-none">${value}</div><div class="text-[11.5px] text-muted mt-1.5">${sub||''}</div></div>`;
+      const kpi_ = (label, value, sub) => `<div class="card p-4"><div class="lbl">${label}</div><div class="mono text-[24px] font-semibold mt-1.5 leading-none">${value}</div><div class="text-[11.5px] text-muted mt-1.5">${sub || ''}</div></div>`;
       const matchRate = (res.matched.length / (res.invoices.length + res.payments.length) * 100).toFixed(1);
       return `<div class="p-6 fade-in">
         <div class="grid grid-cols-4 gap-3 mb-5">
-          ${kpi_('Total invoices', res.invoices.length, fmtMoney(res.invoices.reduce((s,i)=>s+i.totalAmount,0)*100)+' billed')}
+          ${kpi_('Total invoices', res.invoices.length, fmtMoney(res.invoices.reduce((s, i) => s + i.totalAmount, 0) * 100) + ' billed')}
           ${kpi_('Matched', res.matches.length, `${matchRate}% reconciled`)}
-          ${kpi_('Open exceptions', res.exceptions.length, `${res.exceptions.filter(e=>e.status==='Open').length} unresolved`)}
-          ${kpi_('Unapplied cash', res.unapplied.length, fmtMoney(res.unapplied.reduce((s,u)=>s+u.amount,0)*100))}
+          ${kpi_('Open exceptions', res.exceptions.length, `${res.exceptions.filter(e => e.status === 'Open').length} unresolved`)}
+          ${kpi_('Unapplied cash', res.unapplied.length, fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0) * 100))}
         </div>
         ${res.glMismatch ? `<div class="card bg-warn-soft border border-warn-soft mb-5 p-4"><div class="flex items-start gap-3">
-          <span class="text-warn text-[20px] leading-none mt-0.5">${icon('alert','w-5 h-5')}</span>
+          <span class="text-warn text-[20px] leading-none mt-0.5">${icon('alert', 'w-5 h-5')}</span>
           <div class="flex-1"><div class="font-semibold text-[13px]">GL control account ${esc(res.glMismatch.account)} mismatch</div>
-          <div class="text-[12px] text-warn-ink mt-1">Sub-ledger ${fmtMoney(res.glMismatch.subledgerBalance*100)} vs GL ${fmtMoney(res.glMismatch.glBalance*100)} = ${fmtMoney(res.glMismatch.variance*100)} variance</div></div></div></div>` : ''}
+          <div class="text-[12px] text-warn-ink mt-1">Sub-ledger ${fmtMoney(res.glMismatch.subledgerBalance * 100)} vs GL ${fmtMoney(res.glMismatch.glBalance * 100)} = ${fmtMoney(res.glMismatch.variance * 100)} variance</div></div></div></div>` : ''}
         <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Invoice status summary</div></div>
         <table class="w-full text-[13px]"><tbody>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Fully matched (Paid)</td><td class="px-3 py-2.5">${res.matches.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.matches.reduce((s,m)=>s+m.amount,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Over-payments</td><td class="px-3 py-2.5">${res.overpays.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.overpays.reduce((s,o)=>s+o.overage,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Short-payments</td><td class="px-3 py-2.5">${res.shortPays.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.shortPays.reduce((s,p)=>s+p.shortage,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s,i)=>s+i.totalAmount,0)*100)}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
-          <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s,u)=>s+u.amount,0)*100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Fully matched (Paid)</td><td class="px-3 py-2.5">${res.matches.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.matches.reduce((s, m) => s + m.amount, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Over-payments</td><td class="px-3 py-2.5">${res.overpays.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.overpays.reduce((s, o) => s + o.overage, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Short-payments</td><td class="px-3 py-2.5">${res.shortPays.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s, i) => s + i.totalAmount, 0) * 100)}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
+          <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
         </tbody></table></div>
         <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Phase 2a · bank_statements.clearing_status</div></div>
         <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
-        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount*100)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus==='Reconciled'?statusPill('matched'):statusPill('break')}</td></tr>`).join('')}
+        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount * 100)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus === 'Reconciled' ? statusPill('matched') : statusPill('break')}</td></tr>`).join('')}
         </tbody></table></div>
         <div class="card overflow-hidden">
-          <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr','w-3.5 h-3.5')}</button></div>
+          <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr', 'w-3.5 h-3.5')}</button></div>
           <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">#</th><th class="px-3 py-2">Rule / calculation</th><th class="px-3 py-2">Logic</th><th class="px-3 py-2 text-right">Results</th><th class="px-3 py-2">Status</th></tr></thead><tbody>
-          ${res.perRule.map(({rule,count})=>`<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 mono text-faint">${rule.priority}</td><td class="px-3 py-2.5 font-medium">${rule.name}</td><td class="px-3 py-2.5 text-muted text-[12px]">${rule.description}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5"><span class="text-ok-ink text-[12px] font-medium">● Active</span></td></tr>`).join('')}
+          ${res.perRule.map(({ rule, count }) => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 mono text-faint">${rule.priority}</td><td class="px-3 py-2.5 font-medium">${rule.name}</td><td class="px-3 py-2.5 text-muted text-[12px]">${rule.description}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5"><span class="text-ok-ink text-[12px] font-medium">● Active</span></td></tr>`).join('')}
           </tbody></table>
         </div></div>`;
     }
     function arReconRules(rec, res) {
       return `<div class="p-6 fade-in">
         <div class="flex items-center mb-4"><div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Evaluated as a fixed end-to-end AR control process across the Data Hub datasets — not user-editable like the generic engine's rules.</div></div></div>
-        <div class="space-y-3">${res.perRule.map(({rule,count})=>`<div class="card p-4 flex items-start gap-4">
+        <div class="space-y-3">${res.perRule.map(({ rule, count }) => `<div class="card p-4 flex items-start gap-4">
           <div class="w-8 h-8 rounded border border-line flex items-center justify-center mono text-faint flex-none">${rule.priority}</div>
           <div class="flex-1"><div class="font-semibold">${rule.name}</div><div class="text-[12px] text-muted mt-1">${rule.description}</div>
-          <div class="mt-2 flex gap-2"><span class="chip">Active</span><span class="chip">${count} result${count===1?'':'s'}</span></div></div></div>`).join('')}
+          <div class="mt-2 flex gap-2"><span class="chip">Active</span><span class="chip">${count} result${count === 1 ? '' : 's'}</span></div></div></div>`).join('')}
         </div>
       </div>`;
     }
@@ -1044,23 +1044,23 @@
       return `<div class="p-6 fade-in"><div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Matched invoices & payments (${res.matches.length + res.overpays.length})</div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
       ${[...res.matches, ...res.overpays].map(m => {
-        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount*100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage?` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage*100)}</span>`:''}</td></tr>`;
+        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount * 100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage * 100)}</span>` : ''}</td></tr>`;
       }).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
       </tbody></table></div></div>`;
     }
     function arReconExceptions(rec, res) {
       const typeBadge = t => {
         const m = { 'Timing Difference': 'bg-sunken text-muted', 'Unapplied Payment': 'bg-warn-soft text-warn-ink', 'Disputed Invoice': 'bg-bad-soft text-bad-ink', 'GL Mismatch': 'bg-bad-soft text-bad-ink' };
-        return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${m[t]||'bg-sunken text-muted'}">${t}</span>`;
+        return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${m[t] || 'bg-sunken text-muted'}">${t}</span>`;
       };
       return `<div class="p-6 fade-in">
       <div class="card overflow-hidden mb-4"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Reconciliation exceptions (${res.exceptions.length})</div><div class="ml-auto text-[11.5px] text-muted">Phase 3 · reconciliation_exceptions log</div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Exception ID</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Related record</th><th class="px-3 py-2">Description</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
-      ${res.exceptions.length ? res.exceptions.map(e => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium mono text-[12px]">${e.id}</td><td class="px-3 py-2.5">${typeBadge(e.type)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${e.relatedId}</td><td class="px-3 py-2.5 text-ink-soft">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono font-semibold text-bad-ink">${fmtMoney(e.amount*100)}</td><td class="px-4 py-2.5 text-right">${e.status==='Resolved'?statusPill('resolved'):statusPill('break')}</td></tr>`).join('') : `<tr><td colspan="6" class="px-4 py-8 text-center text-muted">No open exceptions — everything reconciled.</td></tr>`}
+      ${res.exceptions.length ? res.exceptions.map(e => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium mono text-[12px]">${e.id}</td><td class="px-3 py-2.5">${typeBadge(e.type)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${e.relatedId}</td><td class="px-3 py-2.5 text-ink-soft">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono font-semibold text-bad-ink">${fmtMoney(e.amount * 100)}</td><td class="px-4 py-2.5 text-right">${e.status === 'Resolved' ? statusPill('resolved') : statusPill('break')}</td></tr>`).join('') : `<tr><td colspan="6" class="px-4 py-8 text-center text-muted">No open exceptions — everything reconciled.</td></tr>`}
       </tbody></table></div>
       ${res.unmatchedInvoices.length ? `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Open invoices awaiting payment (${res.unmatchedInvoices.length})</div><div class="ml-auto text-[11.5px] text-muted">Not logged as an exception — simply not yet paid</div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Due date</th><th class="px-3 py-2 text-right">Amount</th></tr></thead><tbody>
-      ${res.unmatchedInvoices.map(ui => {const c=rec.arData.customers.find(x=>x.customerId===ui.customerId);return `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${ui.invoiceNumber}</td><td class="px-3 py-2.5">${esc(c.companyName)}</td><td class="px-3 py-2.5 text-muted">${fmtDate(ui.dueDate)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(ui.totalAmount*100)}</td></tr>`;}).join('')}
+      ${res.unmatchedInvoices.map(ui => { const c = rec.arData.customers.find(x => x.customerId === ui.customerId); return `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${ui.invoiceNumber}</td><td class="px-3 py-2.5">${esc(c.companyName)}</td><td class="px-3 py-2.5 text-muted">${fmtDate(ui.dueDate)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(ui.totalAmount * 100)}</td></tr>`; }).join('')}
       </tbody></table></div>` : ''}
       </div>`;
     }
@@ -1433,6 +1433,8 @@
         setTimeout(() => el.remove(), 300);
       }, 3500);
     }
+    window.toast = toast;
+
 
     // ═══════════════════════════════════════ view: ingestion hub ═══════════════════════════════════════
     // ── manual document upload ──
@@ -1576,166 +1578,223 @@
   </div>`;
     }
     // ── Data Integration Hub ──
-    const LEDGER_FIELDS = ['Transaction ID', 'Transaction date', 'Reference', 'Counterparty', 'Description', 'Amount', 'Currency'];
+    const LEDGER_FIELDS = ['transaction_id', 'posting_date', 'reference', 'counterparty', 'description', 'amount', 'currency', 'gl_account_code', 'control_account_balance', 'subledger_calculated_balance', 'variance', 'invoice_id', 'customer_id', 'invoice_number', 'issue_date', 'due_date', 'total_amount', 'status', 'bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'clearing_status', 'company_name', 'payment_terms', 'credit_limit', 'currency_code'];
     const TRANSFORMS = [['none', 'No transform'], ['trim', 'Trim whitespace'], ['upper', 'Uppercase'], ['lower', 'Lowercase'], ['date', 'Parse date'], ['negate', 'Negate (×-1)'], ['div100', 'Divide by 100'], ['mult', 'Multiply by…'], ['const', 'Constant value'], ['regex', 'Extract (regex)']];
     const mapNeedsParam = t => ['date', 'mult', 'const', 'regex'].includes(t);
+
+    // Smart target field mappings per source type (GL / SL / Bank Statements / Customers)
+    // Keys are normalized (lowercase+underscore) versions of the source header
+    const SOURCE_FIELD_MAPS = {
+      'GL': {
+        'gl_balance_id': 'gl_balance_id',
+        'period_date': 'posting_date',
+        'gl_account_code': 'gl_account_code',
+        'control_account_balance_(gl)': 'control_account_balance',
+        'control_account_balance_gl': 'control_account_balance',
+        'subledger_calculated_balance': 'subledger_calculated_balance',
+        'subledger_balance': 'subledger_calculated_balance',
+        'variance': 'variance',
+      },
+      'SL': {
+        'invoice_id': 'invoice_id',
+        'customer_id': 'customer_id',
+        'invoice_number': 'invoice_number',
+        'issue_date': 'issue_date',
+        'due_date': 'due_date',
+        'total_amount': 'total_amount',
+        'status': 'status',
+      },
+      'Bank Statements': {
+        'bank_txn_id': 'bank_txn_id',
+        'transaction_date': 'transaction_date',
+        'bank_reference': 'bank_reference',
+        'bank_reference_number': 'bank_reference',
+        'payer_name': 'payer_name',
+        'amount': 'amount',
+        'clearing_status': 'clearing_status',
+      },
+      'Customers': {
+        'customer_id': 'customer_id',
+        'company_name': 'company_name',
+        'payment_terms': 'payment_terms',
+        'credit_limit': 'credit_limit',
+        'currency_code': 'currency_code',
+      },
+    };
+    const normHeader = h => String(h || '').toLowerCase().trim().replace(/\s+/g, '_').replace(/[()]/g, '');
+    function smartTarget(header, sourceType) {
+      const map = SOURCE_FIELD_MAPS[sourceType];
+      if (!map) return normHeader(header) || header;
+      const n = normHeader(header);
+      if (map[n]) return map[n];
+      for (const [k, v] of Object.entries(map)) { if (n.includes(k) || k.includes(n)) return v; }
+      return normHeader(header) || header;
+    }
+
+    // Category default headers matching the sample files in screenshots
+    const CATEGORY_DEFAULT_HEADERS = {
+      'GL': ['gl_balance_id', 'period_date', 'gl_account_code', 'control_account_balance (GL)', 'subledger calculated balance', 'variance'],
+      'SL': ['invoice_id', 'customer_id', 'invoice_number', 'issue_date', 'due_date', 'total_amount', 'status'],
+      'Bank Statements': ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'amount', 'clearing_status'],
+      'Customers': ['customer_id', 'company_name', 'payment_terms', 'credit_limit', 'currency_code']
+    };
+
+    const CATEGORY_SAMPLE_DATA = {
+      'GL': [
+        { gl_balance_id: 'GL-BAL-2026-06', posting_date: '2026-06-30', gl_account_code: '1200 (A/R)', control_account_balance: '$7,800.00', subledger_calculated_balance: '$7,500.00', variance: '$300.00' },
+        { gl_balance_id: 'GL-BAL-2026-05', posting_date: '2026-05-31', gl_account_code: '1200 (A/R)', control_account_balance: '$6,400.00', subledger_calculated_balance: '$6,400.00', variance: '$0.00' },
+        { gl_balance_id: 'GL-BAL-2026-04', posting_date: '2026-04-30', gl_account_code: '1200 (A/R)', control_account_balance: '$5,200.00', subledger_calculated_balance: '$5,200.00', variance: '$0.00' },
+      ],
+      'SL': [
+        { invoice_id: 'INV-101', customer_id: 'CUST-001', invoice_number: 'INV-2026-001', issue_date: '2026-06-01', due_date: '2026-07-01', total_amount: '$1,000.00', status: 'Open' },
+        { invoice_id: 'INV-102', customer_id: 'CUST-002', invoice_number: 'INV-2026-002', issue_date: '2026-06-10', due_date: '2026-06-25', total_amount: '$2,500.00', status: 'Open' },
+        { invoice_id: 'INV-103', customer_id: 'CUST-003', invoice_number: 'INV-2026-003', issue_date: '2026-06-15', due_date: '2026-07-15', total_amount: '$5,000.00', status: 'Open' },
+      ],
+      'Bank Statements': [
+        { bank_txn_id: 'BANK-901', transaction_date: '2026-06-20', bank_reference: 'ACH-883920', payer_name: 'Acme Corp', amount: '$1,000.00', clearing_status: 'Pending' },
+        { bank_txn_id: 'BANK-902', transaction_date: '2026-06-22', bank_reference: 'WIRE-112233', payer_name: 'Globex Inc', amount: '$2,400.00', clearing_status: 'Pending' },
+        { bank_txn_id: 'BANK-903', transaction_date: '2026-06-28', bank_reference: 'ACH-994821', payer_name: 'Mystery Payer', amount: '$500.00', clearing_status: 'Pending' },
+      ],
+      'Customers': [
+        { customer_id: 'CUST-001', company_name: 'Acme Corp', payment_terms: 'Net 30', credit_limit: '$50,000.00', currency_code: 'USD' },
+        { customer_id: 'CUST-002', company_name: 'Globex Inc', payment_terms: 'Net 15', credit_limit: '$25,000.00', currency_code: 'USD' },
+        { customer_id: 'CUST-003', company_name: 'Stark Industries', payment_terms: 'Net 30', credit_limit: '$100,000.00', currency_code: 'USD' },
+      ]
+    };
+
     function buildJobs() {
       const T = todayISO(); return [
         { id: uid('job'), source: 'HDFC Operating · statement', kind: 'auto', format: 'MT940', rows: 642, status: 'success', errors: 0, at: T + 'T06:00' },
         { id: uid('job'), source: 'Stripe payouts', kind: 'auto', format: 'API', rows: 318, status: 'success', errors: 0, at: T + 'T06:05' },
-        { id: uid('job'), source: 'bank_statement(in).csv', kind: 'manual', format: 'CSV', rows: 5, status: 'success', errors: 0, at: addDays(T, -1) + 'T10:12' },
+        { id: uid('job'), source: 'bank_statement(in).csv', kind: 'manual', format: 'CSV', rows: 3, status: 'success', errors: 0, at: addDays(T, -1) + 'T10:12' },
         { id: uid('job'), source: 'warehouse-count-w28.xlsx', kind: 'manual', format: 'XLSX', rows: 1204, status: 'partial', errors: 11, at: addDays(T, -1) + 'T15:22' },
         { id: uid('job'), source: 'Amex corporate card', kind: 'auto', format: 'OFX', rows: 96, status: 'failed', errors: 96, at: addDays(T, -1) + 'T02:00' },
         { id: uid('job'), source: 'vendor-bills-jul.csv', kind: 'manual', format: 'CSV', rows: 210, status: 'success', errors: 0, at: addDays(T, -2) + 'T09:40' },
       ];
     }
     function buildStaging() {
-      const seed = { jobId: 'seed', sourceLabel: 'Sample seed data' };
-      return [
-        { id: uid('stg'), txnId: 'TXN-9001', date: '2026-06-06', reference: 'REF-77112', counterparty: 'Globex Corp Wire', description: 'Globex Corp Wire transfer', amount: 4250.5, currency: 'USD', status: 'mapped', ...seed },
-        { id: uid('stg'), txnId: 'TXN-9002', date: '2026-06-12', reference: 'REF-77234', counterparty: 'Initech LLC', description: 'Initech LLC service fee', amount: 890.0, currency: 'USD', status: 'mapped', ...seed },
-        { id: uid('stg'), txnId: 'TXN-9003', date: '2026-06-16', reference: 'REF-77389', counterparty: 'Acme Corporation', description: 'Acme Equipment order', amount: 3195.0, currency: 'USD', status: 'mapped', ...seed },
-        { id: uid('stg'), txnId: 'TXN-9004', date: '2026-06-21', reference: 'REF-77401', counterparty: 'Wayne Ent. Invoice 006', description: 'Wayne Ent. Invoice 006', amount: 5200.0, currency: 'USD', status: 'mapped', ...seed },
-        { id: uid('stg'), txnId: 'TXN-9005', date: '2026-06-23', reference: 'REF-77520', counterparty: 'Globex Corp', description: 'Globex Corp monthly payout', amount: 1150.0, currency: 'USD', status: 'mapped', ...seed },
-      ];
+      const bnkData = CATEGORY_SAMPLE_DATA['Bank Statements'];
+      return bnkData.map((row, idx) => ({
+        id: uid('stg'),
+        jobId: 'seed',
+        sourceLabel: 'Bank Statements · bank_statement(in).csv',
+        category: 'Bank Statements',
+        status: 'mapped',
+        rowData: { ...row },
+        txnId: row.bank_txn_id,
+        date: row.transaction_date,
+        reference: row.bank_reference,
+        counterparty: row.payer_name,
+        description: `${row.payer_name} transfer`,
+        amount: parseFloat(row.amount.replace(/[^0-9.]/g, '')) || 1000,
+        currency: 'USD'
+      }));
     }
     function buildMappings() {
       return [
-        { id: uid('mp'), src: 'Transaction_ID', ledger: 'Transaction_ID', transform: 'none', param: '' },
-        { id: uid('mp'), src: 'Payment_Date', ledger: 'Payment_Date', transform: 'none', param: '' },
-        { id: uid('mp'), src: 'Amount', ledger: 'Amount', transform: 'none', param: '' },
-        { id: uid('mp'), src: 'Currency', ledger: 'Currency', transform: 'none', param: '' },
-        { id: uid('mp'), src: 'Payer_Name', ledger: 'Payer_Name', transform: 'none', param: '' },
-        { id: uid('mp'), src: 'Bank_Reference', ledger: 'Bank_Reference', transform: 'none', param: '' },
+        { id: uid('mp'), src: 'bank_txn_id', ledger: 'bank_txn_id', transform: 'none', param: '' },
+        { id: uid('mp'), src: 'transaction_date', ledger: 'transaction_date', transform: 'none', param: '' },
+        { id: uid('mp'), src: 'bank_reference', ledger: 'bank_reference', transform: 'none', param: '' },
+        { id: uid('mp'), src: 'payer_name', ledger: 'payer_name', transform: 'none', param: '' },
+        { id: uid('mp'), src: 'amount', ledger: 'amount', transform: 'none', param: '' },
+        { id: uid('mp'), src: 'clearing_status', ledger: 'clearing_status', transform: 'none', param: '' },
       ];
     }
     function dihInit() { DB.jobs = DB.jobs || buildJobs(); DB.staging = DB.staging || buildStaging(); DB.mappings = DB.mappings || buildMappings(); }
-    function populateMappingsFromHeaders(headers, fileName, csvRows, jobId, sourceLabel) {
-      if (!headers || !headers.length) return;
+    function populateMappingsFromHeaders(headers, fileName, sourceType) {
+      const currentSource = sourceType || ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'GL';
+      if (!headers || !headers.length) {
+        headers = CATEGORY_DEFAULT_HEADERS[currentSource] || CATEGORY_DEFAULT_HEADERS['GL'];
+      }
       DB.uploadedHeaders = headers;
       if (fileName) DB.lastUploadedCsvName = fileName;
       DB.mappings = headers.map(h => ({
         id: uid('mp'),
         src: String(h || '').trim(),
-        ledger: String(h || '').trim(),
+        ledger: smartTarget(h, currentSource),
         transform: 'none',
         param: ''
       }));
-      if (csvRows && csvRows.length) {
-        const getIdx = p => headers.findIndex(h => String(h || '').toLowerCase().includes(p));
-        const txnIdx = getIdx('transaction_id') >= 0 ? getIdx('transaction_id') : (getIdx('transaction') >= 0 ? getIdx('transaction') : getIdx('txn'));
-        const dateIdx = getIdx('payment_date') >= 0 ? getIdx('payment_date') : getIdx('date');
-        const amtIdx = getIdx('amount') >= 0 ? getIdx('amount') : getIdx('amt');
-        const curIdx = getIdx('currency') >= 0 ? getIdx('currency') : getIdx('cur');
-        const payerIdx = getIdx('payer_name') >= 0 ? getIdx('payer_name') : (getIdx('payer') >= 0 ? getIdx('payer') : (getIdx('name') >= 0 ? getIdx('name') : getIdx('party')));
-        const refIdx = getIdx('bank_reference') >= 0 ? getIdx('bank_reference') : getIdx('ref');
-        const fJobId = jobId || uid('job');
-        const fLabel = sourceLabel || fileName || 'Uploaded file';
-
-        const newRows = csvRows.filter(r => Array.isArray(r) && r.length > 0).slice(0, 100).map((row, idx) => {
-          const txnId = txnIdx >= 0 && row[txnIdx] ? String(row[txnIdx]) : `TXN-${9001 + idx}`;
-          let dateVal = dateIdx >= 0 && row[dateIdx] ? String(row[dateIdx]) : todayISO();
-          if (dateVal && dateVal.includes('/')) {
-            const p = dateVal.split('/');
-            if (p.length === 3) { const m = p[0].padStart(2, '0'), d = p[1].padStart(2, '0'), y = p[2].length === 2 ? '20' + p[2] : p[2]; dateVal = `${y}-${m}-${d}`; }
-          }
-          const amount = amtIdx >= 0 && row[amtIdx] ? parseFloat(row[amtIdx]) || 0 : 1000;
-          const currency = curIdx >= 0 && row[curIdx] ? String(row[curIdx]) : 'USD';
-          const counterparty = payerIdx >= 0 && row[payerIdx] ? String(row[payerIdx]) : 'Sample Payer';
-          const reference = refIdx >= 0 && row[refIdx] ? String(row[refIdx]) : `REF-${77112 + idx}`;
-          return {
-            id: uid('stg'),
-            txnId,
-            date: dateVal || todayISO(),
-            reference,
-            counterparty,
-            description: `${counterparty} transfer`,
-            amount,
-            currency,
-            status: 'mapped',
-            jobId: fJobId,
-            sourceLabel: fLabel
-          };
-        });
-        // Append this upload's rows to staging — earlier uploads stay visible via the file dropdown in Data Explorer.
-        DB.staging = (DB.staging || []).concat(newRows);
-      }
+      DB.ui = DB.ui || {};
+      DB.ui.jobSource = currentSource;
+      DB.ui.mappingSourceType = currentSource;
       save();
     }
-    // Mock rows for non-CSV formats (XLSX/OFX/QIF/…) so every upload — not just CSV — shows up in Data Explorer.
-    function mockStagingRows(jobId, sourceLabel, count) {
-      const cos = ['Globex Corp', 'Initech LLC', 'Acme Corporation', 'Wayne Ent.', 'Umbrella Inc', 'Stark Industries', 'Soylent Corp'];
+
+    function mockStagingRows(jobId, sourceLabel, count, sourceType) {
+      const cat = sourceType || ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'GL';
+      const sample = CATEGORY_SAMPLE_DATA[cat] || CATEGORY_SAMPLE_DATA['Bank Statements'];
       const out = [];
-      for (let i = 0; i < count; i++) {
-        const co = cos[i % cos.length];
+      const numRows = Math.min(count || 3, sample.length);
+      for (let i = 0; i < numRows; i++) {
+        const base = sample[i];
+        const rowData = { ...base };
         out.push({
-          id: uid('stg'), txnId: `TXN-${9100 + i}`, date: addDays(todayISO(), -Math.floor(rnd() * 25)),
-          reference: `REF-${78000 + Math.floor(rnd() * 2000)}`, counterparty: co, description: `${co} transfer`,
-          amount: Math.round((100 + rnd() * 9000) * 100) / 100, currency: 'USD', status: 'staged',
-          jobId, sourceLabel
+          id: uid('stg'),
+          jobId,
+          sourceLabel,
+          category: cat,
+          status: 'mapped',
+          rowData,
+          txnId: rowData.bank_txn_id || rowData.invoice_id || rowData.gl_balance_id || rowData.customer_id || `TXN-${9100 + i}`,
+          date: rowData.transaction_date || rowData.issue_date || rowData.posting_date || todayISO(),
+          reference: rowData.bank_reference || rowData.invoice_number || rowData.payment_terms || 'REF-7800',
+          counterparty: rowData.payer_name || rowData.company_name || rowData.customer_id || rowData.gl_account_code || 'Party',
+          description: `${sourceLabel} record`,
+          amount: parseFloat(String(rowData.amount || rowData.total_amount || rowData.control_account_balance || rowData.credit_limit || '1000').replace(/[^0-9.]/g, '')) || 1000,
+          currency: 'USD'
         });
       }
       return out;
     }
+
     function ingestJob(file) {
       if (!file) return;
       const ext = (file.name.split('.').pop() || '').toLowerCase();
       DB.jobs = DB.jobs || [];
-      const selSource = ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'AXIS Bank Statement';
+      const selSource = ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'GL';
+      DB.ui = DB.ui || {};
+      DB.ui.jobSource = selSource;
       const sourceName = `${selSource} · ${file.name}`;
       const jobId = uid('job');
 
       // Update state synchronously so green box and checkmarks render IMMEDIATELY (0ms latency)
       DB.lastUploadedFile = {
         name: file.name,
-        rows: 0,
+        rows: 3,
         source: selSource,
         at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
       };
       DB.lastUploadedCsvName = file.name;
+
+      const defHeaders = CATEGORY_DEFAULT_HEADERS[selSource] || CATEGORY_DEFAULT_HEADERS['GL'];
+      populateMappingsFromHeaders(defHeaders, file.name, selSource);
+
+      const newStaging = mockStagingRows(jobId, sourceName, 3, selSource);
+      DB.staging = (DB.staging || []).concat(newStaging);
+
+      DB.jobs.unshift({
+        id: jobId,
+        source: sourceName,
+        kind: 'manual',
+        format: (ext || 'file').toUpperCase(),
+        rows: 3,
+        status: 'success',
+        errors: 0,
+        at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
+      });
+
+      DB.filters = DB.filters || {};
+      DB.filters.stgJobId = jobId;
+      DB.filters.stgPage = 1;
+
+      logAudit('Ingestion job', `${sourceName} · 3 rows`);
+      save();
       render();
-
-      const mk = rows => {
-        if (DB.lastUploadedFile) DB.lastUploadedFile.rows = rows;
-        DB.jobs.unshift({
-          id: jobId,
-          source: sourceName,
-          kind: 'manual',
-          format: (ext || 'file').toUpperCase(),
-          rows,
-          status: 'success',
-          errors: 0,
-          at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
-        });
-        DB.filters = DB.filters || {}; DB.filters.stgJobId = jobId; DB.filters.stgPage = 1;
-        logAudit('Ingestion job', `${sourceName} · ${rows} rows`);
-        save();
-        render();
-        toast(`${file.name} uploaded successfully (${selSource} · ${rows.toLocaleString('en-IN')} rows)`, 'ok');
-      };
-
-      if (ext === 'csv' || ext === 'tsv') {
-        const rd = new FileReader();
-        rd.onload = () => {
-          try {
-            const parsed = parseCSV(String(rd.result || ''));
-            const headers = parsed.headers || [];
-            const rows = parsed.rows || [];
-            populateMappingsFromHeaders(headers, file.name, rows, jobId, sourceName);
-            mk(rows.length);
-          } catch (err) {
-            console.error('CSV Parse error:', err);
-            mk(1);
-          }
-        };
-        rd.onerror = () => mk(1);
-        rd.readAsText(file);
-      } else {
-        const rowCount = Math.round(50 + Math.random() * 400);
-        DB.staging = (DB.staging || []).concat(mockStagingRows(jobId, sourceName, Math.min(rowCount, 100)));
-        mk(rowCount);
-      }
+      toast(`${file.name} uploaded successfully (${selSource} · 3 rows)`, 'ok');
     }
+
+
     function modalInsertRow() {
       openModal(`<div class="w-[440px]"><div class="text-[15px] font-bold mb-1">Insert staging row</div>
     <div class="text-[12.5px] text-muted mb-4">Add a manual record to the staging area (mocked fields).</div>
@@ -1755,7 +1814,7 @@
       const failedRows = jobs.reduce((s, j) => s + (j.status !== 'success' ? j.errors : 0), 0);
       const jobPill = s => s === 'success' ? `<span class="chip bg-ok-soft text-ok-ink border-ok-soft inline-flex items-center gap-1">${icon('check', 'w-3.5 h-3.5 text-ok-ink')}Success</span>` : s === 'partial' ? '<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Partial</span>' : '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Failed</span>';
       const selSource = (DB.ui && DB.ui.jobSource) || 'AXIS Bank Statement';
-      const sourceOpts = ['AXIS Bank Statement', 'HDFC Bank Statement', 'HSBC Bank Statement', 'ICICI Bank Statement', 'SAP Invoice Export', 'ERP Payments Export', 'Ledger'].map(s => `<option value="${s}" ${s === selSource ? 'selected' : ''}>${s}</option>`).join('');
+      const sourceOpts = ['GL', 'SL', 'Bank Statements', 'Customers'].map(s => `<option value="${s}" ${s === selSource ? 'selected' : ''}>${s}</option>`).join('');
       const upFile = DB.lastUploadedFile;
       const dropzoneHtml = upFile ? `
         <label for="jobup" data-job-dropzone class="block cursor-pointer border-2 border-dashed border-ok-ink/40 bg-ok-soft/50 rounded-lg px-5 py-6 text-center hover:bg-ok-soft/75 transition">
@@ -1821,37 +1880,52 @@
       const schemas = DB.lastUploadedCsvName ? [`Uploaded CSV · ${DB.lastUploadedCsvName}`, 'Bank statement · hdfc-operating.csv', 'Warehouse count · warehouse-count-w28.xlsx'] : ['Bank statement · hdfc-operating.csv', 'Warehouse count · warehouse-count-w28.xlsx'];
       return `<div class="p-6">
     <div class="card p-4 mb-4 flex items-center gap-4">
-      <div class="flex-1"><div class="lbl mb-1.5">Source schema</div>
+      <div class="flex-1"><div class="lbl mb-1.5">Source schema${DB.ui && DB.ui.mappingSourceType ? ` <span class="ml-1.5 text-[11px] font-semibold bg-accent/10 text-accent-ink px-2 py-0.5 rounded-full">${esc(DB.ui.mappingSourceType)}</span>` : ''}</div>
         <select class="field max-w-sm">${schemas.map(s => `<option>${esc(s)}</option>`).join('')}</select></div>
       <div class="text-[12px] text-muted max-w-md"><b>Preconfigured mapping.</b> Review only; edit when a source schema changes or a field is mapped incorrectly. Mappings and transforms are applied automatically during ingestion.</div>
     </div>
     <div class="card overflow-hidden">
       <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Field mapping &amp; transforms</div>
-        ${uHeaders.length ? `<span class="ml-3 text-[11.5px] text-ok-ink bg-ok-soft px-2.5 py-0.5 rounded-full font-medium border border-ok-soft flex items-center gap-1">${icon('check', 'w-3 h-3')}${uHeaders.length} headers extracted from ${esc(DB.lastUploadedCsvName || 'uploaded CSV')}</span>` : ''}
-        <button data-act="map-add" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add mapping</button></div>
+        ${uHeaders.length ? `<span class="ml-3 text-[11.5px] text-ok-ink bg-ok-soft px-2.5 py-0.5 rounded-full font-medium border border-ok-soft flex items-center gap-1">${icon('check', 'w-3 h-3')}${uHeaders.length} headers from ${esc(DB.lastUploadedCsvName || 'uploaded CSV')}</span>` : ''}
+        <div class="ml-auto flex items-center gap-2">
+          <button data-act="map-ai" class="btn btn-ghost btn-sm flex items-center gap-1.5 ${DB.ui && DB.ui.aiMappingLoading ? 'opacity-60 pointer-events-none' : ''}">${icon('bolt', 'w-3.5 h-3.5 text-accent')} ${DB.ui && DB.ui.aiMappingLoading ? `<span class="flex items-center gap-1">Mapping<span class="inline-flex gap-0.5 ml-1">${[0, 150, 300].map(d => `<span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-bounce" style="animation-delay:${d}ms"></span>`).join('')}</span></span>` : 'Map with AI'}</button>
+          <button data-act="map-add" class="btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add mapping</button>
+        </div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
-        <th class="px-4 py-2 font-semibold">Source field</th><th class="px-2 py-2"></th><th class="px-3 py-2 font-semibold">Target field</th>
-        <th class="px-3 py-2 font-semibold">Transform</th><th class="px-3 py-2 font-semibold">Parameter</th><th class="w-8"></th></tr></thead><tbody>
+        <th class="px-4 py-2 font-semibold">Source field</th><th class="px-2 py-2"></th><th class="px-3 py-2 font-semibold">Target field (DB column)</th>
+        <th class="px-3 py-2 font-semibold">Transform</th><th class="w-8"></th></tr></thead><tbody>
+      ${DB.ui && DB.ui.aiMappingLoading ? [0, 1, 2].map(i => `<tr class="border-b border-line-soft"><td class="px-4 py-3" colspan="5"><div class="h-4 rounded bg-gradient-to-r from-sunken via-line to-sunken bg-[length:400%_100%] animate-pulse opacity-60" style="width:${60 + i * 15}%"></div></td></tr>`).join('') : ''}
       ${(DB.mappings || []).map(m => {
-        const srcCell = uHeaders.length ? `<select class="field" data-map="src" data-id="${m.id}">${uHeaders.map(h => `<option value="${esc(h)}" ${h === m.src ? 'selected' : ''}>${esc(h)}</option>`).concat(!uHeaders.includes(m.src) ? `<option value="${esc(m.src)}" selected>${esc(m.src)}</option>` : '').join('')}</select>` : `<input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}">`;
-        return `<tr class="border-b border-line-soft">
+        const srcCell = uHeaders.length ? `<select class="field" data-map="src" data-id="${m.id}">${uHeaders.map(h => `<option value="${esc(h)}" ${h === m.src ? 'selected' : ''}>${esc(h)}</option>`).concat(!uHeaders.includes(m.src) ? [`<option value="${esc(m.src)}" selected>${esc(m.src)}</option>`] : []).join('')}</select>` : `<input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}">`;
+        const tgtOpts = LEDGER_FIELDS.map(f => `<option value="${esc(f)}" ${f === m.ledger ? 'selected' : ''}>${esc(f)}</option>`).concat(!LEDGER_FIELDS.includes(m.ledger) && m.ledger ? [`<option value="${esc(m.ledger)}" selected>${esc(m.ledger)}</option>`] : []).join('');
+        const isAiMapped = DB.ui && DB.ui.aiMappingDone && m.src !== m.ledger;
+        return `<tr class="border-b border-line-soft${isAiMapped ? ' bg-ok-soft/10' : ''}">
         <td class="px-4 py-2.5">${srcCell}</td>
-        <td class="px-2 py-2.5 text-faint text-center">${icon('arrowr', 'w-4 h-4')}</td>
-        <td class="px-3 py-2.5"><select class="field" data-map="ledger" data-id="${m.id}">${lopts(m.ledger, m.src)}</select></td>
+        <td class="px-2 py-2.5 text-faint text-center">${isAiMapped ? `<span class="text-ok-ink">${icon('arrowr', 'w-4 h-4')}</span>` : icon('arrowr', 'w-4 h-4')}</td>
+        <td class="px-3 py-2.5"><select class="field${isAiMapped ? ' ring-1 ring-ok/40' : ''}" data-map="ledger" data-id="${m.id}">${tgtOpts}</select>${isAiMapped ? `<span class="block text-[10px] text-ok-ink mt-0.5 flex items-center gap-0.5">${icon('bolt', 'w-3 h-3')} AI mapped</span>` : ''}</td>
         <td class="px-3 py-2.5"><select class="field" data-map="transform" data-id="${m.id}">${topts(m.transform)}</select></td>
-        <td class="px-3 py-2.5"><input class="field ${mapNeedsParam(m.transform) ? '' : 'opacity-40 pointer-events-none'}" data-map="param" data-id="${m.id}" value="${esc(m.param || '')}" placeholder="${mapNeedsParam(m.transform) ? 'value / format' : '—'}"></td>
         <td class="px-2 py-2.5 text-right"><button data-act="map-del" data-id="${m.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td></tr>`;
       }).join('')}
+
       </tbody></table>
-      <div class="px-4 py-3 border-t border-line text-[11.5px] text-muted flex items-center gap-2 flex-wrap">${icon('bolt', 'w-3.5 h-3.5 text-accent')}Example: <span class="mono">Txn Date "01-07-2026"</span> → parse date → <span class="mono">2026-07-01</span> · <span class="mono">Withdrawal "216.00"</span> → negate → <span class="mono">-216.00</span></div>
+      <div class="px-4 py-3 border-t border-line bg-surface/50 flex items-center justify-between gap-3 flex-wrap">
+        <div class="text-[11.5px] text-muted flex items-center gap-2">
+          ${icon('bolt', 'w-3.5 h-3.5 text-accent')}Example: <span class="mono">Txn Date "01-07-2026"</span> → parse date → <span class="mono">2026-07-01</span> · <span class="mono">Withdrawal "216.00"</span> → negate → <span class="mono">-216.00</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button data-act="confirm-mapping" onclick="toast('Field mapping saved successfully', 'ok')" class="btn btn-primary flex items-center gap-1.5 shadow-sm">${icon('check', 'w-4 h-4')}Confirm mapping</button>
+
+        </div>
+      </div>
     </div></div>`;
+
+
     }
     function dihData() {
       const q = (DB.filters.stgQ || '').toLowerCase(); const st = DB.filters.stgStatus || 'all';
       const jobFilter = DB.filters.stgJobId || 'all';
       const sort = DB.filters.stgSort || { field: 'txnId', dir: 'asc' };
       const staging = DB.staging || [];
-      // Distinct uploaded files (in upload order, most recent first) driving the file picker below.
       const seenFiles = new Set();
       const files = [];
       staging.forEach(r => {
@@ -1860,14 +1934,30 @@
         seenFiles.add(id);
         files.push({ id, label: r.sourceLabel || 'Sample seed data', count: staging.filter(x => (x.jobId || 'seed') === id).length });
       });
+
       let rows = staging.filter(r => {
         if (jobFilter !== 'all' && (r.jobId || 'seed') !== jobFilter) return false;
         if (st !== 'all' && r.status !== st) return false;
         if (!q) return true;
-        return [r.txnId, r.date, r.counterparty, r.description, r.reference, String(r.amount), r.currency].join(' ').toLowerCase().includes(q);
+        const rowStr = r.rowData ? Object.values(r.rowData).join(' ') : [r.txnId, r.date, r.counterparty, r.description, r.reference, String(r.amount), r.currency].join(' ');
+        return rowStr.toLowerCase().includes(q);
       });
-      rows = rows.slice().sort((a, b) => { let x = a[sort.field] || a.id, y = b[sort.field] || b.id; if (typeof x === 'string') { x = x.toLowerCase(); y = (y || '').toLowerCase(); } const c = x < y ? -1 : x > y ? 1 : 0; return sort.dir === 'asc' ? c : -c; });
-      
+
+      const firstRow = rows[0] || staging[0];
+      const activeCategory = (firstRow && firstRow.category) || (DB.ui && DB.ui.jobSource) || 'Bank Statements';
+
+      let targetFields = [];
+      if (firstRow && firstRow.rowData && Object.keys(firstRow.rowData).length) {
+        targetFields = Object.keys(firstRow.rowData);
+      } else if (DB.mappings && DB.mappings.length) {
+        targetFields = [...new Set(DB.mappings.map(m => m.ledger))];
+      } else if (SOURCE_FIELD_MAPS[activeCategory]) {
+        targetFields = [...new Set(Object.values(SOURCE_FIELD_MAPS[activeCategory]))];
+      }
+      if (!targetFields.length) {
+        targetFields = ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'amount', 'clearing_status'];
+      }
+
       const pageSize = 10;
       const totalRows = rows.length;
       const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
@@ -1877,7 +1967,7 @@
       const pagedRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
       const th = (f, l, extra = '') => `<th class="px-3 py-2 font-semibold cursor-pointer select-none ${extra}" data-act="stg-sort" data-field="${f}"><span class="inline-flex items-center gap-1">${l}${sort.field === f ? `<span class="text-accent-ink">${sort.dir === 'asc' ? '↑' : '↓'}</span>` : ''}</span></th>`;
-      const stpill = s => s === 'error' ? '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Error</span>' : s === 'mapped' ? '<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Mapped</span>' : '<span class="chip">Staged</span>';
+      const stpill = s => (s === 'error' || s === 'Failed') ? '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Error</span>' : '<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Mapped</span>';
 
       let pageBtns = [];
       for (let p = 1; p <= totalPages; p++) {
@@ -1901,9 +1991,9 @@
 
       return `<div class="p-6">
     <div class="card px-4 py-3 mb-4 flex items-center gap-3 bg-ok-soft/40 border-ok/20">
-      <span class="text-ok">${icon('check','w-5 h-5')}</span>
+      <span class="text-ok">${icon('check', 'w-5 h-5')}</span>
       <div><div class="font-semibold text-[13px]">Ready for reconciliation</div><div class="text-[11.5px] text-muted">Normalized records from Step 1 are available as canonical data for Side A / Side B matching.</div></div>
-      <button data-act="goto" data-r="reconciliation" class="ml-auto btn btn-primary">Continue to Step 2 ${icon('arrowr','w-4 h-4')}</button>
+      <button data-act="goto" data-r="reconciliation" class="ml-auto btn btn-primary">Continue to Step 2 ${icon('arrowr', 'w-4 h-4')}</button>
     </div>
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
@@ -1914,28 +2004,29 @@
     </div>
     <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · ${totalRows} rows${jobFilter !== 'all' ? ` from ${esc((files.find(f => f.id === jobFilter) || {}).label || 'selected file')}` : ' staged across ' + files.length + ' file' + (files.length === 1 ? '' : 's')} · 10 rows per page</div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
-      ${th('txnId', 'Transaction ID')}
-      ${th('date', 'Transaction date')}
-      ${th('reference', 'Reference')}
-      ${th('counterparty', 'Counterparty')}
-      ${th('description', 'Description')}
-      ${th('amount', 'Amount', 'text-right')}
-      ${th('currency', 'Currency')}
-      ${th('status', 'Status')}
+      ${targetFields.map((f, idx) => {
+        const label = f.toUpperCase().replace(/_/g, ' ');
+        return th(f, label, (f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit')) ? 'text-right' : '');
+      }).join('')}
       <th class="w-8"></th></tr></thead><tbody>
-      ${pagedRows.length ? pagedRows.map(r => `<tr class="border-b border-line-soft row-hover">
-        <td class="px-3 py-2.5 mono text-[12px] font-semibold text-accent-ink">${esc(r.txnId || r.id)}</td>
-        <td class="px-3 py-2.5 mono text-muted">${fmtDate(r.date)}</td>
-        <td class="px-3 py-2.5 mono text-[12px] text-faint">${esc(r.reference || '—')}</td>
-        <td class="px-3 py-2.5 font-medium">${esc(r.counterparty || r.description || '—')}</td>
-        <td class="px-3 py-2.5 text-muted">${esc(r.description || '—')}</td>
-        <td class="px-3 py-2.5 text-right mono ${r.amount < 0 ? 'text-bad-ink' : 'font-medium'}">${fmtMoney(r.amount * 100, r.currency || 'USD')}</td>
-        <td class="px-3 py-2.5 mono text-muted">${r.currency || 'USD'}</td>
-        <td class="px-3 py-2.5">${stpill(r.status)}</td>
-        <td class="px-2 py-2.5 text-right"><button data-act="stg-del" data-id="${r.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td></tr>`).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-muted">No rows match your query.</td></tr>`}
+      ${pagedRows.length ? pagedRows.map(r => {
+        const rd = r.rowData || {};
+        return `<tr class="border-b border-line-soft row-hover">
+          ${targetFields.map((f, idx) => {
+            let val = rd[f] !== undefined ? rd[f] : (r[f] !== undefined ? r[f] : '—');
+            if (f === 'status' || f === 'clearing_status') return `<td class="px-3 py-2.5">${stpill(val)}</td>`;
+            const isId = f.includes('id') || f.includes('number');
+            const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
+            const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
+            return `<td class="px-3 py-2.5 ${cls}">${esc(val)}</td>`;
+          }).join('')}
+          <td class="px-2 py-2.5 text-right"><button data-act="stg-del" data-id="${r.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="${targetFields.length + 1}" class="px-4 py-10 text-center text-muted">No rows match your query.</td></tr>`}
     </tbody></table></div>${paginationHtml}</div>
   </div>`;
     }
+
 
     function dihARPreview(rc, res, picker) {
       return `<div class="p-6">
@@ -1945,14 +2036,14 @@
             ${picker}
           </div>
           <div class="text-[12px] text-muted max-w-lg">Runs bank-to-ledger cash matching, invoice-to-remittance allocation, and a sub-ledger vs. GL control check.</div>
-          <button data-act="open-recon" data-id="${rc.id}" class="btn btn-primary">${icon('play','w-4 h-4')}Open reconciliation</button>
+          <button data-act="open-recon" data-id="${rc.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Open reconciliation</button>
         </div>
 
         <div class="grid grid-cols-4 gap-3 mb-4">
           ${kpi('Matched', res.matches.length + res.overpays.length, `${res.rate.toFixed(1)}% of invoices + payments`)}
-          ${kpi('Short-pays', res.shortPays.length, fmtMoney(res.shortPays.reduce((s,p)=>s+p.shortage,0)*100) + ' underpaid')}
-          ${kpi('Exceptions', res.exceptions.length, fmtMoney(res.breakVal*100) + ' at risk')}
-          ${kpi('GL variance', res.glMismatch ? fmtMoney(res.glMismatch.variance*100) : '₹0.00', res.glMismatch ? esc(res.glMismatch.account) + ' mismatch' : 'sub-ledger = GL')}
+          ${kpi('Short-pays', res.shortPays.length, fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0) * 100) + ' underpaid')}
+          ${kpi('Exceptions', res.exceptions.length, fmtMoney(res.breakVal * 100) + ' at risk')}
+          ${kpi('GL variance', res.glMismatch ? fmtMoney(res.glMismatch.variance * 100) : '₹0.00', res.glMismatch ? esc(res.glMismatch.account) + ' mismatch' : 'sub-ledger = GL')}
         </div>
 
         <div class="card overflow-hidden mb-4">
@@ -1962,7 +2053,7 @@
           <table class="w-full text-[13px]">
             <thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2 text-right">Result</th></tr></thead>
             <tbody>
-              ${[...res.matches, ...res.overpays].slice(0,5).map(m => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(m.amount*100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+              ${[...res.matches, ...res.overpays].slice(0, 5).map(m => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(m.amount * 100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -1970,7 +2061,7 @@
         <div class="card overflow-hidden">
           <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Open exceptions</div><div class="ml-auto text-[11.5px] text-muted">Continue to the full reconciliation for resolution</div></div>
           <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Type</th><th class="px-3 py-2">Description</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Status</th><th></th></tr></thead><tbody>
-            ${res.exceptions.slice(0,6).map(e => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${e.type}</td><td class="px-3 py-2.5 text-muted">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono text-bad-ink">${fmtMoney(e.amount*100)}</td><td class="px-3 py-2.5">${statusPill('break')}</td><td class="px-4 py-2.5 text-right"><button data-act="open-recon" data-id="${rc.id}" class="btn btn-sm btn-ghost">Review</button></td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No open exceptions.</td></tr>`}
+            ${res.exceptions.slice(0, 6).map(e => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${e.type}</td><td class="px-3 py-2.5 text-muted">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono text-bad-ink">${fmtMoney(e.amount * 100)}</td><td class="px-3 py-2.5">${statusPill('break')}</td><td class="px-4 py-2.5 text-right"><button data-act="open-recon" data-id="${rc.id}" class="btn btn-sm btn-ghost">Review</button></td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No open exceptions.</td></tr>`}
           </tbody></table>
         </div>
       </div>`;
@@ -1983,21 +2074,21 @@
       const selected = rows.find(x => x.rc.id === DB.ui.dihRecId) || rows[0];
       const rc = selected.rc, res = selected.res;
       const picker = `<select data-act="dih-select" class="field max-w-md">
-              ${rows.map(({rc:x}) => `<option value="${x.id}" ${x.id===rc.id?'selected':''}>${esc(x.name)}</option>`).join('')}
+              ${rows.map(({ rc: x }) => `<option value="${x.id}" ${x.id === rc.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
             </select>`;
       if (rc.type === 'ar-reconciliation') return dihARPreview(rc, res, picker);
       const recRow = (m, status) => {
         const a = rc.records.find(x => x.id === m.aId), b = rc.records.find(x => x.id === m.bId);
         return `<tr class="border-b border-line-soft row-hover">
           <td class="px-4 py-2.5"><div class="font-semibold">${esc(a?.reference || a?.counterparty || 'Side A record')}</div><div class="text-[11px] text-faint">${esc(a?.date || '')} · ${esc(a?.counterparty || '')}</div></td>
-          <td class="px-3 py-2.5 text-center text-faint">${icon('arrowr','w-4 h-4 inline')}</td>
+          <td class="px-3 py-2.5 text-center text-faint">${icon('arrowr', 'w-4 h-4 inline')}</td>
           <td class="px-3 py-2.5"><div class="font-semibold">${esc(b?.reference || b?.counterparty || 'Side B record')}</div><div class="text-[11px] text-faint">${esc(b?.date || '')} · ${esc(b?.counterparty || '')}</div></td>
           <td class="px-3 py-2.5 text-right mono">${fmtMoney(Math.abs(a?.amount || 0))}</td>
           <td class="px-3 py-2.5">${statusPill(status)}</td>
           <td class="px-3 py-2.5"><div class="text-[12px] font-medium">${esc(m.ruleName)}</div><div class="text-[11px] text-faint">Confidence ${m.confidence}%</div></td>
         </tr>`;
       };
-      const unmatched = res.breaks.slice(0,6).map(r => `<tr class="border-b border-line-soft row-hover">
+      const unmatched = res.breaks.slice(0, 6).map(r => `<tr class="border-b border-line-soft row-hover">
         <td class="px-4 py-2.5"><div class="font-semibold">${esc(r.reference || r.counterparty || r.id)}</div><div class="text-[11px] text-faint">${r.side === 'A' ? 'Side A' : 'Side B'} · ${esc(r.date)}</div></td>
         <td class="px-3 py-2.5 text-muted">${esc(r.counterparty || r.memo || '—')}</td>
         <td class="px-3 py-2.5 text-right mono">${fmtMoney(Math.abs(r.amount))}</td>
@@ -2012,26 +2103,26 @@
             ${picker}
           </div>
           <div class="text-[12px] text-muted max-w-lg">Step 2 consumes the normalized Side A + Side B datasets produced in Step 1 and applies hierarchical matching rules.</div>
-          <button data-act="open-recon" data-id="${rc.id}" class="btn btn-primary">${icon('play','w-4 h-4')}Open reconciliation</button>
+          <button data-act="open-recon" data-id="${rc.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Open reconciliation</button>
         </div>
 
         <div class="grid grid-cols-4 gap-3 mb-4">
           ${kpi('Auto-matched', res.matched.length, `${res.rate.toFixed(1)}% match rate`)}
           ${kpi('Suggested', res.suggested.length, 'requires review / approval')}
           ${kpi('Unmatched', res.breaks.length, fmtMoney(res.breakVal) + ' open value')}
-          ${kpi('Active rules', rc.rules.filter(x=>x.enabled).length, 'hierarchical rule set')}
+          ${kpi('Active rules', rc.rules.filter(x => x.enabled).length, 'hierarchical rule set')}
         </div>
 
         <div class="card overflow-hidden mb-4">
           <div class="flex items-center px-4 h-11 border-b border-line">
             <div><div class="font-semibold text-[13px]">Rule-based reconciliation</div><div class="text-[11px] text-faint">Exact → tolerance / partial → many-to-one / one-to-many</div></div>
-            <div class="ml-auto flex gap-2">${rc.rules.map((r,i)=>`<span class="chip">${i+1}. ${esc(r.name)}</span>`).join('')}</div>
+            <div class="ml-auto flex gap-2">${rc.rules.map((r, i) => `<span class="chip">${i + 1}. ${esc(r.name)}</span>`).join('')}</div>
           </div>
           <table class="w-full text-[13px]">
             <thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Side A</th><th></th><th class="px-3 py-2">Side B</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Result</th><th class="px-3 py-2">Matched by</th></tr></thead>
             <tbody>
-              ${res.matched.slice(0,4).map(m=>recRow(m,'matched')).join('')}
-              ${res.suggested.slice(0,3).map(m=>recRow(m,'suggested')).join('')}
+              ${res.matched.slice(0, 4).map(m => recRow(m, 'matched')).join('')}
+              ${res.suggested.slice(0, 3).map(m => recRow(m, 'suggested')).join('')}
             </tbody>
           </table>
         </div>
@@ -2340,6 +2431,35 @@
       'stg-del': d => { DB.staging = (DB.staging || []).filter(x => x.id !== d.id); save(); render(); toast('Row removed', 'warn'); },
       'map-add': () => { DB.mappings = DB.mappings || []; DB.mappings.push({ id: uid('mp'), src: 'New field', ledger: LEDGER_FIELDS[0], transform: 'none', param: '' }); render(); },
       'map-del': d => { DB.mappings = (DB.mappings || []).filter(x => x.id !== d.id); render(); },
+      'map-ai': () => {
+        DB.ui = DB.ui || {};
+        DB.ui.aiMappingLoading = true;
+        render();
+        setTimeout(() => {
+          const selSource = (DB.ui && DB.ui.jobSource) || 'GL';
+          DB.mappings = (DB.mappings || []).map(m => ({
+            ...m,
+            ledger: smartTarget(m.src, selSource)
+          }));
+          DB.ui.aiMappingLoading = false;
+          DB.ui.aiMappingDone = true;
+          save();
+          render();
+          toast('AI mapped source fields to target DB columns', 'ok');
+        }, 850);
+      },
+      'confirm-mapping': () => {
+        DB.ui = DB.ui || {};
+        DB.ui.mappingConfirmed = true;
+        logAudit('Confirmed schema mapping', `${(DB.mappings || []).length} field(s) mapped`);
+        save();
+        render();
+        toast('Mapping Saved', 'ok');
+      },
+
+
+
+
       'job-errors': d => { const j = (DB.jobs || []).find(x => x.id === d.id); toast(`${j.errors} row(s) failed validation in ${j.source}`, 'warn'); },
       reset: () => { resetAll(); toast('Sample data restored'); },
     };
