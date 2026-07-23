@@ -287,6 +287,18 @@
       background: rgba(16, 19, 26, .38);
       backdrop-filter: blur(2px);
     }
+
+    @media print {
+      body * { visibility: hidden; }
+      #ar-finish-summary-print, #ar-finish-summary-print * { visibility: visible; }
+      #ar-finish-summary-print {
+        position: absolute; inset: 0; width: 100% !important; max-width: none !important;
+        max-height: none !important; overflow: visible !important; padding: 24px;
+      }
+      #modal .modal-back { position: static !important; background: none !important; backdrop-filter: none !important; padding: 0 !important; display: block !important; }
+      #modal .card.shadow-xl { box-shadow: none !important; padding: 0 !important; }
+      .print-hide { display: none !important; }
+    }
   </style>
 </head>
 
@@ -451,7 +463,96 @@
       ];
       // GL control account 1200 reports 7,800 vs the 7,500 the sub-ledger will calculate — $300 variance by design.
       const glControlBalances = { account: '1200-AR', glBalance: 780000 };
-      return { customers, invoices, bankStatements, payments, paymentAllocations, glControlBalances };
+      // Payment-gateway settlements (payout batches, gateway fees, txn IDs) — this sample dataset's
+      // cash all arrived via bank wire/ACH, so there's nothing here yet; the stream is real but empty.
+      const gatewaySettlements = [];
+      return { customers, invoices, bankStatements, payments, paymentAllocations, glControlBalances, gatewaySettlements };
+    }
+
+    // ── Bridge: pulls the latest Data Hub uploads (GL / SL / Bank Statements / Customers) into
+    // the shape arEngine() expects, falling back per-category to the seed sample data for any
+    // type that hasn't been uploaded yet. Computed live on every arEngine() call — no separate
+    // "sync" step, so a fresh upload takes effect the next time this reconciliation runs.
+    function parseMoneyToCents(v) {
+      if (v == null || v === '') return 0;
+      const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+      return isFinite(n) ? Math.round(n * 100) : 0;
+    }
+    function normARDate(v) {
+      v = String(v || '').trim(); if (!v) return todayISO();
+      if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+      const p = v.split(/[-/]/);
+      if (p.length === 3) {
+        if (p[0].length === 4) return `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
+        const m = p[0].padStart(2, '0'), d = p[1].padStart(2, '0'), y = p[2].length === 2 ? '20' + p[2] : p[2];
+        return `${y}-${m}-${d}`;
+      }
+      return todayISO();
+    }
+    // Only a genuine upload (a real ingestion job, not the seed) overrides a category — this keeps
+    // the default (nothing uploaded yet) byte-for-byte identical to the original seeded dataset.
+    function latestRealJobForCategory(category) {
+      return (DB.jobs || []).find(j => (j.source || '').split(' · ')[0].trim() === category);
+    }
+    function stagedRowsForCategory(category) {
+      const job = latestRealJobForCategory(category);
+      if (!job) return [];
+      return (DB.staging || []).filter(r => r.category === category && r.jobId === job.id).map(r => r.rowData || {});
+    }
+    function mapStagedCustomers(rows) {
+      return rows.map(r => ({
+        customerId: r.customer_id || '', companyName: r.company_name || 'Unknown',
+        paymentTerms: r.payment_terms || 'Net 30', creditLimit: parseMoneyToCents(r.credit_limit),
+        currencyCode: r.currency_code || 'USD',
+      })).filter(c => c.customerId);
+    }
+    function mapStagedInvoices(rows) {
+      return rows.map(r => ({
+        invoiceId: r.invoice_id || '', customerId: r.customer_id || '', invoiceNumber: r.invoice_number || r.invoice_id || '',
+        issueDate: normARDate(r.issue_date), dueDate: normARDate(r.due_date),
+        totalAmount: parseMoneyToCents(r.total_amount), status: r.status || 'Open',
+      })).filter(i => i.invoiceId);
+    }
+    function mapStagedBankStatements(rows) {
+      return rows.map(r => ({
+        bankTxnId: r.bank_txn_id || '', transactionDate: normARDate(r.transaction_date),
+        bankReferenceNumber: r.bank_reference || r.bank_reference_number || '', payerName: r.payer_name || 'Unknown',
+        amount: parseMoneyToCents(r.amount), clearingStatus: r.clearing_status || 'Pending',
+      })).filter(b => b.bankTxnId);
+    }
+    function mapStagedGL(rows) {
+      if (!rows.length) return null;
+      const sorted = rows.slice().sort((a, b) => String(b.posting_date || b.period_date || '').localeCompare(String(a.posting_date || a.period_date || '')));
+      const g = sorted[0];
+      return { account: String(g.gl_account_code || '1200-AR').replace(/\s*\(.*?\)\s*/g, '').trim(), glBalance: parseMoneyToCents(g.control_account_balance) };
+    }
+    // There's no separate "Payments" upload category (the source dropdown only has GL/SL/Bank
+    // Statements/Customers) — a bank inflow *is* the payment record, so payments are derived from
+    // whichever bank statements are in effect, linking to a customer by matching payer name.
+    function derivePaymentsFromBank(bankStatements, customers) {
+      const findCustomerId = name => {
+        const n = String(name || '').toLowerCase().trim();
+        const c = customers.find(c => c.companyName.toLowerCase().trim() === n);
+        return c ? c.customerId : null;
+      };
+      return bankStatements.map(bs => {
+        const customerId = findCustomerId(bs.payerName);
+        return { paymentId: 'PAY-' + bs.bankTxnId, customerId, bankTxnId: bs.bankTxnId, totalReceived: bs.amount, unappliedAmount: customerId ? 0 : bs.amount };
+      });
+    }
+    function arDataFromUploads(seed) {
+      const upCustomers = stagedRowsForCategory('Customers');
+      const upInvoices = stagedRowsForCategory('SL');
+      const upBank = stagedRowsForCategory('Bank Statements');
+      const upGL = stagedRowsForCategory('GL');
+      const customers = upCustomers.length ? mapStagedCustomers(upCustomers) : seed.customers;
+      const invoices = upInvoices.length ? mapStagedInvoices(upInvoices) : seed.invoices;
+      const bankStatements = upBank.length ? mapStagedBankStatements(upBank) : seed.bankStatements;
+      const glControlBalances = upGL.length ? mapStagedGL(upGL) : seed.glControlBalances;
+      // Payments are re-derived whenever either bank statements or customers came from an upload,
+      // since a new bank file or a new customer list changes who each inflow should link to.
+      const payments = (upBank.length || upCustomers.length) ? derivePaymentsFromBank(bankStatements, customers) : seed.payments;
+      return { customers, invoices, bankStatements, payments, paymentAllocations: seed.paymentAllocations, glControlBalances, gatewaySettlements: seed.gatewaySettlements };
     }
 
     function genRecords(recId, type) {
@@ -536,7 +637,7 @@
         buildRec('inventory', 'Goods Receipt ↔ Invoices', 'Sam Whitlock'),
         buildRec('close', 'AR Subledger ↔ GL', 'Priya Nair'),
       ];
-      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
       recs.push(arRec);
       // No precomputation — every reconciliation starts unrun. Results only appear once
       // "Run reconciliation" is pressed; Rules Studio still shows a live simulation preview.
@@ -698,7 +799,7 @@
     }
     function arEngine(rec) {
       if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], perRule: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
-      const ar = rec.arData;
+      const ar = arDataFromUploads(rec.arData);
       // Uploaded files can reference a customer_id absent from the customers file — fall back
       // instead of crashing, since mismatched real-world CSVs are the norm, not the exception.
       const cust = id => ar.customers.find(c => c.customerId === id) || { customerId: id, companyName: id ? `Unknown (${id})` : 'Unknown customer' };
@@ -707,8 +808,19 @@
       const bankStatements = ar.bankStatements.map(b => ({ ...b }));
       const exceptions = [];
       let _exN = 0;
-      const flagException = (type, relatedId, description, amount) =>
-        exceptions.push({ id: 'EXC-' + String(++_exN).padStart(3, '0'), type, relatedId, description, amount, status: 'Open', resolutionNotes: null });
+      // key is stable across re-renders (type+relatedId) — unlike the display id (EXC-00N, which
+      // just reflects flag order) — so a saved resolution/manual match still applies next render.
+      const resolvedMap = rec.arResolved || {};
+      const flagException = (type, relatedId, description, amount, extra) => {
+        const key = type + ':' + relatedId;
+        const r = resolvedMap[key];
+        exceptions.push({
+          id: 'EXC-' + String(++_exN).padStart(3, '0'), key, type, relatedId, description, amount,
+          status: r ? 'Resolved' : 'Open', resolutionNotes: r ? r.note : null,
+          date: (extra && extra.date) || todayISO(), customer: (extra && extra.customer) || null,
+          confidence: (extra && extra.confidence != null) ? extra.confidence : 80,
+        });
+      };
 
       const arRules = rec.arRules || [];
       const rulesFor = k => arRules.filter(r => r.phase === k);
@@ -733,25 +845,65 @@
         const m = bankMatches.find(x => x.aId === bs.bankTxnId);
         if (!m) {
           bs.clearingStatus = bankRules.some(r => r.enabled) ? 'Exception' : 'Not checked';
-          if (bankRules.some(r => r.enabled)) flagException('Timing Difference', bs.bankTxnId, `${fmtMoney(bs.amount * 100)} received from ${bs.payerName} has no recorded payment yet`, bs.amount);
+          if (bankRules.some(r => r.enabled)) flagException('Timing Difference', bs.bankTxnId, `${fmtMoney(bs.amount)} received from ${bs.payerName} has no recorded payment yet`, bs.amount, { date: bs.transactionDate, customer: bs.payerName, confidence: 60 });
           return;
         }
         const pay = payments.find(p => p.paymentId === m.bId);
         if (pay.customerId) { bs.clearingStatus = 'Reconciled'; bankMatchedCount++; }
-        else { bs.clearingStatus = 'Exception'; flagException('Unapplied Payment', bs.bankTxnId, `${bs.payerName} sent ${fmtMoney(bs.amount * 100)} with no matching customer/invoice`, bs.amount); }
+        // No customerId → this becomes an Unapplied Payment exception once Phase 4 evaluates it
+        // below (flagged there, not here, so it's raised exactly once, not once per phase).
+        else { bs.clearingStatus = 'Exception'; }
       });
 
       // ── Phase 2: Payment ↔ Invoice allocation (cascading match — derived live, no lookup table) ──
+      // Manual matches (saved from the Exceptions inbox) are many-to-many groups — one payment can
+      // cover several invoices, or several payments can jointly settle one invoice. They're pulled
+      // out of the pool before rule-based matching runs, so they can't be re-matched to something else.
       const allocRules = rulesFor('allocation');
-      const payA2 = payments.map(p => ({ id: p.paymentId, reference: p.paymentId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
-      const invB2 = invoices.map(inv => ({ id: inv.invoiceId, reference: inv.invoiceNumber, amount: inv.totalAmount, date: inv.dueDate }));
+      const manualGroups = (rec.arManualMatches || [])
+        .map(g => ({ ...g, invoiceIds: (g.invoiceIds || []).filter(id => invoices.some(i => i.invoiceId === id)), paymentIds: (g.paymentIds || []).filter(id => payments.some(p => p.paymentId === id)) }))
+        .filter(g => g.invoiceIds.length && g.paymentIds.length);
+      const manualPayIds = new Set(manualGroups.flatMap(g => g.paymentIds));
+      const manualInvIds = new Set(manualGroups.flatMap(g => g.invoiceIds));
+      const payA2 = payments.filter(p => !manualPayIds.has(p.paymentId)).map(p => ({ id: p.paymentId, reference: p.paymentId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
+      const invB2 = invoices.filter(inv => !manualInvIds.has(inv.invoiceId)).map(inv => ({ id: inv.invoiceId, reference: inv.invoiceNumber, amount: inv.totalAmount, date: inv.dueDate }));
       const allocMatches = allocRules.some(r => r.enabled) ? cascadeMatch(payA2, invB2, allocRules) : [];
 
       // ── Phase 3: Invoice settlement / short-pay ──
       const shortPayRule = firstEnabled('short-pay');
       const matches = [], shortPays = [], overpays = [], unmatchedInvoices = [];
       const matchedPayIds = new Set();
-      invoices.forEach(inv => {
+
+      // Manual groups first: pool every payment in the group, then waterfall it across the group's
+      // invoices in the order they were selected — leftover after the last invoice becomes overpay.
+      manualGroups.forEach(g => {
+        const groupInvoices = g.invoiceIds.map(id => invoices.find(i => i.invoiceId === id));
+        const groupPayments = g.paymentIds.map(id => payments.find(p => p.paymentId === id));
+        const paymentLabel = g.paymentIds.join(', ');
+        groupPayments.forEach(p => { matchedPayIds.add(p.paymentId); p.unappliedAmount = 0; });
+        let pool = groupPayments.reduce((s, p) => s + p.totalReceived, 0);
+        const applied = groupInvoices.map(inv => { const a = Math.min(pool, inv.totalAmount); pool -= a; return a; });
+        groupInvoices.forEach((inv, idx) => {
+          const isLast = idx === groupInvoices.length - 1;
+          const paidAmt = applied[idx] + (isLast && pool > 0 ? pool : 0);
+          const custName = cust(inv.customerId).companyName;
+          if (paidAmt >= inv.totalAmount) {
+            inv.status = 'Paid';
+            if (paidAmt > inv.totalAmount) overpays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: inv.totalAmount, paid: paidAmt, overage: paidAmt - inv.totalAmount, paymentId: paymentLabel });
+            else matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: inv.totalAmount, paymentId: paymentLabel });
+          } else if (paidAmt > 0) {
+            inv.status = 'Open';
+            const shortage = inv.totalAmount - paidAmt;
+            shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: inv.totalAmount, paid: paidAmt, shortage, paymentId: paymentLabel });
+            flagException('Short-Pay', inv.invoiceId, `${custName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage)}`, shortage, { date: inv.dueDate, customer: custName, confidence: 90 });
+          } else {
+            unmatchedInvoices.push(inv);
+          }
+        });
+      });
+
+      // Then rule-based 1:1 matches for whatever wasn't manually grouped.
+      invoices.filter(inv => !manualInvIds.has(inv.invoiceId)).forEach(inv => {
         const m = allocMatches.find(x => x.bId === inv.invoiceId);
         const pay = m ? payments.find(p => p.paymentId === m.aId) : null;
         if (pay) {
@@ -764,7 +916,7 @@
             const tolerance = thresholdOf(shortPayRule, inv.totalAmount);
             if (shortage > tolerance) {
               shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: pay.totalReceived, shortage, paymentId: pay.paymentId });
-              flagException('Disputed Invoice', inv.invoiceId, `${cust(inv.customerId).companyName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage * 100)}`, shortage);
+              flagException('Short-Pay', inv.invoiceId, `${cust(inv.customerId).companyName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage)}`, shortage, { date: inv.dueDate, customer: cust(inv.customerId).companyName, confidence: 90 });
             } else {
               matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paymentId: pay.paymentId });
             }
@@ -784,6 +936,7 @@
       const unapplied = payments
         .filter(p => !matchedPayIds.has(p.paymentId) && p.unappliedAmount > thresholdOf(unappliedRule, p.totalReceived))
         .map(p => ({ paymentId: p.paymentId, amount: p.unappliedAmount, customer: p.customerId ? cust(p.customerId).companyName : 'Unknown payer', bankTxnId: p.bankTxnId }));
+      unapplied.forEach(u => flagException('Unapplied Payment', u.paymentId, `${u.customer} payment ${u.paymentId} has ${fmtMoney(u.amount)} left unapplied`, u.amount, { customer: u.customer, confidence: 70 }));
 
       // ── Phase 5: AR Sub-Ledger vs GL Control Total Check ──
       // Open-invoice face value, not netted against partial payments — a short-paid invoice still
@@ -797,10 +950,17 @@
         const tolerance = thresholdOf(glRule, glBalance);
         if (Math.abs(variance) > tolerance) {
           glMismatch = { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) };
-          flagException('GL Mismatch', ar.glControlBalances.account, `Sub-ledger ${fmtMoney(subledgerBalance * 100)} vs GL ${fmtMoney(glBalance * 100)} — unposted adjustment suspected`, glMismatch.variance);
+          flagException('GL Control Mismatch', ar.glControlBalances.account, `Sub-ledger ${fmtMoney(subledgerBalance)} vs GL ${fmtMoney(glBalance)} — unposted adjustment suspected`, glMismatch.variance, { confidence: 95 });
         }
         glControlBalances = { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) };
       }
+
+      // ── Phase 6: Payment Gateway Settlements — payout batches/fees/txn IDs vs invoice line items ──
+      // No sample data ships for this stream yet; wired so real settlement rows flag correctly
+      // the moment they exist (matches how the Payment Gateway Settlements tab is already built).
+      (ar.gatewaySettlements || []).forEach(g => {
+        if (!g.matched) flagException('Gateway Variance', g.settlementId, `${g.gateway} settlement ${g.transactionId} (${fmtMoney(g.netAmount)} net) has no matching invoice line item`, g.netAmount, { date: g.settlementDate, customer: g.customer, confidence: 75 });
+      });
 
       // ── Metrics ──
       const breaks = [...unmatchedInvoices, ...shortPays, ...unapplied];
@@ -834,7 +994,7 @@
 
     // ═══════════════════════════════════════ small components ═══════════════════════════════════════
     function statusPill(k) {
-      const m = { matched: ['ok', 'Matched'], suggested: ['warn', 'Suggested'], break: ['bad', 'Break'], resolved: ['ok', 'Resolved'], writeoff: ['muted', 'Written off'], investigate: ['warn', 'Investigating'], journal: ['ok', 'Journal entry'] };
+      const m = { matched: ['ok', 'Matched'], suggested: ['warn', 'Suggested'], break: ['bad', 'Break'], resolved: ['ok', 'Resolved'], completed: ['ok', 'Completed'], writeoff: ['muted', 'Written off'], investigate: ['warn', 'Investigating'], journal: ['ok', 'Journal entry'] };
       const [t, l] = m[k] || ['muted', k];
       const bg = t === 'ok' ? 'bg-ok-soft text-ok-ink' : t === 'warn' ? 'bg-warn-soft text-warn-ink' : t === 'bad' ? 'bg-bad-soft text-bad-ink' : 'bg-sunken text-muted';
       return `<span class="inline-flex items-center gap-1 h-[20px] px-2 rounded text-[11px] font-semibold ${bg}">${l}</span>`;
@@ -1025,17 +1185,21 @@
       const lastRun = rec.lastRun ? `<span class="text-[11.5px] text-muted mono">last run ${rec.lastRun.at.replace('T', ' ')}</span>` : `<span class="text-[11.5px] text-faint mono">never run</span>`;
       let body = '';
       const tabs = isAR ? AR_RECON_TABS : RECON_TABS;
-      const exceptionsCount = hasRun ? (isAR ? res.exceptions.length : res.breaks.length) : 0;
+      const exceptionsCount = hasRun ? (isAR ? res.exceptions.filter(e => e.status === 'Open').length : res.breaks.length) : 0;
       const tabLabels = { overview: 'Overview', matches: isAR ? 'Matched' : 'Matches', exceptions: 'Exceptions', sources: 'Sources' };
       if (tab === 'overview') body = hasRun ? (isAR ? arReconOverview(rec, res) : reconOverview(rec, res)) : reconNotRun(rec, res, tabLabels.overview);
       else if (tab === 'rules') body = isAR ? arReconRules(rec, res) : reconRules(rec, res);
       else if (tab === 'matches') body = hasRun ? (isAR ? arReconMatches(rec, res) : reconMatches(rec, res)) : reconNotRun(rec, res, tabLabels.matches);
       else if (tab === 'exceptions') body = hasRun ? (isAR ? arReconExceptions(rec, res) : reconExceptions(rec, res)) : reconNotRun(rec, res, tabLabels.exceptions);
       else if (tab === 'sources' && !isAR) body = hasRun ? reconSources(rec, res) : reconNotRun(rec, res, tabLabels.sources);
+      const canFinish = isAR && hasRun && res.exceptions.length > 0 && exceptionsCount === 0 && !rec.arFinished;
+      const finishBtn = canFinish
+        ? `<button data-act="ar-finish-recon" data-id="${rec.id}" class="fixed bottom-6 right-6 z-30 btn btn-primary shadow-lg flex items-center gap-1.5">${icon('check', 'w-4 h-4')}Finish Reconciliation</button>`
+        : (isAR && rec.arFinished ? `<button data-act="ar-view-finish-summary" data-id="${rec.id}" class="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md bg-ok-soft text-ok-ink text-[13px] font-semibold shadow-lg hover:bg-ok-soft/80">${icon('check', 'w-4 h-4')}Reconciliation finished · view summary</button>` : '');
       return topbar(esc(rec.name), `${meta.a} <span class="text-faint">↔</span> ${meta.b} · ${rec.cadence}`, `${lastRun}${runBtn}`)
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
       ${tabs.map(([k, l]) => `<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'exceptions' && exceptionsCount ? ` <span class="mono text-[11px] text-warn-ink">${exceptionsCount}</span>` : ''}</button>`).join('')}
-    </div><div class="flex-1 overflow-y-auto fade-in flex flex-col">${body}</div>`;
+    </div><div class="flex-1 overflow-y-auto fade-in flex flex-col">${body}</div>${finishBtn}`;
     }
 
     // ═══════════════════════════════════════ views: work queues ═══════════════════════════════════════
@@ -1113,26 +1277,26 @@
       const matchRate = (res.matched.length / (res.invoices.length + res.payments.length) * 100).toFixed(1);
       return `<div class="p-6 fade-in">
         <div class="grid grid-cols-4 gap-3 mb-5">
-          ${kpi_('Total invoices', res.invoices.length, fmtMoney(res.invoices.reduce((s, i) => s + i.totalAmount, 0) * 100) + ' billed')}
+          ${kpi_('Total invoices', res.invoices.length, fmtMoney(res.invoices.reduce((s, i) => s + i.totalAmount, 0)) + ' billed')}
           ${kpi_('Matched', res.matches.length, `${matchRate}% reconciled`)}
           ${kpi_('Open exceptions', res.exceptions.length, `${res.exceptions.filter(e => e.status === 'Open').length} unresolved`)}
-          ${kpi_('Unapplied cash', res.unapplied.length, fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0) * 100))}
+          ${kpi_('Unapplied cash', res.unapplied.length, fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0)))}
         </div>
         ${res.glMismatch ? `<div class="card bg-warn-soft border border-warn-soft mb-5 p-4"><div class="flex items-start gap-3">
           <span class="text-warn text-[20px] leading-none mt-0.5">${icon('alert', 'w-5 h-5')}</span>
           <div class="flex-1"><div class="font-semibold text-[13px]">GL control account ${esc(res.glMismatch.account)} mismatch</div>
-          <div class="text-[12px] text-warn-ink mt-1">Sub-ledger ${fmtMoney(res.glMismatch.subledgerBalance * 100)} vs GL ${fmtMoney(res.glMismatch.glBalance * 100)} = ${fmtMoney(res.glMismatch.variance * 100)} variance</div></div></div></div>` : ''}
+          <div class="text-[12px] text-warn-ink mt-1">Sub-ledger ${fmtMoney(res.glMismatch.subledgerBalance)} vs GL ${fmtMoney(res.glMismatch.glBalance)} = ${fmtMoney(res.glMismatch.variance)} variance</div></div></div></div>` : ''}
         <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Invoice status summary</div></div>
         <table class="w-full text-[13px]"><tbody>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Fully matched (Paid)</td><td class="px-3 py-2.5">${res.matches.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.matches.reduce((s, m) => s + m.amount, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Over-payments</td><td class="px-3 py-2.5">${res.overpays.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.overpays.reduce((s, o) => s + o.overage, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Short-payments</td><td class="px-3 py-2.5">${res.shortPays.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s, i) => s + i.totalAmount, 0) * 100)}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
-          <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0) * 100)}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Fully matched (Paid)</td><td class="px-3 py-2.5">${res.matches.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.matches.reduce((s, m) => s + m.amount, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Over-payments</td><td class="px-3 py-2.5">${res.overpays.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.overpays.reduce((s, o) => s + o.overage, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Short-payments</td><td class="px-3 py-2.5">${res.shortPays.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s, i) => s + i.totalAmount, 0))}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
+          <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
         </tbody></table></div>
         <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Phase 2a · bank_statements.clearing_status</div></div>
         <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
-        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount * 100)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus === 'Reconciled' ? statusPill('matched') : statusPill('break')}</td></tr>`).join('')}
+        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus === 'Reconciled' ? statusPill('matched') : statusPill('break')}</td></tr>`).join('')}
         </tbody></table></div>
         <div class="card overflow-hidden">
           <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr', 'w-3.5 h-3.5')}</button></div>
@@ -1235,28 +1399,293 @@
         </div>
       </div>`;
     }
-    function arReconMatches(rec, res) {
-      return `<div class="p-6 fade-in"><div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Matched invoices & payments (${res.matches.length + res.overpays.length})</div></div>
+    // Three named matching streams shown as a segmented control within the Matched tab, plus an
+    // "All" view that keeps today's single combined list — nothing is removed, just organized.
+    const AR_MATCH_STREAMS = [
+      ['all', 'All'],
+      ['bank-cash', 'Bank & Cash Application'],
+      ['gateway', 'Payment Gateway Settlements'],
+      ['gl', 'Sub-Ledger vs GL Control'],
+    ];
+    function arMatchSegControl(stream) {
+      return `<div class="inline-flex items-center gap-1 p-1 bg-sunken rounded-lg mb-4">${AR_MATCH_STREAMS.map(([k, l]) => `<button data-act="ar-match-stream" data-stream="${k}" class="px-3 py-1.5 rounded-md text-[12.5px] font-semibold transition ${stream === k ? 'bg-surface shadow-sm text-ink' : 'text-muted hover:text-ink'}">${l}</button>`).join('')}</div>`;
+    }
+    // Title names what's being compared on each side, not just "matched" — mirrors the topbar's
+    // "A ↔ B" convention used across every other reconciliation type.
+    function arMatchedTable(res, title) {
+      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${res.matches.length + res.overpays.length})</div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
       ${[...res.matches, ...res.overpays].map(m => {
-        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount * 100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage * 100)}</span>` : ''}</td></tr>`;
+        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`;
       }).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
-      </tbody></table></div></div>`;
+      </tbody></table></div>`;
     }
+    function arGatewaySection(rec) {
+      const rows = rec.arData.gatewaySettlements || [];
+      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Gateway Settlements ↔ Invoice Line Items (${rows.length})</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Settlement</th><th class="px-3 py-2">Gateway</th><th class="px-3 py-2">Txn ID</th><th class="px-3 py-2 text-right">Gross</th><th class="px-3 py-2 text-right">Fee</th><th class="px-3 py-2 text-right">Net</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
+      ${rows.length ? rows.map(g => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${g.settlementId}</td><td class="px-3 py-2.5">${esc(g.gateway)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${g.transactionId}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.grossAmount)}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(g.feeAmount)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${fmtMoney(g.netAmount)}</td><td class="px-4 py-2.5 text-right">${statusPill(g.matched ? 'matched' : 'break')}</td></tr>`).join('')
+        : `<tr><td colspan="7" class="px-4 py-10 text-center text-muted">No gateway settlements in this dataset — this sample's cash all arrived via bank wire/ACH. This stream is ready to reconcile once payout-batch data is available.</td></tr>`}
+      </tbody></table></div>`;
+    }
+    function arGlSection(res) {
+      if (!res.glControlBalances) return `<div class="card p-8 text-center text-[13px] text-muted">GL control check is disabled in Rules Studio — enable the "AR Sub-ledger ↔ GL control" rule to see this.</div>`;
+      const g = res.glControlBalances;
+      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">AR Sub-Ledger ↔ GL Account ${esc(g.account)}</div></div>
+      <div class="p-5 grid grid-cols-3 gap-4 text-center">
+        <div><div class="lbl mb-1">AR sub-ledger</div><div class="text-lg font-semibold mono">${fmtMoney(g.subledgerBalance)}</div></div>
+        <div><div class="lbl mb-1">GL account ${esc(g.account)}</div><div class="text-lg font-semibold mono">${fmtMoney(g.glBalance)}</div></div>
+        <div><div class="lbl mb-1 ${g.variance ? 'text-bad-ink' : 'text-ok-ink'}">Variance</div><div class="text-lg font-semibold mono ${g.variance ? 'text-bad-ink' : 'text-ok-ink'}">${fmtMoney(g.variance)}</div></div>
+      </div>
+      ${res.glMismatch ? `<div class="px-5 pb-5 text-[12px] text-bad-ink">${esc(res.glMismatch.account)} mismatch suspected — an unposted adjustment is likely. See Exceptions for the logged entry.</div>` : `<div class="px-5 pb-5 text-[12px] text-ok-ink">In balance — no variance beyond the configured tolerance.</div>`}
+      </div>`;
+    }
+    function arReconMatches(rec, res) {
+      const stream = (DB.ui && DB.ui.arMatchStream) || 'all';
+      const body = stream === 'bank-cash' ? arMatchedTable(res, 'Bank Deposits ↔ Open Invoices')
+        : stream === 'gateway' ? arGatewaySection(rec)
+        : stream === 'gl' ? arGlSection(res)
+        : arMatchedTable(res, 'Invoices ↔ Payments — All Matches');
+      return `<div class="p-6 fade-in">${arMatchSegControl(stream)}${body}</div>`;
+    }
+    // ── Exception & Action Inbox: every unmatched item / variance across all 3 AR streams in one
+    // triage queue, tagged by type, with faceted filtering — click a row to resolve it.
+    const AR_EXC_TYPE_STYLE = {
+      'Timing Difference': 'bg-sunken text-muted',
+      'Unapplied Payment': 'bg-warn-soft text-warn-ink',
+      'Short-Pay': 'bg-bad-soft text-bad-ink',
+      'GL Control Mismatch': 'bg-bad-soft text-bad-ink',
+      'Gateway Variance': 'bg-accent-soft text-accent-ink',
+    };
+    function arExcTypeBadge(t) {
+      return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold whitespace-nowrap ${AR_EXC_TYPE_STYLE[t] || 'bg-sunken text-muted'}">${esc(t)}</span>`;
+    }
+    // Types that are genuinely a mismatch between two records get the two-table manual matcher;
+    // single-value checks (GL, timing, gateway-with-no-counterpart-model) get a resolution note.
+    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment'];
     function arReconExceptions(rec, res) {
-      const typeBadge = t => {
-        const m = { 'Timing Difference': 'bg-sunken text-muted', 'Unapplied Payment': 'bg-warn-soft text-warn-ink', 'Disputed Invoice': 'bg-bad-soft text-bad-ink', 'GL Mismatch': 'bg-bad-soft text-bad-ink' };
-        return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${m[t] || 'bg-sunken text-muted'}">${t}</span>`;
-      };
+      const f = (DB.ui && DB.ui.arExcFilter) || { q: '', type: 'all', sort: 'amount-desc' };
+      const types = [...new Set(res.exceptions.map(e => e.type))];
+      let rows = res.exceptions.filter(e => {
+        if (f.type !== 'all' && e.type !== f.type) return false;
+        if (f.q) {
+          const q = f.q.toLowerCase();
+          if (![e.description, e.customer, e.relatedId, e.id].some(v => (v || '').toLowerCase().includes(q))) return false;
+        }
+        return true;
+      });
+      const [sortKey, sortDir] = f.sort.split('-');
+      rows = rows.slice().sort((a, b) => {
+        const av = sortKey === 'amount' ? a.amount : sortKey === 'confidence' ? a.confidence : sortKey === 'customer' ? (a.customer || '') : a.date;
+        const bv = sortKey === 'amount' ? b.amount : sortKey === 'confidence' ? b.confidence : sortKey === 'customer' ? (b.customer || '') : b.date;
+        const c = av < bv ? -1 : av > bv ? 1 : 0;
+        return sortDir === 'asc' ? c : -c;
+      });
+      const openCount = res.exceptions.filter(e => e.status === 'Open').length;
       return `<div class="p-6 fade-in">
-      <div class="card overflow-hidden mb-4"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Reconciliation exceptions (${res.exceptions.length})</div><div class="ml-auto text-[11.5px] text-muted">Phase 3 · reconciliation_exceptions log</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Exception ID</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Related record</th><th class="px-3 py-2">Description</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
-      ${res.exceptions.length ? res.exceptions.map(e => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium mono text-[12px]">${e.id}</td><td class="px-3 py-2.5">${typeBadge(e.type)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${e.relatedId}</td><td class="px-3 py-2.5 text-ink-soft">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono font-semibold text-bad-ink">${fmtMoney(e.amount * 100)}</td><td class="px-4 py-2.5 text-right">${e.status === 'Resolved' ? statusPill('resolved') : statusPill('break')}</td></tr>`).join('') : `<tr><td colspan="6" class="px-4 py-8 text-center text-muted">No open exceptions — everything reconciled.</td></tr>`}
-      </tbody></table></div>
-      ${res.unmatchedInvoices.length ? `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Open invoices awaiting payment (${res.unmatchedInvoices.length})</div><div class="ml-auto text-[11.5px] text-muted">Not logged as an exception — simply not yet paid</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Due date</th><th class="px-3 py-2 text-right">Amount</th></tr></thead><tbody>
-      ${res.unmatchedInvoices.map(ui => { const c = rec.arData.customers.find(x => x.customerId === ui.customerId) || { companyName: ui.customerId ? `Unknown (${ui.customerId})` : 'Unknown customer' }; return `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${ui.invoiceNumber}</td><td class="px-3 py-2.5">${esc(c.companyName)}</td><td class="px-3 py-2.5 text-muted">${fmtDate(ui.dueDate)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(ui.totalAmount * 100)}</td></tr>`; }).join('')}
-      </tbody></table></div>` : ''}
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
+          <input data-ar-exc-search class="field pl-9" value="${esc(f.q)}" placeholder="Search customer, description, ID…"></div>
+        <select data-ar-exc-type class="field w-[210px]"><option value="all" ${f.type === 'all' ? 'selected' : ''}>All types (${res.exceptions.length})</option>${types.map(t => `<option value="${esc(t)}" ${f.type === t ? 'selected' : ''}>${esc(t)} (${res.exceptions.filter(e => e.type === t).length})</option>`).join('')}</select>
+        <select data-ar-exc-sort class="field w-[200px]">
+          <option value="amount-desc" ${f.sort === 'amount-desc' ? 'selected' : ''}>Amount: high → low</option>
+          <option value="amount-asc" ${f.sort === 'amount-asc' ? 'selected' : ''}>Amount: low → high</option>
+          <option value="date-desc" ${f.sort === 'date-desc' ? 'selected' : ''}>Date: newest first</option>
+          <option value="date-asc" ${f.sort === 'date-asc' ? 'selected' : ''}>Date: oldest first</option>
+          <option value="confidence-desc" ${f.sort === 'confidence-desc' ? 'selected' : ''}>Confidence: high → low</option>
+          <option value="confidence-asc" ${f.sort === 'confidence-asc' ? 'selected' : ''}>Confidence: low → high</option>
+          <option value="customer-asc" ${f.sort === 'customer-asc' ? 'selected' : ''}>Customer: A → Z</option>
+        </select>
+      </div>
+      <div class="card overflow-hidden mb-4">
+        <div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Exception &amp; action inbox</div><div class="ml-auto text-[11.5px] text-muted">${rows.length} shown · ${openCount} open · click a row to resolve</div></div>
+        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Type</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Description</th><th class="px-3 py-2">Date</th><th class="px-3 py-2 text-right">Confidence</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
+        ${rows.length ? rows.map(e => `<tr class="border-b border-line-soft last:border-0 row-hover cursor-pointer ${(DB.ui && DB.ui.arActiveException === e.key) ? 'bg-accent-soft/50' : ''}" data-act="ar-open-exception" data-id="${rec.id}" data-key="${esc(e.key)}">
+          <td class="px-4 py-2.5">${arExcTypeBadge(e.type)}</td>
+          <td class="px-3 py-2.5 font-medium">${esc(e.customer || '—')}</td>
+          <td class="px-3 py-2.5 text-ink-soft">${esc(e.description)}</td>
+          <td class="px-3 py-2.5 text-muted mono text-[12px]">${fmtDate(e.date)}</td>
+          <td class="px-3 py-2.5 text-right mono">${e.confidence}%</td>
+          <td class="px-3 py-2.5 text-right mono font-semibold text-bad-ink">${fmtMoney(e.amount)}</td>
+          <td class="px-4 py-2.5 text-right">${e.status === 'Resolved' ? statusPill('completed') : statusPill('break')}</td></tr>`).join('')
+          : `<tr><td colspan="7" class="px-4 py-10 text-center text-muted">${res.exceptions.length ? 'No exceptions match your filters.' : 'No open exceptions — everything reconciled.'}</td></tr>`}
+        </tbody></table>
+      </div>
+      ${DB.ui && DB.ui.arActiveException ? arExceptionPanel(rec, res, DB.ui.arActiveException) : ''}
+      </div>`;
+    }
+    // Renders the resolution UI inline, in place of "Open invoices awaiting payment" — either the
+    // two-table matcher (Short-Pay / Unapplied Payment) or a simple resolution-note form.
+    function arExceptionPanel(rec, res, key) {
+      const exc = res.exceptions.find(e => e.key === key);
+      if (!exc) return '';
+      return AR_EXC_MATCHABLE.includes(exc.type) ? arMatchPanel(rec, res, exc) : arResolveNotePanel(rec, exc);
+    }
+    // Two-table manual matcher — for Short-Pay / Unapplied Payment exceptions, where the fix is
+    // literally "link this invoice to this payment". Radio-select one row per side, then save.
+    function arMatchPanel(rec, res, exc) {
+      const custName = id => (rec.arData.customers.find(c => c.customerId === id) || {}).companyName || 'Unknown';
+      const preInv = exc.type === 'Short-Pay' ? exc.relatedId : '';
+      const prePay = exc.type === 'Unapplied Payment' ? exc.relatedId : '';
+      // Checkboxes, not radios — many-to-many: one payment can settle several invoices, or several
+      // payments can jointly cover one invoice. Pick any number on each side, then Save changes.
+      const invRows = res.invoices.map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+        <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-match-inv value="${esc(inv.invoiceId)}" ${inv.invoiceId === preInv ? 'checked' : ''}></td>
+        <td class="px-3 py-2 font-medium">${esc(inv.invoiceNumber)}</td>
+        <td class="px-3 py-2 text-muted">${esc(custName(inv.customerId))}</td>
+        <td class="px-3 py-2 text-right mono">${fmtMoney(inv.totalAmount)}</td></tr>`).join('');
+      const payRows = res.payments.map(p => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+        <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-match-pay value="${esc(p.paymentId)}" ${p.paymentId === prePay ? 'checked' : ''}></td>
+        <td class="px-3 py-2 font-medium">${esc(p.paymentId)}</td>
+        <td class="px-3 py-2 text-muted">${esc(p.customerId ? custName(p.customerId) : 'Unknown payer')}</td>
+        <td class="px-3 py-2 text-right mono">${fmtMoney(p.totalReceived)}</td>
+        <td class="px-3 py-2 text-right mono ${p.unappliedAmount ? 'text-warn-ink' : 'text-faint'}">${p.unappliedAmount ? fmtMoney(p.unappliedAmount) : '—'}</td></tr>`).join('');
+      return `<div class="card overflow-hidden">
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve exception</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        <div class="text-[11.5px] text-muted mb-3">Check any number of invoices and payments — a payment can cover multiple invoices, and multiple payments can jointly settle one invoice.</div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><div class="lbl mb-1.5">Invoice</div><div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Invoice</th><th class="px-3 py-1.5">Customer</th><th class="px-3 py-1.5 text-right">Amount</th></tr></thead><tbody>${invRows || `<tr><td colspan="4" class="px-3 py-6 text-center text-muted">No invoices</td></tr>`}</tbody></table></div></div>
+          <div><div class="lbl mb-1.5">Payment</div><div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Payment</th><th class="px-3 py-1.5">Payer</th><th class="px-3 py-1.5 text-right">Received</th><th class="px-3 py-1.5 text-right">Unapplied</th></tr></thead><tbody>${payRows || `<tr><td colspan="5" class="px-3 py-6 text-center text-muted">No payments</td></tr>`}</tbody></table></div></div>
+        </div>
+        <label class="lbl block mb-1.5 mt-4">Note (optional)</label>
+        <textarea id="ar-match-note" class="field h-16 resize-none mb-4" placeholder="Why these should be linked"></textarea>
+        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-save-manual-match" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Save changes</button></div>
+        </div>
+      </div>`;
+    }
+    // Single-value exceptions (GL, timing, gateway) aren't "match this to that" — they just need
+    // a resolution note (write-off, investigated, adjustment posted, etc.)
+    function arResolveNotePanel(rec, exc) {
+      return `<div class="card overflow-hidden">
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Mark resolved</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        <label class="lbl block mb-1.5">Resolution note</label>
+        <textarea id="ar-resolve-note" class="field h-20 resize-none mb-4" placeholder="What was done to resolve this?">${esc(exc.resolutionNotes || '')}</textarea>
+        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-save-resolution" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Mark resolved</button></div>
+        </div>
+      </div>`;
+    }
+    // Read-only post-completion summary — shown once "Finish Reconciliation" is clicked (and
+    // reopenable afterwards from the "Reconciliation finished" badge). Every figure is derived
+    // live from rec/res, nothing here is separately stored or editable.
+    function arFinishSummaryModal(rec, res) {
+      const finishedAt = rec.arFinished ? rec.arFinished.at : todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+      const [fDate, fTime] = finishedAt.split('T');
+      const fd = parseISO(fDate);
+      const fDateLabel = `${MON[fd.getMonth()]} ${fd.getDate()}, ${fd.getFullYear()}`;
+      const runId = `RUN-${fDate.replace(/-/g, '')}-${(rec.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase()}`;
+
+      const openingAR = res.invoices.reduce((s, i) => s + i.totalAmount, 0);
+      const matchedVal = res.matches.reduce((s, m) => s + m.amount, 0) + res.overpays.reduce((s, m) => s + m.amount, 0);
+      const matchedCount = res.matches.length + res.overpays.length;
+      const matchedPct = openingAR ? +(matchedVal / openingAR * 100).toFixed(1) : 0;
+      const resolvedExc = res.exceptions.filter(e => e.status === 'Resolved');
+      const glAdjustments = resolvedExc.filter(e => e.type === 'GL Control Mismatch').reduce((s, e) => s + e.amount, 0);
+      const closingBalance = openingAR - matchedVal - glAdjustments;
+      const residualCount = resolvedExc.filter(e => e.type === 'Short-Pay').length;
+      const unappliedCarried = resolvedExc.filter(e => e.type === 'Unapplied Payment').reduce((s, e) => s + e.amount, 0);
+      const gl = res.glControlBalances;
+
+      const manualGroupFor = invId => (rec.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
+      const matchTypeFor = invId => {
+        const g = manualGroupFor(invId);
+        if (!g) return '1-to-1';
+        if (g.invoiceIds.length > 1 && g.paymentIds.length > 1) return 'Many-to-Many';
+        if (g.invoiceIds.length > 1) return 'One-to-Many';
+        if (g.paymentIds.length > 1) return 'Many-to-One';
+        return '1-to-1 (Manual)';
+      };
+      const pairRows = [
+        ...res.matches.map(m => ({ ...m, statusHtml: statusPill('completed') })),
+        ...res.overpays.map(m => ({ ...m, statusHtml: `<span class="text-[11.5px] font-medium text-warn-ink">Resolved (overpaid ${fmtMoney(m.overage)})</span>` })),
+        ...res.shortPays.map(m => ({ ...m, statusHtml: `<span class="text-[11.5px] font-medium text-warn-ink">Resolved (residual ${fmtMoney(m.shortage)})</span>` })),
+      ].map(m => `<tr class="border-b border-line-soft last:border-0">
+        <td class="px-3 py-2 text-muted">${matchTypeFor(m.invoiceId)}</td>
+        <td class="px-3 py-2 font-medium">${esc(m.invoiceNum)}</td>
+        <td class="px-3 py-2 text-muted">${esc(m.customer)}</td>
+        <td class="px-3 py-2 text-right mono">${fmtMoney(m.amount)}</td>
+        <td class="px-3 py-2 mono text-[12px] text-muted">${esc(m.paymentId)}</td>
+        <td class="px-3 py-2 text-right">${m.statusHtml}</td></tr>`).join('');
+
+      const auditRows = resolvedExc.map(e => {
+        const r = (rec.arResolved || {})[e.key] || {};
+        const at = r.at ? r.at.split('T') : null;
+        return `<tr class="border-b border-line-soft last:border-0">
+        <td class="px-3 py-2 mono text-[12px]">${esc(e.id)}</td>
+        <td class="px-3 py-2">${arExcTypeBadge(e.type)}</td>
+        <td class="px-3 py-2 mono text-[12px] text-muted">${esc(e.relatedId)}</td>
+        <td class="px-3 py-2 text-ink-soft">${esc(r.note || '—')}</td>
+        <td class="px-3 py-2 text-muted">${esc(DB.user.name)}</td>
+        <td class="px-3 py-2 mono text-[12px] text-muted">${at ? fmtDate(at[0]) + ', ' + at[1] : '—'}</td></tr>`;
+      }).join('');
+
+      return `<div id="ar-finish-summary-print" class="w-[980px] max-w-full max-h-[85vh] overflow-y-auto">
+        <div class="flex items-start justify-between pb-3 mb-4 border-b border-line">
+          <div>
+            <div class="text-[15px] font-bold flex items-center gap-2">AR Reconciliation Post-Completion Summary
+              <span class="chip bg-sunken text-muted border-line">Locked &amp; secure · view only</span>
+            </div>
+            <div class="text-[12px] text-muted mt-0.5">Reconciliation run reference: <span class="font-medium text-ink">${esc(rec.name)}</span></div>
+          </div>
+          <button data-act="close-modal" class="print-hide text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button>
+        </div>
+
+        <div class="rounded-md bg-ok-soft border border-ok-ink/20 text-ok-ink text-[12.5px] font-medium px-3 py-2 mb-4 flex items-center gap-2 flex-wrap">
+          ${icon('check', 'w-4 h-4')} Reconciliation successfully completed on ${fDateLabel} at ${fTime}
+          <span class="ml-auto chip bg-ok text-white border-transparent">Completed &amp; Signed Off</span>
+        </div>
+
+        <div class="grid grid-cols-4 gap-3 mb-5">
+          ${kpi('Total invoices processed', res.invoices.length, fmtMoney(openingAR) + ' total value')}
+          ${kpi('Fully matched volume', matchedCount, `${fmtMoney(matchedVal)} · ${matchedPct}% of value`)}
+          ${kpi('Exceptions resolved', `${resolvedExc.length}/${res.exceptions.length}`, `100% clearance${residualCount ? ` · ${residualCount} residual open balance` : ''}`)}
+          ${kpi('Final unapplied cash', fmtMoney(0), `carried forward ${fmtMoney(unappliedCarried)}`)}
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-5">
+          <div class="card overflow-hidden">
+            <div class="px-4 h-10 flex items-center border-b border-line font-semibold text-[13px]">Executive summary</div>
+            <div class="p-4 text-[13px] space-y-2">
+              <div class="flex justify-between"><span class="text-muted">Opening AR</span><span class="mono font-medium">${fmtMoney(openingAR)}</span></div>
+              <div class="flex justify-between"><span class="text-muted">Total collections matched</span><span class="mono font-medium text-ok-ink">-${fmtMoney(matchedVal)}</span></div>
+              <div class="flex justify-between"><span class="text-muted">Total adjustments</span><span class="mono font-medium">${fmtMoney(glAdjustments)}</span></div>
+              <div class="flex justify-between pt-2 border-t border-line-soft"><span class="font-semibold">Final reconciled closing balance</span><span class="mono font-semibold">${fmtMoney(closingBalance)}</span></div>
+            </div>
+          </div>
+          <div class="card overflow-hidden">
+            <div class="px-4 h-10 flex items-center border-b border-line font-semibold text-[13px]">Sub-ledger vs GL control proof</div>
+            <div class="p-4 text-[13px] space-y-2">
+              <div class="flex justify-between"><span class="text-muted">AR sub-ledger</span><span class="mono font-medium">${fmtMoney(gl ? gl.subledgerBalance : 0)}</span></div>
+              <div class="flex justify-between"><span class="text-muted">GL control account${gl ? ' ' + esc(gl.account) : ''}</span><span class="mono font-medium">${fmtMoney(gl ? gl.glBalance : 0)}</span></div>
+              <div class="flex justify-between pt-2 border-t border-line-soft"><span class="font-semibold">Variance</span><span class="mono font-semibold ${!gl || gl.variance === 0 ? 'text-ok-ink' : 'text-bad-ink'}">${!gl || gl.variance === 0 ? 'Zero unaccounted variance' : fmtMoney(gl.variance)}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card overflow-hidden mb-5">
+          <div class="px-4 h-10 flex items-center border-b border-line font-semibold text-[13px]">Final matched pairs summary</div>
+          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-3 py-2">Match type</th><th class="px-3 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Payment ref(s)</th><th class="px-3 py-2 text-right">Status</th></tr></thead>
+          <tbody>${pairRows || `<tr><td colspan="6" class="px-3 py-6 text-center text-muted">No matched pairs</td></tr>`}</tbody></table>
+        </div>
+
+        <div class="card overflow-hidden mb-5">
+          <div class="px-4 h-10 flex items-center border-b border-line font-semibold text-[13px]">Resolution &amp; exception audit register</div>
+          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-3 py-2">Exception ID</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Related record</th><th class="px-3 py-2">Resolution action taken</th><th class="px-3 py-2">User stamp</th><th class="px-3 py-2">Timestamp</th></tr></thead>
+          <tbody>${auditRows || `<tr><td colspan="6" class="px-3 py-6 text-center text-muted">No exceptions to resolve</td></tr>`}</tbody></table>
+        </div>
+
+        <div class="rounded-md bg-sunken border border-line p-3 text-[11.5px] text-muted space-y-1 mb-1">
+          <div><span class="font-semibold text-ink">Executed by:</span> ${esc(DB.user.name)} (${esc(DB.user.role)})</div>
+          <div><span class="font-semibold text-ink">Sign-off timestamp:</span> ${fDateLabel}, at ${fTime}</div>
+          <div><span class="font-semibold text-ink">Audit run ID:</span> <span class="mono">${esc(runId)}</span></div>
+        </div>
+
+        <div class="print-hide flex justify-end gap-2 mt-4 pt-3 border-t border-line">
+          <button data-act="ar-print-summary" class="btn btn-ghost">${icon('doc', 'w-4 h-4')}Download as PDF</button>
+          <button data-act="toast-soon" class="btn btn-ghost">${icon('doc', 'w-4 h-4')}Export to Excel</button>
+          <button data-act="close-modal" class="btn btn-primary">${icon('check', 'w-4 h-4')}Close</button>
+        </div>
       </div>`;
     }
 
@@ -2095,33 +2524,6 @@
       save();
     }
 
-    function mockStagingRows(jobId, sourceLabel, count, sourceType) {
-      const cat = sourceType || ($('#job-source-field') && $('#job-source-field').value) || (DB.ui && DB.ui.jobSource) || 'GL';
-      const sample = CATEGORY_SAMPLE_DATA[cat] || CATEGORY_SAMPLE_DATA['Bank Statements'];
-      const out = [];
-      const numRows = Math.min(count || 3, sample.length);
-      for (let i = 0; i < numRows; i++) {
-        const base = sample[i];
-        const rowData = { ...base };
-        out.push({
-          id: uid('stg'),
-          jobId,
-          sourceLabel,
-          category: cat,
-          status: 'mapped',
-          rowData,
-          txnId: rowData.bank_txn_id || rowData.invoice_id || rowData.gl_balance_id || rowData.customer_id || `TXN-${9100 + i}`,
-          date: rowData.transaction_date || rowData.issue_date || rowData.posting_date || todayISO(),
-          reference: rowData.bank_reference || rowData.invoice_number || rowData.payment_terms || 'REF-7800',
-          counterparty: rowData.payer_name || rowData.company_name || rowData.customer_id || rowData.gl_account_code || 'Party',
-          description: `${sourceLabel} record`,
-          amount: parseFloat(String(rowData.amount || rowData.total_amount || rowData.control_account_balance || rowData.credit_limit || '1000').replace(/[^0-9.]/g, '')) || 1000,
-          currency: 'USD'
-        });
-      }
-      return out;
-    }
-
     function ingestJob(file) {
       if (!file) return;
       const ext = (file.name.split('.').pop() || '').toLowerCase();
@@ -2135,38 +2537,85 @@
       // Update state synchronously so green box and checkmarks render IMMEDIATELY (0ms latency)
       DB.lastUploadedFile = {
         name: file.name,
-        rows: 3,
+        rows: 0,
         source: selSource,
         at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
       };
       DB.lastUploadedCsvName = file.name;
-
-      const defHeaders = CATEGORY_DEFAULT_HEADERS[selSource] || CATEGORY_DEFAULT_HEADERS['GL'];
-      populateMappingsFromHeaders(defHeaders, file.name, selSource);
-
-      const newStaging = mockStagingRows(jobId, sourceName, 3, selSource);
-      DB.staging = (DB.staging || []).concat(newStaging);
-
-      DB.jobs.unshift({
-        id: jobId,
-        source: sourceName,
-        kind: 'manual',
-        format: (ext || 'file').toUpperCase(),
-        rows: 3,
-        status: 'success',
-        errors: 0,
-        at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
-      });
-
-      DB.filters = DB.filters || {};
-      DB.filters.stgJobId = jobId;
-      DB.filters.stgPage = 1;
-
-      logAudit('Ingestion job', `${sourceName} · 3 rows`);
-      save();
       render();
-      toast(`${file.name} uploaded successfully (${selSource} · 3 rows)`, 'ok');
-      openMappingModal(file.name, selSource);
+
+      // Finishes the job once we know the real row objects (either parsed from the actual file,
+      // or — for formats we can't parse client-side — a mocked fallback for that category).
+      const finish = (rowObjs, headers) => {
+        populateMappingsFromHeaders(headers, file.name, selSource);
+
+        const newStaging = rowObjs.map(rowData => ({
+          id: uid('stg'), jobId, sourceLabel: sourceName, category: selSource, status: 'mapped', rowData,
+          txnId: rowData.bank_txn_id || rowData.invoice_id || rowData.gl_balance_id || rowData.customer_id || uid('TXN'),
+          date: rowData.transaction_date || rowData.issue_date || rowData.posting_date || todayISO(),
+          reference: rowData.bank_reference || rowData.bank_reference_number || rowData.invoice_number || rowData.payment_terms || '',
+          counterparty: rowData.payer_name || rowData.company_name || rowData.customer_id || rowData.gl_account_code || 'Party',
+          description: `${sourceName} record`,
+          amount: parseFloat(String(rowData.amount || rowData.total_amount || rowData.control_account_balance || rowData.credit_limit || '0').replace(/[^0-9.\-]/g, '')) || 0,
+          currency: 'USD',
+        }));
+        DB.staging = (DB.staging || []).concat(newStaging);
+
+        DB.jobs.unshift({
+          id: jobId, source: sourceName, kind: 'manual', format: (ext || 'file').toUpperCase(),
+          rows: rowObjs.length, status: 'success', errors: 0, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
+        });
+
+        if (DB.lastUploadedFile) DB.lastUploadedFile.rows = rowObjs.length;
+        DB.filters = DB.filters || {};
+        DB.filters.stgJobId = jobId;
+        DB.filters.stgPage = 1;
+
+        // A fresh upload of one of the 4 AR source types invalidates any prior AR run — the next
+        // open/Run will automatically pick this file up via arDataFromUploads().
+        if (['GL', 'SL', 'Bank Statements', 'Customers'].includes(selSource)) {
+          (DB.recs || []).filter(r => r.type === 'ar-reconciliation').forEach(r => { r.lastRun = null; });
+        }
+
+        logAudit('Ingestion job', `${sourceName} · ${rowObjs.length} rows`);
+        save();
+        render();
+        toast(`${file.name} uploaded successfully (${selSource} · ${rowObjs.length} row${rowObjs.length === 1 ? '' : 's'})`, 'ok');
+        openMappingModal(file.name, selSource);
+      };
+
+      if (ext === 'csv' || ext === 'tsv') {
+        const rd = new FileReader();
+        rd.onload = () => {
+          try {
+            const { headers, rows } = parseCSV(String(rd.result || ''));
+            if (!headers.length) throw new Error('No headers found');
+            // Row keys use smartTarget() — the same canonical column names the mapping screen
+            // shows as "Target field (DB column)" — so a real upload lines up with rec.arData
+            // exactly the way the seeded CATEGORY_SAMPLE_DATA already does.
+            const rowObjs = rows.filter(r => r.length && r.some(c => c)).map(r => {
+              const o = {};
+              headers.forEach((h, i) => { o[smartTarget(h, selSource)] = r[i] !== undefined ? r[i].trim() : ''; });
+              return o;
+            });
+            if (!rowObjs.length) throw new Error('No data rows found');
+            finish(rowObjs, headers);
+          } catch (err) {
+            console.error('CSV parse error', err);
+            DB.lastUploadedFile = null;
+            render();
+            toast(`Could not parse ${file.name} — check it's a valid CSV with a header row`, 'bad');
+          }
+        };
+        rd.onerror = () => { DB.lastUploadedFile = null; render(); toast('Could not read that file', 'bad'); };
+        rd.readAsText(file);
+      } else {
+        // XLSX/OFX/QIF etc. aren't parsed client-side in this prototype — fall back to that
+        // category's sample rows so the flow still completes, clearly not the real file's content.
+        const sample = CATEGORY_SAMPLE_DATA[selSource] || CATEGORY_SAMPLE_DATA['Bank Statements'];
+        const headers = CATEGORY_DEFAULT_HEADERS[selSource] || CATEGORY_DEFAULT_HEADERS['GL'];
+        finish(sample.map(row => ({ ...row })), headers);
+      }
     }
 
 
@@ -2437,9 +2886,9 @@
 
         <div class="grid grid-cols-4 gap-3 mb-4">
           ${kpi('Matched', res.matches.length + res.overpays.length, `${res.rate.toFixed(1)}% of invoices + payments`)}
-          ${kpi('Short-pays', res.shortPays.length, fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0) * 100) + ' underpaid')}
-          ${kpi('Exceptions', res.exceptions.length, fmtMoney(res.breakVal * 100) + ' at risk')}
-          ${kpi('GL variance', res.glMismatch ? fmtMoney(res.glMismatch.variance * 100) : '₹0.00', res.glMismatch ? esc(res.glMismatch.account) + ' mismatch' : 'sub-ledger = GL')}
+          ${kpi('Short-pays', res.shortPays.length, fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0)) + ' underpaid')}
+          ${kpi('Exceptions', res.exceptions.length, fmtMoney(res.breakVal) + ' at risk')}
+          ${kpi('GL variance', res.glMismatch ? fmtMoney(res.glMismatch.variance) : '₹0.00', res.glMismatch ? esc(res.glMismatch.account) + ' mismatch' : 'sub-ledger = GL')}
         </div>
 
         <div class="card overflow-hidden mb-4">
@@ -2449,7 +2898,7 @@
           <table class="w-full text-[13px]">
             <thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2 text-right">Result</th></tr></thead>
             <tbody>
-              ${[...res.matches, ...res.overpays].slice(0, 5).map(m => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(m.amount * 100)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+              ${[...res.matches, ...res.overpays].slice(0, 5).map(m => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -2457,7 +2906,7 @@
         <div class="card overflow-hidden">
           <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Open exceptions</div><div class="ml-auto text-[11.5px] text-muted">Continue to the full reconciliation for resolution</div></div>
           <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Type</th><th class="px-3 py-2">Description</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2">Status</th><th></th></tr></thead><tbody>
-            ${res.exceptions.slice(0, 6).map(e => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${e.type}</td><td class="px-3 py-2.5 text-muted">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono text-bad-ink">${fmtMoney(e.amount * 100)}</td><td class="px-3 py-2.5">${statusPill('break')}</td><td class="px-4 py-2.5 text-right"><button data-act="open-recon" data-id="${rc.id}" class="btn btn-sm btn-ghost">Review</button></td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No open exceptions.</td></tr>`}
+            ${res.exceptions.slice(0, 6).map(e => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-semibold">${e.type}</td><td class="px-3 py-2.5 text-muted">${esc(e.description)}</td><td class="px-3 py-2.5 text-right mono text-bad-ink">${fmtMoney(e.amount)}</td><td class="px-3 py-2.5">${statusPill('break')}</td><td class="px-4 py-2.5 text-right"><button data-act="open-recon" data-id="${rc.id}" class="btn btn-sm btn-ghost">Review</button></td></tr>`).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No open exceptions.</td></tr>`}
           </tbody></table>
         </div>
       </div>`;
@@ -2783,6 +3232,45 @@
       'open-recon': d => { DB.route = { name: 'recon', recId: d.id, tab: 'overview' }; DB.ui.editRule = null; render(); },
       'open-recon-tab': d => { DB.route = { name: 'recon', recId: d.id, tab: d.t }; render(); },
       'recon-tab': d => { DB.route.tab = d.t; DB.ui.editRule = null; render(); },
+      'ar-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.arMatchStream = d.stream; render(); },
+      'ar-open-exception': d => { DB.ui = DB.ui || {}; DB.ui.arActiveException = DB.ui.arActiveException === d.key ? null : d.key; render(); },
+      'ar-close-exception': () => { DB.ui = DB.ui || {}; DB.ui.arActiveException = null; render(); },
+      'ar-save-manual-match': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const invoiceIds = [...document.querySelectorAll('input[data-ar-match-inv]:checked')].map(el => el.value);
+        const paymentIds = [...document.querySelectorAll('input[data-ar-match-pay]:checked')].map(el => el.value);
+        if (!invoiceIds.length || !paymentIds.length) { toast('Pick at least one invoice and one payment', 'bad'); return; }
+        const note = ($('#ar-match-note') && $('#ar-match-note').value) || '';
+        // Drop any invoice/payment now being reassigned from whatever group it was previously in.
+        rec.arManualMatches = (rec.arManualMatches || [])
+          .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => !invoiceIds.includes(id)), paymentIds: g.paymentIds.filter(id => !paymentIds.includes(id)) }))
+          .filter(g => g.invoiceIds.length && g.paymentIds.length);
+        rec.arManualMatches.push({ id: uid('arm'), invoiceIds, paymentIds, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
+        rec.arResolved = rec.arResolved || {};
+        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        logAudit('Manually matched AR exception', `${invoiceIds.join(', ')} ↔ ${paymentIds.join(', ')}`);
+        DB.ui.arActiveException = null; render(); toast('Match saved');
+      },
+      'ar-save-resolution': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const note = ($('#ar-resolve-note') && $('#ar-resolve-note').value) || '';
+        rec.arResolved = rec.arResolved || {};
+        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        logAudit('Resolved AR exception', d.key);
+        DB.ui.arActiveException = null; render(); toast('Marked resolved');
+      },
+      'ar-finish-recon': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        rec.arFinished = { at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), by: DB.user.name };
+        logAudit('Finished reconciliation', rec.name);
+        save(); render(); toast('Reconciliation finished', 'ok');
+        openModal(arFinishSummaryModal(rec, getEngineResult(rec)));
+      },
+      'ar-view-finish-summary': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        openModal(arFinishSummaryModal(rec, getEngineResult(rec)));
+      },
+      'ar-print-summary': () => { window.print(); },
       'new-recon': () => { DB.ui.newType = 'payments'; modalNew(); },
       'new-type': d => { DB.ui.newType = d.t; modalNew(); },
       'create-recon': () => {
@@ -2794,6 +3282,7 @@
       'run-recon': d => {
         const rec = getRec(d.id); const res = getEngineResult(rec); const prev = rec.lastRun ? rec.lastRun.history : seedTrend(res.rate);
         rec.lastRun = { at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: [...prev.slice(-11), res.rate] };
+        rec.arFinished = null;
         logAudit('Ran reconciliation', `${rec.name} · ${res.rate.toFixed(1)}% matched, ${res.breaks.length} breaks`);
         render(); toast(`Run complete · ${res.rate.toFixed(1)}% matched`);
       },
@@ -2905,11 +3394,12 @@
       if (act !== 'close-modal') e.preventDefault();
       ACT[act](el.dataset, el, e);
     });
-    let stgSearchTimer;
+    let stgSearchTimer, arExcSearchTimer;
     document.addEventListener('input', e => {
       const t = e.target;
       if (t.dataset.map && (t.dataset.map === 'src' || t.dataset.map === 'param')) { const m = (DB.mappings || []).find(x => x.id === t.dataset.id); if (m) m[t.dataset.map] = t.value; return; }
       if (t.dataset.stgSearch !== undefined && t.hasAttribute && t.hasAttribute('data-stg-search')) { DB.filters.stgQ = t.value; clearTimeout(stgSearchTimer); stgSearchTimer = setTimeout(render, 300); return; }
+      if (t.hasAttribute && t.hasAttribute('data-ar-exc-search')) { DB.ui = DB.ui || {}; DB.ui.arExcFilter = DB.ui.arExcFilter || { q: '', type: 'all', sort: 'amount-desc' }; DB.ui.arExcFilter.q = t.value; clearTimeout(arExcSearchTimer); arExcSearchTimer = setTimeout(render, 250); return; }
       if (t.dataset.txnSearch) { DB.filters.txnQ = t.value; clearTimeout(txnSearchTimer); txnSearchTimer = setTimeout(render, 250); return; }
       if (t.dataset.thresh) { const rec = getRec(t.dataset.thresh); rec.threshold = +t.value; render(); return; }
       if (t.dataset.rf) { applyRuleField(t); return; }
@@ -2934,6 +3424,11 @@
       if (t.matches && t.matches('select[data-act="dih-select"]')) { DB.ui = DB.ui || {}; DB.ui.dihRecId = t.value; render(); return; }
       if (t.dataset.rf && (t.dataset.rf === 'ref' || t.dataset.rf === 'amode')) { applyRuleField(t); }
       if (t.dataset.arf && (t.dataset.arf === 'ref' || t.dataset.arf === 'amode')) { applyARRuleField(t); }
+      if (t.hasAttribute && (t.hasAttribute('data-ar-exc-type') || t.hasAttribute('data-ar-exc-sort'))) {
+        DB.ui = DB.ui || {}; DB.ui.arExcFilter = DB.ui.arExcFilter || { q: '', type: 'all', sort: 'amount-desc' };
+        if (t.hasAttribute('data-ar-exc-type')) DB.ui.arExcFilter.type = t.value; else DB.ui.arExcFilter.sort = t.value;
+        render(); return;
+      }
     });
     document.addEventListener('keydown', e => {
       const t = e.target;
