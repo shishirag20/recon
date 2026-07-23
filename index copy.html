@@ -1593,7 +1593,178 @@
   <div class="font-semibold text-[14px]">${t}</div><div class="text-[12.5px] text-muted mt-1 max-w-xs">${s}</div></div>`;
     }
     function openModal(html) { $('#modal').innerHTML = `<div class="fixed inset-0 z-40 modal-back flex items-center justify-center p-6" data-act="close-modal" data-backdrop="1"><div class="card p-6 shadow-xl fade-in">${html}</div></div>`; }
-    function closeModal() { $('#modal').innerHTML = ''; }
+    function closeModal() {
+      if (DB.ui) DB.ui.uploadMappingModal = false;
+      const m = $('#modal');
+      if (m) m.innerHTML = '';
+    }
+
+    function openMappingModal(fileName, selSource) {
+      DB.ui = DB.ui || {};
+      DB.ui.uploadMappingModal = true;
+      DB.ui.uploadMappingFile = fileName || DB.lastUploadedCsvName || 'Uploaded file';
+      DB.ui.uploadMappingSource = selSource || DB.ui.jobSource || 'GL';
+      renderMappingModal();
+    }
+
+    function renderMappingModal() {
+      if (!DB.ui || !DB.ui.uploadMappingModal) return;
+      const uHeaders = DB.uploadedHeaders || [];
+      const fileName = DB.ui.uploadMappingFile || DB.lastUploadedCsvName || 'Uploaded file';
+      const currentSource = DB.ui.uploadMappingSource || DB.ui.jobSource || 'GL';
+      const topts = sel => TRANSFORMS.map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${l}</option>`).join('');
+
+      const modalHtml = `<div class="w-[720px] max-w-full">
+        <div class="flex items-center justify-between pb-3 mb-4 border-b border-line">
+          <div>
+            <div class="text-[15px] font-bold flex items-center gap-2">
+              Field mapping &amp; transforms
+              <span class="text-[11px] font-semibold bg-accent/10 text-accent-ink px-2.5 py-0.5 rounded-full">${esc(currentSource)}</span>
+            </div>
+            <div class="text-[12px] text-muted mt-0.5">Uploaded file: <span class="font-medium text-ink">${esc(fileName)}</span></div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button data-act="map-ai" class="btn btn-ghost btn-sm flex items-center gap-1.5 ${DB.ui && DB.ui.aiMappingLoading ? 'opacity-60 pointer-events-none' : ''}">${icon('bolt', 'w-3.5 h-3.5 text-accent')} ${DB.ui && DB.ui.aiMappingLoading ? `<span class="flex items-center gap-1">Mapping<span class="inline-flex gap-0.5 ml-1">${[0, 150, 300].map(d => `<span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-bounce" style="animation-delay:${d}ms"></span>`).join('')}</span></span>` : 'Map with AI'}</button>
+            <button data-act="map-add" class="btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add mapping</button>
+          </div>
+        </div>
+
+        <div class="card overflow-hidden mb-4 max-h-[360px] overflow-y-auto">
+          <table class="w-full text-[13px]">
+            <thead>
+              <tr class="lbl text-left border-b border-line bg-surface sticky top-0 z-10">
+                <th class="px-4 py-2.5 font-semibold">SOURCE FIELD</th>
+                <th class="px-2 py-2.5"></th>
+                <th class="px-3 py-2.5 font-semibold">TARGET FIELD (DB COLUMN)</th>
+                <th class="px-3 py-2.5 font-semibold">TRANSFORM</th>
+                <th class="w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${DB.ui && DB.ui.aiMappingLoading ? [0, 1, 2].map(i => `<tr class="border-b border-line-soft"><td class="px-4 py-3" colspan="5"><div class="h-4 rounded bg-gradient-to-r from-sunken via-line to-sunken bg-[length:400%_100%] animate-pulse opacity-60" style="width:${60 + i * 15}%"></div></td></tr>`).join('') : ''}
+              ${(DB.mappings || []).map(m => {
+                const srcCell = uHeaders.length ? `<select class="field" data-map="src" data-id="${m.id}">${uHeaders.map(h => `<option value="${esc(h)}" ${h === m.src ? 'selected' : ''}>${esc(h)}</option>`).concat(!uHeaders.includes(m.src) ? [`<option value="${esc(m.src)}" selected>${esc(m.src)}</option>`] : []).join('')}</select>` : `<input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}">`;
+                const tgtOpts = LEDGER_FIELDS.map(f => `<option value="${esc(f)}" ${f === m.ledger ? 'selected' : ''}>${esc(f)}</option>`).concat(!LEDGER_FIELDS.includes(m.ledger) && m.ledger ? [`<option value="${esc(m.ledger)}" selected>${esc(m.ledger)}</option>`] : []).join('');
+                const isAiMapped = DB.ui && DB.ui.aiMappingDone && m.src !== m.ledger;
+                return `<tr class="border-b border-line-soft${isAiMapped ? ' bg-ok-soft/10' : ''}">
+                  <td class="px-4 py-2.5">${srcCell}</td>
+                  <td class="px-2 py-2.5 text-faint text-center">${isAiMapped ? `<span class="text-ok-ink">${icon('arrowr', 'w-4 h-4')}</span>` : icon('arrowr', 'w-4 h-4')}</td>
+                  <td class="px-3 py-2.5"><select class="field${isAiMapped ? ' ring-1 ring-ok/40' : ''}" data-map="ledger" data-id="${m.id}">${tgtOpts}</select>${isAiMapped ? `<span class="block text-[10px] text-ok-ink mt-0.5 flex items-center gap-0.5">${icon('bolt', 'w-3 h-3')} AI mapped</span>` : ''}</td>
+                  <td class="px-3 py-2.5"><select class="field" data-map="transform" data-id="${m.id}">${topts(m.transform)}</select></td>
+                  <td class="px-2 py-2.5 text-right"><button data-act="map-del" data-id="${m.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="text-[11.5px] text-muted flex items-center gap-2 mb-5 px-1">
+          ${icon('bolt', 'w-3.5 h-3.5 text-accent')}<span class="text-muted">Example:</span> <span class="mono">Txn Date "01-07-2026"</span> → parse date → <span class="mono">2026-07-01</span> · <span class="mono">Withdrawal "216.00"</span> → negate → <span class="mono">-216.00</span>
+        </div>
+
+
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+          <button data-act="close-modal" class="btn btn-ghost">Cancel</button>
+          <button data-act="confirm-mapping" class="btn btn-primary flex items-center gap-1.5 shadow-sm">${icon('check', 'w-4 h-4')}Confirm mapping</button>
+        </div>
+      </div>`;
+
+      openModal(modalHtml);
+    }
+
+    function modalViewJobData(jobId) {
+      const job = (DB.jobs || []).find(j => j.id === jobId) || { id: jobId, source: 'Ingestion Job Data', kind: 'manual', format: 'CSV', rows: 3, status: 'success', at: todayISO() + ' 10:00' };
+      let jobRows = (DB.staging || []).filter(r => (r.jobId || 'seed') === job.id);
+
+      let cat = 'Bank Statements';
+      const srcLower = String(job.source || '').toLowerCase();
+      if (srcLower.includes('customer')) cat = 'Customers';
+      else if (srcLower.includes('sl') || srcLower.includes('bill') || srcLower.includes('invoice')) cat = 'SL';
+      else if (srcLower.includes('gl') || srcLower.includes('warehouse') || srcLower.includes('card')) cat = 'GL';
+      else if (srcLower.includes('bank') || srcLower.includes('hdfc') || srcLower.includes('stripe') || srcLower.includes('payout')) cat = 'Bank Statements';
+
+      if (!jobRows.length) {
+        jobRows = mockStagingRows(job.id, job.source, 3, cat);
+      }
+
+      const firstRow = jobRows[0];
+      let targetFields = [];
+      if (firstRow && firstRow.rowData && Object.keys(firstRow.rowData).length) {
+        targetFields = Object.keys(firstRow.rowData);
+      } else if (SOURCE_FIELD_MAPS[cat]) {
+        targetFields = [...new Set(Object.values(SOURCE_FIELD_MAPS[cat]))];
+      }
+      if (!targetFields.length) {
+        targetFields = ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'amount', 'clearing_status'];
+      }
+
+      const stpill = s => (s === 'error' || s === 'Failed') ? '<span class="chip bg-bad-soft text-bad-ink border-bad-soft">Error</span>' : '<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Mapped</span>';
+
+      const modalHtml = `<div class="w-[820px] max-w-full">
+        <div class="flex items-center justify-between pb-3 mb-4 border-b border-line">
+          <div>
+            <div class="text-[15px] font-bold flex items-center gap-2">
+              <span>${esc(job.source)}</span>
+              <span class="chip bg-accent/10 text-accent-ink border-accent/20 text-[11px] font-semibold">${esc(cat)}</span>
+            </div>
+            <div class="text-[12px] text-muted mt-1 flex items-center gap-2 flex-wrap">
+              <span>Job ID: <span class="mono font-semibold text-ink">${esc(job.id)}</span></span>
+              <span>·</span>
+              <span>Format: <span class="mono text-ink">${esc(job.format)}</span></span>
+              <span>·</span>
+              <span>Trigger: <span class="text-ink">${job.kind === 'auto' ? 'Automated' : 'Manual'}</span></span>
+              <span>·</span>
+              <span>Uploaded At: <span class="mono text-ink">${esc(job.at ? job.at.replace('T', ' ') : '—')}</span></span>
+            </div>
+          </div>
+          <div class="text-right flex-none">
+            <span class="chip bg-ok-soft text-ok-ink border-ok-soft font-medium">${jobRows.length} rows</span>
+          </div>
+        </div>
+
+        <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">
+          ${icon('check', 'w-3.5 h-3.5 text-ok')} Read-only file content preview from ingestion job
+        </div>
+
+        <div class="card overflow-hidden mb-5 max-h-[380px] overflow-y-auto">
+          <table class="w-full text-[13px]">
+            <thead>
+              <tr class="lbl text-left border-b border-line bg-surface sticky top-0 z-10">
+                ${targetFields.map(f => {
+                  const label = f.toUpperCase().replace(/_/g, ' ');
+                  const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
+                  return `<th class="px-3.5 py-2.5 font-semibold ${isAmt ? 'text-right' : ''}">${esc(label)}</th>`;
+                }).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${jobRows.map(r => {
+                const rd = r.rowData || {};
+                return `<tr class="border-b border-line-soft row-hover">
+                  ${targetFields.map(f => {
+                    let val = rd[f] !== undefined ? rd[f] : (r[f] !== undefined ? r[f] : '—');
+                    if (f === 'status' || f === 'clearing_status') return `<td class="px-3.5 py-2.5">${stpill(val)}</td>`;
+                    const isId = f.includes('id') || f.includes('number');
+                    const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
+                    const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
+                    return `<td class="px-3.5 py-2.5 ${cls}">${esc(val)}</td>`;
+                  }).join('')}
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+          <button data-act="close-modal" class="btn btn-ghost">Close</button>
+        </div>
+      </div>`;
+
+      openModal(modalHtml);
+    }
+
+
     function modalResolution(rec, r, mode) {
       const amount = fmtMoney(Math.abs(r.amount), r.currency), reason = breakReason(rec, r);
       const context = `<div class="rounded-md bg-sunken px-3 py-2.5 mb-4 text-[12px]"><div class="font-semibold text-ink">${esc(r.counterparty)} <span class="mono ml-1">${amount}</span></div><div class="text-muted mt-0.5">${esc(reason)} · ${esc(rec.name)}</div></div>`;
@@ -1826,6 +1997,14 @@
       return normHeader(header) || header;
     }
 
+    const OPTIONAL_TARGET_FIELDS = new Set(['variance', 'status', 'clearing_status', 'payment_terms', 'credit_limit', 'currency_code']);
+    function isFieldRequired(field) {
+      if (!field) return false;
+      const f = String(field).toLowerCase().trim();
+      return !OPTIONAL_TARGET_FIELDS.has(f);
+    }
+
+
     // Category default headers matching the sample files in screenshots
     const CATEGORY_DEFAULT_HEADERS = {
       'GL': ['gl_balance_id', 'period_date', 'gl_account_code', 'control_account_balance (GL)', 'subledger calculated balance', 'variance'],
@@ -1987,7 +2166,9 @@
       save();
       render();
       toast(`${file.name} uploaded successfully (${selSource} · 3 rows)`, 'ok');
+      openMappingModal(file.name, selSource);
     }
+
 
 
     function modalInsertRow() {
@@ -2052,7 +2233,7 @@
       </div></div>
     <div class="card overflow-hidden"><div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Recent ingestion jobs</div><div class="ml-auto text-[11.5px] text-muted">${jobs.length} runs</div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Source</th><th class="px-3 py-2 font-semibold">Trigger</th><th class="px-3 py-2 font-semibold">Format</th><th class="px-3 py-2 font-semibold text-right">Rows</th><th class="px-3 py-2 font-semibold text-right">Errors</th><th class="px-3 py-2 font-semibold">Status</th><th class="px-4 py-2 font-semibold">When</th><th class="w-10"></th></tr></thead><tbody>
-      ${jobs.map(j => `<tr class="border-b border-line-soft row-hover"><td class="px-4 py-2.5 font-medium">${esc(j.source)}</td>
+      ${jobs.map(j => `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="view-job-data" data-id="${j.id}"><td class="px-4 py-2.5 font-medium text-accent-ink hover:underline">${esc(j.source)}</td>
         <td class="px-3 py-2.5"><span class="chip">${j.kind === 'auto' ? 'Automated' : 'Manual'}</span></td>
         <td class="px-3 py-2.5 mono text-[12px] text-muted">${j.format}</td>
         <td class="px-3 py-2.5 text-right mono">${j.rows.toLocaleString('en-IN')}</td>
@@ -2060,6 +2241,7 @@
         <td class="px-3 py-2.5">${jobPill(j.status)}</td>
         <td class="px-4 py-2.5 text-[11.5px] text-faint mono whitespace-nowrap">${j.at.replace('T', ' ')}</td>
         <td class="px-2 py-2.5 text-right">${j.status !== 'success' ? `<button data-act="job-errors" data-id="${j.id}" class="text-[11.5px] text-accent-ink hover:underline">errors</button>` : ''}</td></tr>`).join('')}
+
       </tbody></table></div>
   </div>`;
     }
@@ -2080,39 +2262,27 @@
       <div class="text-[12px] text-muted max-w-md"><b>Preconfigured mapping.</b> Review only; edit when a source schema changes or a field is mapped incorrectly. Mappings and transforms are applied automatically during ingestion.</div>
     </div>
     <div class="card overflow-hidden">
-      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Field mapping &amp; transforms</div>
+      <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Defined schemas</div>
         ${uHeaders.length ? `<span class="ml-3 text-[11.5px] text-ok-ink bg-ok-soft px-2.5 py-0.5 rounded-full font-medium border border-ok-soft flex items-center gap-1">${icon('check', 'w-3 h-3')}${uHeaders.length} headers from ${esc(DB.lastUploadedCsvName || 'uploaded CSV')}</span>` : ''}
-        <div class="ml-auto flex items-center gap-2">
-          <button data-act="map-ai" class="btn btn-ghost btn-sm flex items-center gap-1.5 ${DB.ui && DB.ui.aiMappingLoading ? 'opacity-60 pointer-events-none' : ''}">${icon('bolt', 'w-3.5 h-3.5 text-accent')} ${DB.ui && DB.ui.aiMappingLoading ? `<span class="flex items-center gap-1">Mapping<span class="inline-flex gap-0.5 ml-1">${[0, 150, 300].map(d => `<span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-bounce" style="animation-delay:${d}ms"></span>`).join('')}</span></span>` : 'Map with AI'}</button>
-          <button data-act="map-add" class="btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add mapping</button>
-        </div></div>
+      </div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
-        <th class="px-4 py-2 font-semibold">Source field</th><th class="px-2 py-2"></th><th class="px-3 py-2 font-semibold">Target field (DB column)</th>
-        <th class="px-3 py-2 font-semibold">Transform</th><th class="w-8"></th></tr></thead><tbody>
-      ${DB.ui && DB.ui.aiMappingLoading ? [0, 1, 2].map(i => `<tr class="border-b border-line-soft"><td class="px-4 py-3" colspan="5"><div class="h-4 rounded bg-gradient-to-r from-sunken via-line to-sunken bg-[length:400%_100%] animate-pulse opacity-60" style="width:${60 + i * 15}%"></div></td></tr>`).join('') : ''}
+        <th class="px-4 py-2 font-semibold">Target field (DB column)</th><th class="w-8"></th></tr></thead><tbody>
+      ${DB.ui && DB.ui.aiMappingLoading ? [0, 1, 2].map(i => `<tr class="border-b border-line-soft"><td class="px-4 py-3" colspan="2"><div class="h-4 rounded bg-gradient-to-r from-sunken via-line to-sunken bg-[length:400%_100%] animate-pulse opacity-60" style="width:${60 + i * 15}%"></div></td></tr>`).join('') : ''}
       ${(DB.mappings || []).map(m => {
-        const srcCell = uHeaders.length ? `<select class="field" data-map="src" data-id="${m.id}">${uHeaders.map(h => `<option value="${esc(h)}" ${h === m.src ? 'selected' : ''}>${esc(h)}</option>`).concat(!uHeaders.includes(m.src) ? [`<option value="${esc(m.src)}" selected>${esc(m.src)}</option>`] : []).join('')}</select>` : `<input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}">`;
-        const tgtOpts = LEDGER_FIELDS.map(f => `<option value="${esc(f)}" ${f === m.ledger ? 'selected' : ''}>${esc(f)}</option>`).concat(!LEDGER_FIELDS.includes(m.ledger) && m.ledger ? [`<option value="${esc(m.ledger)}" selected>${esc(m.ledger)}</option>`] : []).join('');
-        const isAiMapped = DB.ui && DB.ui.aiMappingDone && m.src !== m.ledger;
-        return `<tr class="border-b border-line-soft${isAiMapped ? ' bg-ok-soft/10' : ''}">
-        <td class="px-4 py-2.5">${srcCell}</td>
-        <td class="px-2 py-2.5 text-faint text-center">${isAiMapped ? `<span class="text-ok-ink">${icon('arrowr', 'w-4 h-4')}</span>` : icon('arrowr', 'w-4 h-4')}</td>
-        <td class="px-3 py-2.5"><select class="field${isAiMapped ? ' ring-1 ring-ok/40' : ''}" data-map="ledger" data-id="${m.id}">${tgtOpts}</select>${isAiMapped ? `<span class="block text-[10px] text-ok-ink mt-0.5 flex items-center gap-0.5">${icon('bolt', 'w-3 h-3')} AI mapped</span>` : ''}</td>
-        <td class="px-3 py-2.5"><select class="field" data-map="transform" data-id="${m.id}">${topts(m.transform)}</select></td>
+        const req = isFieldRequired(m.ledger);
+        const reqTag = req ? `<span class="chip bg-accent/10 text-accent-ink border-accent/20 text-[11px] font-semibold px-2 py-0.5 flex-none">Required</span>` : `<span class="chip bg-sunken text-muted border-line text-[11px] font-medium px-2 py-0.5 flex-none">Optional</span>`;
+        return `<tr class="border-b border-line-soft">
+        <td class="px-4 py-2.5">
+          <div class="flex items-center gap-3">
+            <input class="field flex-1 max-w-md" data-map="ledger" data-id="${m.id}" value="${esc(m.ledger)}">
+            ${reqTag}
+          </div>
+        </td>
         <td class="px-2 py-2.5 text-right"><button data-act="map-del" data-id="${m.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td></tr>`;
       }).join('')}
-
       </tbody></table>
-      <div class="px-4 py-3 border-t border-line bg-surface/50 flex items-center justify-between gap-3 flex-wrap">
-        <div class="text-[11.5px] text-muted flex items-center gap-2">
-          ${icon('bolt', 'w-3.5 h-3.5 text-accent')}Example: <span class="mono">Txn Date "01-07-2026"</span> → parse date → <span class="mono">2026-07-01</span> · <span class="mono">Withdrawal "216.00"</span> → negate → <span class="mono">-216.00</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button data-act="confirm-mapping" onclick="toast('Field mapping saved successfully', 'ok')" class="btn btn-primary flex items-center gap-1.5 shadow-sm">${icon('check', 'w-4 h-4')}Confirm mapping</button>
-
-        </div>
-      </div>
     </div></div>`;
+
 
 
     }
@@ -2153,6 +2323,11 @@
         targetFields = ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'amount', 'clearing_status'];
       }
 
+      const activeJobObj = (DB.jobs || []).find(j => j.id === jobFilter) || (firstRow ? (DB.jobs || []).find(j => j.id === (firstRow.jobId || 'seed')) : (DB.jobs || [])[0]);
+      const currentJobId = activeJobObj ? activeJobObj.id : (jobFilter !== 'all' ? jobFilter : 'JOB-SEED');
+      const currentUploadTime = activeJobObj ? activeJobObj.at.replace('T', ' ') : todayISO() + ' 10:30';
+      const currentFileName = jobFilter !== 'all' ? ((files.find(f => f.id === jobFilter) || {}).label || activeCategory) : (firstRow && firstRow.sourceLabel ? firstRow.sourceLabel : activeCategory);
+
       const pageSize = 10;
       const totalRows = rows.length;
       const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
@@ -2188,17 +2363,45 @@
     <div class="card px-4 py-3 mb-4 flex items-center gap-3 bg-ok-soft/40 border-ok/20">
       <span class="text-ok">${icon('check', 'w-5 h-5')}</span>
       <div><div class="font-semibold text-[13px]">Ready for reconciliation</div><div class="text-[11.5px] text-muted">Normalized records from Step 1 are available as canonical data for Side A / Side B matching.</div></div>
-      <button data-act="goto" data-r="reconciliation" class="ml-auto btn btn-primary">Continue to Step 2 ${icon('arrowr', 'w-4 h-4')}</button>
     </div>
+
+    <div class="card p-3 mb-4 bg-surface border border-line flex items-center justify-between text-[12.5px] flex-wrap gap-2">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded bg-accent/10 text-accent-ink flex items-center justify-center font-bold flex-none">${icon('doc', 'w-4 h-4')}</div>
+        <div>
+          <div class="font-semibold text-ink flex items-center gap-2 flex-wrap">
+            <span>${esc(currentFileName)}</span>
+            <span class="chip bg-accent/10 text-accent-ink border-accent/20 text-[11px] font-semibold">${esc(activeCategory)}</span>
+          </div>
+          <div class="text-muted text-[11.5px] flex items-center gap-2 mt-0.5 flex-wrap">
+            <span>Belongs to Job: <span class="mono font-semibold text-ink">${esc(currentJobId)}</span></span>
+            <span>·</span>
+            <span>Uploaded At: <span class="mono font-medium text-ink">${esc(currentUploadTime)}</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="text-right ml-auto">
+        <span class="chip bg-ok-soft text-ok-ink border-ok-soft font-medium">${totalRows} row${totalRows === 1 ? '' : 's'} staged</span>
+      </div>
+    </div>
+
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
         <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ || '')}" placeholder="Query staged rows — Transaction ID, counterparty, reference, amount"></div>
-      <select data-stg-job class="field w-[220px]"><option value="all">All files (${staging.length})</option>${files.map(f => `<option value="${f.id}" ${jobFilter === f.id ? 'selected' : ''}>${esc(f.label)} (${f.count})</option>`).join('')}</select>
+      <select data-stg-job class="field w-[260px]">
+        <option value="all">All files (${staging.length})</option>
+        ${files.map(f => {
+        const jObj = (DB.jobs || []).find(j => j.id === f.id);
+        const jTime = jObj ? ` · ${jObj.at.slice(11, 16)}` : '';
+        return `<option value="${f.id}" ${jobFilter === f.id ? 'selected' : ''}>${esc(f.label)} (${f.id}${jTime})</option>`;
+      }).join('')}
+      </select>
       <select data-stg-status class="field w-[150px]"><option value="all">All statuses</option><option value="staged" ${st === 'staged' ? 'selected' : ''}>Staged</option><option value="mapped" ${st === 'mapped' ? 'selected' : ''}>Mapped</option><option value="error" ${st === 'error' ? 'selected' : ''}>Error</option></select>
       <button data-act="stg-insert" class="btn btn-primary btn-sm ml-auto">${icon('plus', 'w-3.5 h-3.5')}Insert row</button>
     </div>
-    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · ${totalRows} rows${jobFilter !== 'all' ? ` from ${esc((files.find(f => f.id === jobFilter) || {}).label || 'selected file')}` : ' staged across ' + files.length + ' file' + (files.length === 1 ? '' : 's')} · 10 rows per page</div>
+    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · Job <span class="mono font-semibold text-ink">${esc(currentJobId)}</span> · Uploaded <span class="mono font-medium text-ink">${esc(currentUploadTime)}</span> · ${totalRows} rows · 10 rows per page</div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+
       ${targetFields.map((f, idx) => {
         const label = f.toUpperCase().replace(/_/g, ' ');
         return th(f, label, (f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit')) ? 'text-right' : '');
@@ -2339,8 +2542,9 @@
     function viewIngestion() {
       dihInit();
       const tab = DB.route.tab || 'jobs';
-      const TABS = [['jobs', 'Ingestion Jobs'], ['mapping', 'Schemas & Mapping'], ['data', 'Data Explorer']];
+      const TABS = [['jobs', 'Ingestion Jobs'], ['mapping', 'Schemas'], ['data', 'Data Explorer']];
       const body = tab === 'mapping' ? dihMapping() : tab === 'data' ? dihData() : dihJobs();
+
       const hasFailed = (DB.jobs || []).some(j => j.status === 'failed');
       return topbar('Data Integration Hub', 'Step 1 · Ingest, map, validate, and normalize source data', '')
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
@@ -2521,10 +2725,14 @@
       else if (r.name === 'settings') v = viewSettings();
       else v = viewDashboard();
       $('#app').innerHTML = shell(v);
+      if (DB.ui && DB.ui.uploadMappingModal) {
+        renderMappingModal();
+      }
       save();
     }
 
     // ═══════════════════════════════════════ actions ═══════════════════════════════════════
+
     function downloadSampleLedger() {
       const csvContent = "Transaction_ID,Posting_Date,Reference,Counterparty,Description,Amount,Currency\n"
         + "GL-9001,2026-06-06,REF-77112,Globex Corp Wire,GL Posting - Operating Cash,4250.50,USD\n"
@@ -2634,7 +2842,9 @@
       'import-reset': () => { const c = importState(); c.a = null; c.b = null; c.tab = 'a'; save(); render(); toast('Import cleared', 'warn'); },
       'import-run': () => { logAudit('Reconciled imported files', CHANNELS[importState().type].label); toast('Reconciliation created from imported files', 'ok'); },
       'dih-tab': d => { DB.route.tab = d.t; render(); },
+      'view-job-data': d => { modalViewJobData(d.id); },
       'stg-page': d => { DB.filters.stgPage = +d.page; render(); },
+
       'stg-sort': d => { const s = DB.filters.stgSort || { field: 'date', dir: 'desc' }; DB.filters.stgSort = (s.field === d.field) ? { field: d.field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field: d.field, dir: 'asc' }; DB.filters.stgPage = 1; render(); },
       'stg-insert': () => modalInsertRow(),
       'stg-add': () => { const r = { id: uid('stg'), date: $('#ins-date').value || todayISO(), description: ($('#ins-desc').value || '(untitled)'), reference: ($('#ins-ref').value || ''), amount: +($('#ins-amt').value || 0), currency: $('#ins-cur').value || 'INR', status: 'staged', jobId: 'manual', sourceLabel: 'Manually added' }; DB.staging = DB.staging || []; DB.staging.unshift(r); logAudit('Inserted staging row', `${r.description} ${fmtMoney(r.amount * 100, r.currency)}`); save(); closeModal(); render(); toast('Row inserted to staging'); },
@@ -2661,11 +2871,14 @@
       'confirm-mapping': () => {
         DB.ui = DB.ui || {};
         DB.ui.mappingConfirmed = true;
+        DB.ui.uploadMappingModal = false;
         logAudit('Confirmed schema mapping', `${(DB.mappings || []).length} field(s) mapped`);
         save();
+        closeModal();
         render();
         toast('Mapping Saved', 'ok');
       },
+
 
 
 
@@ -2711,7 +2924,8 @@
       if (t.matches && t.matches('input[data-jobupload]')) { const f = t.files && t.files[0]; if (f) ingestJob(f); t.value = ''; return; }
       if (t.hasAttribute && t.hasAttribute('data-stg-status')) { DB.filters.stgStatus = t.value; render(); return; }
       if (t.hasAttribute && t.hasAttribute('data-stg-job')) { DB.filters.stgJobId = t.value; DB.filters.stgPage = 1; render(); return; }
-      if (t.dataset.map && (t.dataset.map === 'ledger' || t.dataset.map === 'transform')) { const m = (DB.mappings || []).find(x => x.id === t.dataset.id); if (m) { m[t.dataset.map] = t.value; if (t.dataset.map === 'transform' && !mapNeedsParam(t.value)) m.param = ''; } render(); return; }
+      if (t.dataset.map && (t.dataset.map === 'src' || t.dataset.map === 'ledger' || t.dataset.map === 'transform')) { const m = (DB.mappings || []).find(x => x.id === t.dataset.id); if (m) { m[t.dataset.map] = t.value; if (t.dataset.map === 'transform' && !mapNeedsParam(t.value)) m.param = ''; } render(); return; }
+
       if (t.matches && t.matches('input[type=file][data-upload]')) {
         const cat = t.dataset.upcat || ($('#up-cat') && $('#up-cat').value) || 'other';
         const ref = t.dataset.upref || ($('#up-ref') && $('#up-ref').value) || null;
