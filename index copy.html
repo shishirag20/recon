@@ -347,6 +347,7 @@
       clock: 'M12 22a10 10 0 100-20 10 10 0 000 20zM12 6v6l4 2', ext: 'M18 13v6a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3',
       card: 'M2 8h20M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2z', bank: 'M3 21h18M4 10h16M5 21V10M19 21V10M12 3L3 8h18z', doc: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6',
       upload: 'M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12M7 8l5-5 5 5', clip: 'M21 11l-8.5 8.5a5 5 0 01-7-7L14 4a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-3-3L15 6',
+      download: 'M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12M8 8l4 4 4-4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', report: 'M8 2h6l6 6v12a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zM14 2v6h6M9 13h6M9 17h4',
     };
     const icon = (k, cls = 'w-4 h-4') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${IC[k].split('M').filter(Boolean).map(p => `<path d="M${p}"/>`).join('')}</svg>`;
 
@@ -1053,6 +1054,7 @@
       <div class="p-2.5 space-y-0.5 flex-1 overflow-y-auto">
         ${navItem(r.name === 'ingestion', 'goto', 'data-r="ingestion"', 'bank', 'Data hub')}
         ${navItem(r.name === 'reconciliation', 'goto', 'data-r="reconciliation"', 'merge', 'Reconciliation')}
+        ${navItem(r.name === 'reports', 'goto', 'data-r="reports"', 'report', 'Reports')}
       </div>
       <div class="p-2.5 border-t border-line">
         <button data-act="new-recon" class="btn btn-ghost w-full justify-center">${icon('plus', 'w-4 h-4')}New reconciliation</button>
@@ -1548,9 +1550,10 @@
           <div><div class="lbl mb-1.5">Invoice</div><div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Invoice</th><th class="px-3 py-1.5">Customer</th><th class="px-3 py-1.5 text-right">Amount</th></tr></thead><tbody>${invRows || `<tr><td colspan="4" class="px-3 py-6 text-center text-muted">No invoices</td></tr>`}</tbody></table></div></div>
           <div><div class="lbl mb-1.5">Payment</div><div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Payment</th><th class="px-3 py-1.5">Payer</th><th class="px-3 py-1.5 text-right">Received</th><th class="px-3 py-1.5 text-right">Unapplied</th></tr></thead><tbody>${payRows || `<tr><td colspan="5" class="px-3 py-6 text-center text-muted">No payments</td></tr>`}</tbody></table></div></div>
         </div>
-        <label class="lbl block mb-1.5 mt-4">Note (optional)</label>
-        <textarea id="ar-match-note" class="field h-16 resize-none mb-4" placeholder="Why these should be linked"></textarea>
-        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-save-manual-match" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Save changes</button></div>
+        <label class="lbl block mb-1.5 mt-4">Note</label>
+        <textarea id="ar-match-note" class="field h-16 resize-none mb-1" placeholder="Why these should be linked — or, if resolving without a match, what was done (e.g. mapped to suspense, written off)"></textarea>
+        <div class="text-[11px] text-faint mb-4">No invoice fits? Add a note and resolve without matching instead — e.g. map unidentified cash to a suspense account.</div>
+        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-resolve-unmatched" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-ghost">${icon('check', 'w-4 h-4')}Resolve without matching</button><button data-act="ar-save-manual-match" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Save changes</button></div>
         </div>
       </div>`;
     }
@@ -1570,7 +1573,8 @@
     // reopenable afterwards from the "Reconciliation finished" badge). Every figure is derived
     // live from rec/res, nothing here is separately stored or editable.
     function arFinishSummaryModal(rec, res) {
-      const finishedAt = rec.arFinished ? rec.arFinished.at : todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+      const isSignedOff = !!rec.arFinished;
+      const finishedAt = rec.arFinished ? rec.arFinished.at : (rec.lastRun ? rec.lastRun.at : todayISO() + 'T' + new Date().toTimeString().slice(0, 5));
       const [fDate, fTime] = finishedAt.split('T');
       const fd = parseISO(fDate);
       const fDateLabel = `${MON[fd.getMonth()]} ${fd.getDate()}, ${fd.getFullYear()}`;
@@ -1631,16 +1635,16 @@
           <button data-act="close-modal" class="print-hide text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button>
         </div>
 
-        <div class="rounded-md bg-ok-soft border border-ok-ink/20 text-ok-ink text-[12.5px] font-medium px-3 py-2 mb-4 flex items-center gap-2 flex-wrap">
-          ${icon('check', 'w-4 h-4')} Reconciliation successfully completed on ${fDateLabel} at ${fTime}
-          <span class="ml-auto chip bg-ok text-white border-transparent">Completed &amp; Signed Off</span>
+        <div class="rounded-md ${isSignedOff ? 'bg-ok-soft border-ok-ink/20 text-ok-ink' : 'bg-warn-soft border-warn-ink/20 text-warn-ink'} border text-[12.5px] font-medium px-3 py-2 mb-4 flex items-center gap-2 flex-wrap">
+          ${icon(isSignedOff ? 'check' : 'clock', 'w-4 h-4')} ${isSignedOff ? `Reconciliation successfully completed on ${fDateLabel} at ${fTime}` : `Run as of ${fDateLabel} at ${fTime} — not yet signed off`}
+          <span class="ml-auto chip ${isSignedOff ? 'bg-ok text-white' : 'bg-warn text-white'} border-transparent">${isSignedOff ? 'Completed & Signed Off' : 'Awaiting sign-off'}</span>
         </div>
 
         <div class="grid grid-cols-4 gap-3 mb-5">
           ${kpi('Total invoices processed', res.invoices.length, fmtMoney(openingAR) + ' total value')}
           ${kpi('Fully matched volume', matchedCount, `${fmtMoney(matchedVal)} · ${matchedPct}% of value`)}
-          ${kpi('Exceptions resolved', `${resolvedExc.length}/${res.exceptions.length}`, `100% clearance${residualCount ? ` · ${residualCount} residual open balance` : ''}`)}
-          ${kpi('Final unapplied cash', fmtMoney(0), `carried forward ${fmtMoney(unappliedCarried)}`)}
+          ${kpi('Exceptions resolved', `${resolvedExc.length}/${res.exceptions.length}`, res.exceptions.length === resolvedExc.length ? `100% clearance${residualCount ? ` · ${residualCount} residual open balance` : ''}` : `${res.exceptions.length - resolvedExc.length} still open`)}
+          ${kpi('Final unapplied cash', fmtMoney(res.unapplied ? res.unapplied.reduce((s, u) => s + u.amount, 0) : 0), `carried forward ${fmtMoney(unappliedCarried)}`)}
         </div>
 
         <div class="grid grid-cols-2 gap-4 mb-5">
@@ -1677,7 +1681,7 @@
 
         <div class="rounded-md bg-sunken border border-line p-3 text-[11.5px] text-muted space-y-1 mb-1">
           <div><span class="font-semibold text-ink">Executed by:</span> ${esc(DB.user.name)} (${esc(DB.user.role)})</div>
-          <div><span class="font-semibold text-ink">Sign-off timestamp:</span> ${fDateLabel}, at ${fTime}</div>
+          <div><span class="font-semibold text-ink">${isSignedOff ? 'Sign-off timestamp' : 'Last run timestamp'}:</span> ${fDateLabel}, at ${fTime}</div>
           <div><span class="font-semibold text-ink">Audit run ID:</span> <span class="mono">${esc(runId)}</span></div>
         </div>
 
@@ -2999,6 +3003,250 @@
     </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
     }
 
+    // ═══════════════════════════════════════ view: reports (historical archive) ═══════════════════════════════════════
+    // Everything below is derived live from DB.recs / DB.audit — the app only keeps one lastRun
+    // snapshot per reconciliation definition (no multi-run history table), so "archive" here means
+    // the current run state of every configured reconciliation, not a growing log of past runs.
+    function defaultRepFilters() { return { runQ: '', runStatus: 'all', runType: 'all', matQ: '', matType: 'all', matRun: 'all', excQ: '', excType: 'all', excStatus: 'all', audQ: '', audCat: 'all' }; }
+    function reportsInit() { DB.ui.rep = DB.ui.rep || defaultRepFilters(); }
+    function runIdFor(rc) { return `RUN-${rc.lastRun.at.slice(0, 10).replace(/-/g, '')}-${(rc.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-5).toUpperCase()}`; }
+    function liveReportRuns() {
+      return DB.recs.filter(rc => rc.lastRun).map(rc => {
+        const res = getEngineResult(rc);
+        const isAR = rc.type === 'ar-reconciliation';
+        const volume = isAR ? res.invoices.length + res.payments.length : res.total;
+        const matchedN = isAR ? res.matches.length + res.overpays.length : res.matched.length;
+        const openExceptions = isAR ? res.exceptions.filter(e => e.status === 'Open').length : res.breaks.length;
+        const exceptionValue = isAR ? res.exceptions.filter(e => e.status === 'Open').reduce((s, e) => s + e.amount, 0) : res.breakVal;
+        const unappliedCash = isAR ? res.unapplied.reduce((s, u) => s + u.amount, 0) : 0;
+        const matchedValue = isAR ? (res.matches.reduce((s, m) => s + m.amount, 0) + res.overpays.reduce((s, m) => s + m.amount, 0)) : res.matchedVal;
+        const status = isAR ? (rc.arFinished ? 'Signed off' : (openExceptions === 0 ? 'Completed' : 'Under review'))
+          : (res.breaks.length === 0 ? 'Completed' : 'Under review');
+        return {
+          runId: runIdFor(rc), recId: rc.id, date: rc.lastRun.at.slice(0, 10), type: TYPE_META[rc.type].label, volume,
+          matched: matchedN, matchRate: res.rate, unappliedCash, exceptions: openExceptions, status,
+          preparedBy: rc.owner, reviewedBy: isAR && rc.arFinished ? rc.arFinished.by : null,
+          signedAt: isAR && rc.arFinished ? rc.arFinished.at : null, matchedValue, exceptionValue, currency: 'INR',
+        };
+      }).sort((a, b) => a.date < b.date ? 1 : -1);
+    }
+    function liveReportMatched() {
+      const out = [];
+      DB.recs.filter(rc => rc.lastRun).forEach(rc => {
+        const res = getEngineResult(rc), runId = runIdFor(rc), isAR = rc.type === 'ar-reconciliation';
+        if (isAR) {
+          const manualGroupFor = invId => (rc.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
+          const matchTypeFor = invId => { const g = manualGroupFor(invId); if (!g) return 'Exact'; if (g.invoiceIds.length > 1 && g.paymentIds.length > 1) return 'Many-to-Many'; if (g.invoiceIds.length > 1) return 'One-to-Many'; if (g.paymentIds.length > 1) return 'Many-to-One'; return 'Manual'; };
+          [...res.matches, ...res.overpays].forEach(m => out.push({ id: uid('mt'), runId, date: rc.lastRun.at.slice(0, 10), sideA: `Invoice ${m.invoiceNum}`, sideB: `Payment ${m.paymentId}`, customer: m.customer, reference: m.invoiceNum, amount: m.amount, matchType: matchTypeFor(m.invoiceId), at: rc.lastRun.at, user: rc.owner }));
+        } else {
+          res.matched.forEach(m => {
+            const a = res.A.find(x => x.id === m.aId), b = res.B.find(x => x.id === m.bId);
+            if (!a || !b) return;
+            out.push({ id: uid('mt'), runId, date: rc.lastRun.at.slice(0, 10), sideA: `${a.memo || a.kind || ''} ${a.reference || ''}`.trim(), sideB: `${b.memo || b.kind || ''} ${b.reference || ''}`.trim(), customer: a.counterparty || b.counterparty || '—', reference: a.reference || b.reference || '—', amount: Math.abs(a.amount), matchType: m.ruleId === 'manual' ? 'Manual' : (m.ruleName || 'Rule match'), at: rc.lastRun.at, user: rc.owner });
+          });
+        }
+      });
+      return out.sort((a, b) => a.at < b.at ? 1 : -1);
+    }
+    function liveReportExceptions() {
+      const out = [];
+      DB.recs.filter(rc => rc.lastRun).forEach(rc => {
+        const res = getEngineResult(rc), runId = runIdFor(rc), isAR = rc.type === 'ar-reconciliation';
+        if (isAR) {
+          res.exceptions.forEach(e => {
+            const r = (rc.arResolved || {})[e.key];
+            out.push({ id: e.id + '-' + rc.id, runId, date: e.date, type: e.type, customer: e.customer || '—', reference: e.relatedId, amount: e.amount, reasonCode: (r && r.note) || '—', status: e.status, resolver: r ? rc.owner : null });
+          });
+        } else {
+          res.breaks.forEach(r => out.push({ id: r.id, runId, date: r.date, type: 'Unmatched', customer: r.counterparty || '—', reference: r.reference || '—', amount: Math.abs(r.amount), reasonCode: '—', status: 'Open', resolver: null }));
+        }
+      });
+      return out.sort((a, b) => a.date < b.date ? 1 : -1);
+    }
+    function auditCategoryFor(action) {
+      if (/^Ran reconciliation/i.test(action)) return 'engine';
+      if (/Ingestion job|mapping|uploaded/i.test(action)) return 'mapping';
+      if (/Resolved|Manually matched|exception/i.test(action)) return 'override';
+      if (/Finished reconciliation|sign.?off/i.test(action)) return 'signoff';
+      return 'action';
+    }
+    const runStatusPill = s => s === 'Under review' ? '<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Under review</span>' : s === 'Completed' ? '<span class="chip bg-sunken text-ink-soft">Completed</span>' : '<span class="chip bg-ok-soft text-ok-ink border-ok-soft">Signed off</span>';
+    const excStatusPill = s => s === 'Open' ? '<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Open</span>' : s === 'Written off' ? '<span class="chip bg-sunken text-muted">Written off</span>' : `<span class="chip bg-ok-soft text-ok-ink border-ok-soft">${s}</span>`;
+    const excTag = t => { const m = { 'Short-Pay': 'bg-warn-soft text-warn-ink', 'Unapplied Payment': 'bg-warn-soft text-warn-ink', 'Timing Difference': 'bg-sunken text-ink-soft', 'Overpayment': 'bg-accent-soft text-accent-ink', 'Write-off': 'bg-sunken text-muted', 'GL Control Mismatch': 'bg-bad-soft text-bad-ink', 'Gateway Variance': 'bg-bad-soft text-bad-ink', 'Unmatched': 'bg-sunken text-ink-soft' }; return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${m[t] || 'bg-sunken text-muted'}">${esc(t)}</span>`; };
+    function repRunsFiltered() { const f = DB.ui.rep, q = (f.runQ || '').toLowerCase(); return liveReportRuns().filter(r => { if (f.runStatus !== 'all' && r.status !== f.runStatus) return false; if (f.runType !== 'all' && r.type !== f.runType) return false; if (q && ![r.runId, r.type, r.preparedBy, r.status].join(' ').toLowerCase().includes(q)) return false; return true; }); }
+    function repMatchedFiltered() { const f = DB.ui.rep, q = (f.matQ || '').toLowerCase(); return liveReportMatched().filter(m => { if (f.matType !== 'all' && m.matchType !== f.matType) return false; if (f.matRun !== 'all' && m.runId !== f.matRun) return false; if (q && ![m.customer, m.reference, m.sideA, m.sideB, (m.amount / 100).toFixed(2), m.runId].join(' ').toLowerCase().includes(q)) return false; return true; }); }
+    function repExcFiltered() { const f = DB.ui.rep, q = (f.excQ || '').toLowerCase(); return liveReportExceptions().filter(x => { if (f.excType !== 'all' && x.type !== f.excType) return false; if (f.excStatus !== 'all' && x.status !== f.excStatus) return false; if (q && ![x.customer, x.reference, x.reasonCode, x.type, x.runId].join(' ').toLowerCase().includes(q)) return false; return true; }); }
+    function repAuditRows() { const f = DB.ui.rep, q = (f.audQ || '').toLowerCase(); let rows = (DB.audit || []).map(a => ({ at: a.at, user: a.user, event: a.action, category: auditCategoryFor(a.action), runId: '—', detail: a.detail })).sort((a, b) => a.at < b.at ? 1 : -1); if (f.audCat !== 'all') rows = rows.filter(r => r.category === f.audCat); if (q) rows = rows.filter(r => [r.user, r.event, r.detail, r.runId].join(' ').toLowerCase().includes(q)); return rows; }
+    // ── exports ──
+    function downloadBlob(name, mime, content) { const b = new Blob([content], { type: mime }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u); }
+    function csvRow(a) { return a.map(v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }
+    function toCSV(headers, rows) { return [csvRow(headers), ...rows.map(csvRow)].join('\n'); }
+    function exportReport(kind, fmt) {
+      let headers, rows, name;
+      if (kind === 'runs') { headers = ['Run ID', 'Date', 'Type', 'Volume', 'Matched', 'Match rate %', 'Unapplied cash', 'Exceptions', 'Status', 'Prepared by', 'Reviewed by']; rows = repRunsFiltered().map(r => [r.runId, r.date, r.type, r.volume, r.matched, r.matchRate, (r.unappliedCash / 100).toFixed(2), r.exceptions, r.status, r.preparedBy, r.reviewedBy || '']); name = 'reconciliation-runs'; }
+      else if (kind === 'matched') { headers = ['Run ID', 'Date', 'Side A', 'Side B', 'Customer', 'Reference', 'Amount', 'Match type', 'Timestamp', 'User']; rows = repMatchedFiltered().map(m => [m.runId, m.date, m.sideA, m.sideB, m.customer, m.reference, (m.amount / 100).toFixed(2), m.matchType, m.at, m.user]); name = 'matched-transactions'; }
+      else { headers = ['Run ID', 'Date', 'Type', 'Customer', 'Reference', 'Amount', 'Reason code', 'Status', 'Resolver']; rows = repExcFiltered().map(x => [x.runId, x.date, x.type, x.customer, x.reference, (x.amount / 100).toFixed(2), x.reasonCode, x.status, x.resolver || '']); name = 'exceptions-log'; }
+      if (fmt === 'xls') { const html = '<table border="1"><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>' + rows.map(r => '<tr>' + r.map(c => `<td>${String(c).replace(/</g, '&lt;')}</td>`).join('') + '</tr>').join('') + '</table>'; downloadBlob(name + '.xls', 'application/vnd.ms-excel', html); }
+      else downloadBlob(name + '.csv', 'text/csv;charset=utf-8;', toCSV(headers, rows));
+      logAudit('Exported report', `${name} · ${rows.length} rows · ${(fmt || 'csv').toUpperCase()}`); toast(`Exported ${rows.length} rows (${(fmt || 'csv').toUpperCase()})`);
+    }
+    function runStatementHTML(r) {
+      const mt = liveReportMatched().filter(m => m.runId === r.runId);
+      const rowsHtml = [['Run ID', r.runId], ['Reconciliation type', r.type], ['Statement date', r.date], ['Records processed', r.volume.toLocaleString('en-US')], ['Matched', `${r.matched.toLocaleString('en-US')} (${r.matchRate}%)`], ['Unapplied cash', fmtMoney(r.unappliedCash)], ['Exceptions', r.exceptions], ['Exception value', fmtMoney(r.exceptionValue)], ['Status', r.status], ['Prepared by', r.preparedBy], ['Reviewed & signed by', r.reviewedBy || '—'], ['Signed at', r.signedAt ? r.signedAt.replace('T', ' ') : '—']].map(x => `<tr><td class="k">${x[0]}</td><td>${x[1]}</td></tr>`).join('');
+      return `<html><head><title>${r.runId} — Sign-off Statement</title><style>body{font-family:Inter,Arial,sans-serif;padding:44px;color:#10131A;max-width:720px}h1{font-size:20px;margin:0}.sub{color:#5B6472;font-size:13px;margin:2px 0 20px}table{border-collapse:collapse;width:100%;font-size:13px}td{border:1px solid #E4E7EC;padding:9px 12px}.k{color:#5B6472;width:220px}.foot{color:#9AA2AF;font-size:11px;margin-top:24px}</style></head><body><h1>Reconciliation Sign-off Statement</h1><div class="sub">${r.runId} · ${r.type} · locked snapshot</div><table>${rowsHtml}</table><div class="foot">Immutable record generated from Stack Books · ${mt.length} matched records archived · read-only</div></body></html>`;
+    }
+    function exportRunXls(runId) { const r = liveReportRuns().find(x => x.runId === runId); if (!r) return; downloadBlob(r.runId + '-workbook.xls', 'application/vnd.ms-excel', runStatementHTML(r)); logAudit('Exported statement', `${r.runId} · Excel workbook`); toast('Excel workbook exported'); }
+    function exportRunPDF(runId) { const r = liveReportRuns().find(x => x.runId === runId); if (!r) return; const html = runStatementHTML(r); const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { try { w.print(); } catch (e) { } }, 400); toast('PDF statement opened — use “Save as PDF”'); } else { downloadBlob(r.runId + '-summary.html', 'text/html', html); toast('PDF statement downloaded'); } logAudit('Exported statement', `${r.runId} · PDF summary`); }
+    function modalRunSnapshot(runId) {
+      const r = liveReportRuns().find(x => x.runId === runId); if (!r) return;
+      // AR reconciliation runs open the exact same rich summary as "Finish Reconciliation" —
+      // same document whether you get there mid-flow or later from the Reports archive.
+      const rec = getRec(r.recId);
+      if (rec && rec.type === 'ar-reconciliation') { openModal(arFinishSummaryModal(rec, getEngineResult(rec))); return; }
+      const mt = liveReportMatched().filter(m => m.runId === runId);
+      const stat = (l, v) => `<div><div class="lbl">${l}</div><div class="mono text-[16px] font-semibold mt-0.5">${v}</div></div>`;
+      openModal(`<div class="w-[640px] max-h-[82vh] overflow-y-auto">
+        <div class="flex items-start gap-3"><div><div class="text-[15px] font-bold">${r.runId} <span class="text-muted font-normal">· ${r.type} reconciliation</span></div>
+          <div class="text-[12px] text-muted mt-0.5 flex items-center gap-2">${fmtDate(r.date)} ${runStatusPill(r.status)}</div></div>
+          <div class="ml-auto flex gap-2"><button data-act="rep-export-run" data-id="${r.runId}" data-fmt="pdf" class="btn btn-ghost btn-sm">${icon('download', 'w-3.5 h-3.5')}PDF summary</button>
+            <button data-act="rep-export-run" data-id="${r.runId}" data-fmt="xls" class="btn btn-primary btn-sm">${icon('download', 'w-3.5 h-3.5')}Excel workbook</button></div></div>
+        <div class="flex items-center gap-1.5 text-[11.5px] text-muted my-3">${icon('shield', 'w-3.5 h-3.5 text-ok')}Locked snapshot · read-only · certified sign-off record</div>
+        <div class="grid grid-cols-3 gap-y-4 gap-x-3 card p-4 mb-4">${stat('Volume', r.volume.toLocaleString('en-US'))}${stat('Matched', r.matched.toLocaleString('en-US'))}${stat('Match rate', r.matchRate + '%')}${stat('Unapplied cash', fmtMoney(r.unappliedCash))}${stat('Exceptions', r.exceptions)}${stat('Exception value', fmtMoney(r.exceptionValue))}</div>
+        <div class="grid grid-cols-2 gap-3 mb-4 text-[12.5px]"><div class="card p-3"><div class="lbl mb-1">Prepared by</div>${esc(r.preparedBy)}</div><div class="card p-3"><div class="lbl mb-1">Reviewed &amp; signed by</div>${esc(r.reviewedBy || '— pending —')}${r.signedAt ? `<div class="text-[11px] text-faint mt-0.5">${r.signedAt.replace('T', ' ')}</div>` : ''}</div></div>
+        <div class="lbl mb-2">Matched sample (${mt.length})</div>
+        <div class="card overflow-hidden mb-4"><table class="w-full text-[12.5px]"><tbody>${mt.slice(0, 6).map(m => `<tr class="border-b border-line-soft last:border-0"><td class="px-3 py-2 mono text-[11px] text-faint">${esc(m.reference)}</td><td class="px-3 py-2">${esc(m.customer)}</td><td class="px-3 py-2"><span class="chip">${esc(m.matchType)}</span></td><td class="px-3 py-2 text-right mono">${fmtMoney(m.amount)}</td></tr>`).join('') || '<tr><td class="px-3 py-3 text-muted">No matched records archived for this run.</td></tr>'}</tbody></table></div>
+        <div class="flex justify-end"><button data-act="close-modal" class="btn btn-ghost">Close</button></div></div>`);
+    }
+    function repSummary() {
+      const f = DB.ui.rep, allRuns = liveReportRuns(), runs = repRunsFiltered();
+      const signed = allRuns.filter(r => r.status === 'Signed off').length;
+      const totMatchedVal = allRuns.reduce((s, r) => s + r.matchedValue, 0);
+      const totExc = allRuns.reduce((s, r) => s + r.exceptions, 0);
+      const runTypes = ['all', ...new Set(allRuns.map(r => r.type))];
+      const opt = (cur, arr) => arr.map(o => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${o === 'all' ? 'All' : esc(o)}</option>`).join('');
+      return `<div class="p-6">
+        <div class="grid grid-cols-4 gap-3 mb-5">
+          ${kpi('Completed runs', allRuns.length, 'reconciliations run to date')}
+          ${kpi('Signed off', signed, 'certified & locked')}
+          ${kpi('Matched value', fmtMoney(totMatchedVal), 'across all runs')}
+          ${kpi('Exceptions logged', totExc, 'currently open')}
+        </div>
+        <div class="flex items-center gap-2 mb-3">
+          <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input data-rep-q="run" class="field pl-9" value="${esc(f.runQ)}" placeholder="Search Run ID, type, preparer"></div>
+          <select data-rep-sel="runType" class="field w-[190px]">${opt(f.runType, runTypes)}</select>
+          <select data-rep-sel="runStatus" class="field w-[150px]">${opt(f.runStatus, ['all', 'Signed off', 'Completed', 'Under review'])}</select>
+          <button data-act="rep-export" data-kind="runs" data-fmt="csv" class="btn btn-ghost btn-sm ml-auto">${icon('download', 'w-3.5 h-3.5')}Export list</button>
+        </div>
+        <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+          <th class="px-4 py-2 font-semibold">Run ID</th><th class="px-3 py-2 font-semibold">Date</th><th class="px-3 py-2 font-semibold">Type</th>
+          <th class="px-3 py-2 font-semibold text-right">Volume</th><th class="px-3 py-2 font-semibold text-right">Matched</th>
+          <th class="px-3 py-2 font-semibold text-right">Unapplied cash</th><th class="px-3 py-2 font-semibold text-right">Exceptions</th>
+          <th class="px-3 py-2 font-semibold">Status</th><th class="w-8"></th></tr></thead><tbody>
+          ${runs.length ? runs.map(r => `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="rep-run" data-id="${r.runId}">
+            <td class="px-4 py-2.5 mono font-semibold text-accent-ink">${r.runId}</td>
+            <td class="px-3 py-2.5 text-muted">${fmtDate(r.date)}</td>
+            <td class="px-3 py-2.5">${esc(r.type)}</td>
+            <td class="px-3 py-2.5 text-right mono">${r.volume.toLocaleString('en-US')}</td>
+            <td class="px-3 py-2.5 text-right mono">${r.matched.toLocaleString('en-US')} <span class="text-faint text-[11px]">${r.matchRate}%</span></td>
+            <td class="px-3 py-2.5 text-right mono ${r.unappliedCash ? 'text-warn-ink' : 'text-faint'}">${fmtMoney(r.unappliedCash)}</td>
+            <td class="px-3 py-2.5 text-right mono ${r.exceptions ? 'text-warn-ink' : 'text-faint'}">${r.exceptions || '—'}</td>
+            <td class="px-3 py-2.5">${runStatusPill(r.status)}</td>
+            <td class="px-2 text-faint">${icon('chevR', 'w-4 h-4')}</td></tr>`).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-muted">No runs yet — run a reconciliation to populate this archive.</td></tr>`}
+        </tbody></table></div></div>
+      </div>`;
+    }
+    function repMatched() {
+      const f = DB.ui.rep, all = liveReportMatched(), rows = repMatchedFiltered();
+      const runIds = ['all', ...new Set(all.map(m => m.runId))];
+      const matchTypes = ['all', ...new Set(all.map(m => m.matchType))];
+      const opt = (cur, arr) => arr.map(o => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${o === 'all' ? 'All' : esc(o)}</option>`).join('');
+      return `<div class="p-6">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input data-rep-q="mat" class="field pl-9" value="${esc(f.matQ)}" placeholder="Search customer, reference, amount"></div>
+          <select data-rep-sel="matType" class="field w-[150px]">${opt(f.matType, matchTypes)}</select>
+          <select data-rep-sel="matRun" class="field w-[170px]">${opt(f.matRun, runIds)}</select>
+          <div class="ml-auto flex gap-2"><button data-act="rep-export" data-kind="matched" data-fmt="csv" class="btn btn-ghost btn-sm">${icon('download', 'w-3.5 h-3.5')}CSV</button><button data-act="rep-export" data-kind="matched" data-fmt="xls" class="btn btn-primary btn-sm">${icon('download', 'w-3.5 h-3.5')}Excel</button></div>
+        </div>
+        <div class="text-[11.5px] text-muted mb-3">${rows.length} matched records · read-only audit log of paired transactions</div>
+        <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+          <th class="px-4 py-2 font-semibold">Date</th><th class="px-3 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">Side A ↔ Side B</th>
+          <th class="px-3 py-2 font-semibold">Customer</th><th class="px-3 py-2 font-semibold">Reference</th><th class="px-3 py-2 font-semibold text-right">Amount</th>
+          <th class="px-3 py-2 font-semibold">Match type</th><th class="px-3 py-2 font-semibold">Timestamp</th><th class="px-3 py-2 font-semibold">User</th></tr></thead><tbody>
+          ${rows.length ? rows.map(m => `<tr class="border-b border-line-soft row-hover">
+            <td class="px-4 py-2.5 text-muted">${fmtDate(m.date)}</td>
+            <td class="px-3 py-2.5 mono text-[11px] text-faint">${esc(m.runId)}</td>
+            <td class="px-3 py-2.5"><div class="text-[12px]">${esc(m.sideA)}</div><div class="text-[11px] text-faint">${esc(m.sideB)}</div></td>
+            <td class="px-3 py-2.5 font-medium">${esc(m.customer)}</td>
+            <td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(m.reference)}</td>
+            <td class="px-3 py-2.5 text-right mono font-medium">${fmtMoney(m.amount)}</td>
+            <td class="px-3 py-2.5"><span class="chip">${esc(m.matchType)}</span></td>
+            <td class="px-3 py-2.5 mono text-[11px] text-faint">${m.at.replace('T', ' ')}</td>
+            <td class="px-3 py-2.5 text-muted">${esc(m.user)}</td></tr>`).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-muted">No matched records match your filters.</td></tr>`}
+        </tbody></table></div></div>
+      </div>`;
+    }
+    function repExceptions() {
+      const f = DB.ui.rep, all = liveReportExceptions(), rows = repExcFiltered();
+      const excTypes = ['all', ...new Set(all.map(x => x.type))];
+      const opt = (cur, arr) => arr.map(o => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${o === 'all' ? 'All' : esc(o)}</option>`).join('');
+      return `<div class="p-6">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input data-rep-q="exc" class="field pl-9" value="${esc(f.excQ)}" placeholder="Search customer, reference, resolution note"></div>
+          <select data-rep-sel="excType" class="field w-[180px]">${opt(f.excType, excTypes)}</select>
+          <select data-rep-sel="excStatus" class="field w-[140px]">${opt(f.excStatus, ['all', 'Open', 'Resolved'])}</select>
+          <button data-act="rep-export" data-kind="exceptions" data-fmt="csv" class="btn btn-ghost btn-sm ml-auto">${icon('download', 'w-3.5 h-3.5')}Export CSV</button>
+        </div>
+        <div class="text-[11.5px] text-muted mb-3">${rows.length} exceptions &amp; adjustments · live register from every run</div>
+        <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+          <th class="px-4 py-2 font-semibold">Date</th><th class="px-3 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">Type</th>
+          <th class="px-3 py-2 font-semibold">Customer</th><th class="px-3 py-2 font-semibold">Reference</th><th class="px-3 py-2 font-semibold text-right">Amount</th>
+          <th class="px-3 py-2 font-semibold">Resolution note</th><th class="px-3 py-2 font-semibold">Status</th><th class="px-3 py-2 font-semibold">Resolver</th></tr></thead><tbody>
+          ${rows.length ? rows.map(x => `<tr class="border-b border-line-soft row-hover">
+            <td class="px-4 py-2.5 text-muted">${fmtDate(x.date)}</td>
+            <td class="px-3 py-2.5 mono text-[11px] text-faint">${esc(x.runId)}</td>
+            <td class="px-3 py-2.5">${excTag(x.type)}</td>
+            <td class="px-3 py-2.5 font-medium">${esc(x.customer)}</td>
+            <td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(x.reference)}</td>
+            <td class="px-3 py-2.5 text-right mono">${fmtMoney(x.amount)}</td>
+            <td class="px-3 py-2.5 text-[11.5px] text-muted">${esc(x.reasonCode)}</td>
+            <td class="px-3 py-2.5">${excStatusPill(x.status)}</td>
+            <td class="px-3 py-2.5 text-muted">${esc(x.resolver || '—')}</td></tr>`).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-muted">No exceptions match your filters.</td></tr>`}
+        </tbody></table></div></div>
+      </div>`;
+    }
+    function repAudit() {
+      const f = DB.ui.rep, rows = repAuditRows();
+      const opt = (cur, arr) => arr.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('');
+      const evChip = c => ({ engine: 'bg-accent-soft text-accent-ink', mapping: 'bg-sunken text-ink-soft', override: 'bg-warn-soft text-warn-ink', signoff: 'bg-ok-soft text-ok-ink', action: 'bg-sunken text-muted' }[c] || 'bg-sunken text-muted');
+      return `<div class="p-6">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input data-rep-q="aud" class="field pl-9" value="${esc(f.audQ)}" placeholder="Search user, event, detail"></div>
+          <select data-rep-sel="audCat" class="field w-[190px]">${opt(f.audCat, [['all', 'All events'], ['engine', 'Rule engine execution'], ['mapping', 'Manual mapping'], ['override', 'Exception override'], ['signoff', 'Sign-off'], ['action', 'User actions']])}</select>
+        </div>
+        <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('shield', 'w-3.5 h-3.5 text-ok')}Immutable append-only log · ${rows.length} events · SOX / financial compliance</div>
+        <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
+          <th class="px-4 py-2 font-semibold">Timestamp</th><th class="px-3 py-2 font-semibold">User</th><th class="px-3 py-2 font-semibold">Event</th><th class="px-3 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">Detail</th></tr></thead><tbody>
+          ${rows.length ? rows.map(r => `<tr class="border-b border-line-soft">
+            <td class="px-4 py-2.5 mono text-[11.5px] text-faint whitespace-nowrap">${r.at.replace('T', ' ')}</td>
+            <td class="px-3 py-2.5 font-medium whitespace-nowrap">${esc(r.user)}</td>
+            <td class="px-3 py-2.5"><span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${evChip(r.category)}">${esc(r.event)}</span></td>
+            <td class="px-3 py-2.5 mono text-[11px] text-faint">${esc(r.runId)}</td>
+            <td class="px-3 py-2.5 text-muted">${esc(r.detail)}</td></tr>`).join('') : `<tr><td colspan="5" class="px-4 py-10 text-center text-muted">No events match your filters.</td></tr>`}
+        </tbody></table></div></div>
+      </div>`;
+    }
+    function viewReports() {
+      reportsInit();
+      DB.ui.rep = DB.ui.rep || defaultRepFilters();
+      const tab = DB.route.tab || 'summary';
+      const TABS = [['summary', 'Summary Statements'], ['matched', 'Matched Transactions'], ['exceptions', 'Exception & Adjustment Logs'], ['audit', 'Audit Trails']];
+      const body = tab === 'matched' ? repMatched() : tab === 'exceptions' ? repExceptions() : tab === 'audit' ? repAudit() : repSummary();
+      return topbar('Reports', 'Historical archive of completed reconciliation runs — read-only', '')
+        + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
+      ${TABS.map(([k, l]) => `<button data-act="rep-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}</button>`).join('')}
+    </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
+    }
+
     // ═══════════════════════════════════════ view: period close ═══════════════════════════════════════
     function viewClose() {
       const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
@@ -3165,6 +3413,7 @@
       else if (r.name === 'transactions') v = viewTransactions();
       else if (r.name === 'ingestion') v = viewIngestion();
       else if (r.name === 'reconciliation') v = viewAutoReconciliation();
+      else if (r.name === 'reports') v = viewReports();
       else if (r.name === 'import') v = viewImport();
       else if (r.name === 'intercompany') v = viewIntercompany();
       else if (r.name === 'exceptions') v = viewExceptions();
@@ -3228,6 +3477,10 @@
     }
     const ACT = {
       goto: d => { DB.route = { name: d.r }; DB.ui.editRule = null; render(); },
+      'rep-tab': d => { DB.route.tab = d.t; render(); },
+      'rep-run': d => modalRunSnapshot(d.id),
+      'rep-export': d => exportReport(d.kind, d.fmt || 'csv'),
+      'rep-export-run': d => { d.fmt === 'pdf' ? exportRunPDF(d.id) : exportRunXls(d.id); },
       'open-transaction': d => { const rec = getRec(d.rec), r = getRec(d.rec)?.records.find(x => x.id === d.record); if (rec && r) modalTransaction(rec, r); },
       'open-recon': d => { DB.route = { name: 'recon', recId: d.id, tab: 'overview' }; DB.ui.editRule = null; render(); },
       'open-recon-tab': d => { DB.route = { name: 'recon', recId: d.id, tab: d.t }; render(); },
@@ -3257,6 +3510,16 @@
         rec.arResolved = rec.arResolved || {};
         rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved AR exception', d.key);
+        DB.ui.arActiveException = null; render(); toast('Marked resolved');
+      },
+      // No invoice/payment fits (e.g. genuinely unidentifiable cash, or a residual not worth
+      // chasing) — resolve straight from the matcher without forming a manual match group.
+      'ar-resolve-unmatched': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const note = ($('#ar-match-note') && $('#ar-match-note').value) || '';
+        rec.arResolved = rec.arResolved || {};
+        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        logAudit('Resolved AR exception without match', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
       'ar-finish-recon': d => {
@@ -3394,9 +3657,10 @@
       if (act !== 'close-modal') e.preventDefault();
       ACT[act](el.dataset, el, e);
     });
-    let stgSearchTimer, arExcSearchTimer;
+    let stgSearchTimer, arExcSearchTimer, repSearchTimer;
     document.addEventListener('input', e => {
       const t = e.target;
+      if (t.hasAttribute && t.hasAttribute('data-rep-q')) { DB.ui.rep = DB.ui.rep || defaultRepFilters(); DB.ui.rep[t.dataset.repQ + 'Q'] = t.value; clearTimeout(repSearchTimer); repSearchTimer = setTimeout(render, 250); return; }
       if (t.dataset.map && (t.dataset.map === 'src' || t.dataset.map === 'param')) { const m = (DB.mappings || []).find(x => x.id === t.dataset.id); if (m) m[t.dataset.map] = t.value; return; }
       if (t.dataset.stgSearch !== undefined && t.hasAttribute && t.hasAttribute('data-stg-search')) { DB.filters.stgQ = t.value; clearTimeout(stgSearchTimer); stgSearchTimer = setTimeout(render, 300); return; }
       if (t.hasAttribute && t.hasAttribute('data-ar-exc-search')) { DB.ui = DB.ui || {}; DB.ui.arExcFilter = DB.ui.arExcFilter || { q: '', type: 'all', sort: 'amount-desc' }; DB.ui.arExcFilter.q = t.value; clearTimeout(arExcSearchTimer); arExcSearchTimer = setTimeout(render, 250); return; }
@@ -3407,6 +3671,7 @@
     });
     document.addEventListener('change', e => {
       const t = e.target;
+      if (t.hasAttribute && t.hasAttribute('data-rep-sel')) { DB.ui.rep = DB.ui.rep || defaultRepFilters(); DB.ui.rep[t.dataset.repSel] = t.value; render(); return; }
       if (t.hasAttribute && t.hasAttribute('data-job-source')) { DB.ui = DB.ui || {}; DB.ui.jobSource = t.value; save(); render(); return; }
       if (t.matches && t.matches('input[data-importupload]')) { ingestFile(t.files[0], t.dataset.importSide); t.value = ''; return; }
       if (t.matches && t.matches('input[data-jobupload]')) { const f = t.files && t.files[0]; if (f) ingestJob(f); t.value = ''; return; }
