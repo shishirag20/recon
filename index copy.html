@@ -1643,17 +1643,17 @@
             <tbody>
               ${DB.ui && DB.ui.aiMappingLoading ? [0, 1, 2].map(i => `<tr class="border-b border-line-soft"><td class="px-4 py-3" colspan="5"><div class="h-4 rounded bg-gradient-to-r from-sunken via-line to-sunken bg-[length:400%_100%] animate-pulse opacity-60" style="width:${60 + i * 15}%"></div></td></tr>`).join('') : ''}
               ${(DB.mappings || []).map(m => {
-                const srcCell = uHeaders.length ? `<select class="field" data-map="src" data-id="${m.id}">${uHeaders.map(h => `<option value="${esc(h)}" ${h === m.src ? 'selected' : ''}>${esc(h)}</option>`).concat(!uHeaders.includes(m.src) ? [`<option value="${esc(m.src)}" selected>${esc(m.src)}</option>`] : []).join('')}</select>` : `<input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}">`;
-                const tgtOpts = LEDGER_FIELDS.map(f => `<option value="${esc(f)}" ${f === m.ledger ? 'selected' : ''}>${esc(f)}</option>`).concat(!LEDGER_FIELDS.includes(m.ledger) && m.ledger ? [`<option value="${esc(m.ledger)}" selected>${esc(m.ledger)}</option>`] : []).join('');
-                const isAiMapped = DB.ui && DB.ui.aiMappingDone && m.src !== m.ledger;
-                return `<tr class="border-b border-line-soft${isAiMapped ? ' bg-ok-soft/10' : ''}">
+        const srcCell = uHeaders.length ? `<select class="field" data-map="src" data-id="${m.id}">${uHeaders.map(h => `<option value="${esc(h)}" ${h === m.src ? 'selected' : ''}>${esc(h)}</option>`).concat(!uHeaders.includes(m.src) ? [`<option value="${esc(m.src)}" selected>${esc(m.src)}</option>`] : []).join('')}</select>` : `<input class="field" data-map="src" data-id="${m.id}" value="${esc(m.src)}">`;
+        const tgtOpts = LEDGER_FIELDS.map(f => `<option value="${esc(f)}" ${f === m.ledger ? 'selected' : ''}>${esc(f)}</option>`).concat(!LEDGER_FIELDS.includes(m.ledger) && m.ledger ? [`<option value="${esc(m.ledger)}" selected>${esc(m.ledger)}</option>`] : []).join('');
+        const isAiMapped = DB.ui && DB.ui.aiMappingDone && m.src !== m.ledger;
+        return `<tr class="border-b border-line-soft${isAiMapped ? ' bg-ok-soft/10' : ''}">
                   <td class="px-4 py-2.5">${srcCell}</td>
                   <td class="px-2 py-2.5 text-faint text-center">${isAiMapped ? `<span class="text-ok-ink">${icon('arrowr', 'w-4 h-4')}</span>` : icon('arrowr', 'w-4 h-4')}</td>
                   <td class="px-3 py-2.5"><select class="field${isAiMapped ? ' ring-1 ring-ok/40' : ''}" data-map="ledger" data-id="${m.id}">${tgtOpts}</select>${isAiMapped ? `<span class="block text-[10px] text-ok-ink mt-0.5 flex items-center gap-0.5">${icon('bolt', 'w-3 h-3')} AI mapped</span>` : ''}</td>
                   <td class="px-3 py-2.5"><select class="field" data-map="transform" data-id="${m.id}">${topts(m.transform)}</select></td>
                   <td class="px-2 py-2.5 text-right"><button data-act="map-del" data-id="${m.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td>
                 </tr>`;
-              }).join('')}
+      }).join('')}
             </tbody>
           </table>
         </div>
@@ -1732,26 +1732,26 @@
             <thead>
               <tr class="lbl text-left border-b border-line bg-surface sticky top-0 z-10">
                 ${targetFields.map(f => {
-                  const label = f.toUpperCase().replace(/_/g, ' ');
-                  const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
-                  return `<th class="px-3.5 py-2.5 font-semibold ${isAmt ? 'text-right' : ''}">${esc(label)}</th>`;
-                }).join('')}
+        const label = f.toUpperCase().replace(/_/g, ' ');
+        const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
+        return `<th class="px-3.5 py-2.5 font-semibold ${isAmt ? 'text-right' : ''}">${esc(label)}</th>`;
+      }).join('')}
               </tr>
             </thead>
             <tbody>
               ${jobRows.map(r => {
-                const rd = r.rowData || {};
-                return `<tr class="border-b border-line-soft row-hover">
+        const rd = r.rowData || {};
+        return `<tr class="border-b border-line-soft row-hover">
                   ${targetFields.map(f => {
-                    let val = rd[f] !== undefined ? rd[f] : (r[f] !== undefined ? r[f] : '—');
-                    if (f === 'status' || f === 'clearing_status') return `<td class="px-3.5 py-2.5">${stpill(val)}</td>`;
-                    const isId = f.includes('id') || f.includes('number');
-                    const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
-                    const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
-                    return `<td class="px-3.5 py-2.5 ${cls}">${esc(val)}</td>`;
-                  }).join('')}
+          let val = rd[f] !== undefined ? rd[f] : (r[f] !== undefined ? r[f] : '—');
+          if (f === 'status' || f === 'clearing_status') return `<td class="px-3.5 py-2.5">${stpill(val)}</td>`;
+          const isId = f.includes('id') || f.includes('number');
+          const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
+          const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
+          return `<td class="px-3.5 py-2.5 ${cls}">${esc(val)}</td>`;
+        }).join('')}
                 </tr>`;
-              }).join('')}
+      }).join('')}
             </tbody>
           </table>
         </div>
@@ -2225,9 +2225,9 @@
       ${kpi('Rows in error', failedRows, 'across recent jobs')}
     </div>
     <div class="card overflow-hidden mb-4">
-      <div class="flex items-center gap-3 px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Step 1 · Upload a configured source</div><div class="text-[11px] text-faint">Known source → apply saved schema/mapping automatically → validate → normalized data</div></div>
+      <div class="flex items-center gap-3 px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Upload a configured source</div><div class="text-[11px] text-faint"></div></div>
         <select id="job-source-field" data-job-source class="field w-[160px] !py-1 text-[12.5px] font-medium">${sourceOpts}</select>
-        <div class="ml-auto text-[11.5px] text-muted">Happy path is automatic; mapping review is exception-driven</div></div>
+        <div class="ml-auto text-[11.5px] text-muted"></div></div>
       <div class="p-4">
         ${dropzoneHtml}
       </div></div>
@@ -2259,7 +2259,7 @@
     <div class="card p-4 mb-4 flex items-center gap-4">
       <div class="flex-1"><div class="lbl mb-1.5">Source schema${DB.ui && DB.ui.mappingSourceType ? ` <span class="ml-1.5 text-[11px] font-semibold bg-accent/10 text-accent-ink px-2 py-0.5 rounded-full">${esc(DB.ui.mappingSourceType)}</span>` : ''}</div>
         <select class="field max-w-sm">${schemas.map(s => `<option>${esc(s)}</option>`).join('')}</select></div>
-      <div class="text-[12px] text-muted max-w-md"><b>Preconfigured mapping.</b> Review only; edit when a source schema changes or a field is mapped incorrectly. Mappings and transforms are applied automatically during ingestion.</div>
+      
     </div>
     <div class="card overflow-hidden">
       <div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Defined schemas</div>
@@ -2362,7 +2362,7 @@
       return `<div class="p-6">
     <div class="card px-4 py-3 mb-4 flex items-center gap-3 bg-ok-soft/40 border-ok/20">
       <span class="text-ok">${icon('check', 'w-5 h-5')}</span>
-      <div><div class="font-semibold text-[13px]">Ready for reconciliation</div><div class="text-[11.5px] text-muted">Normalized records from Step 1 are available as canonical data for Side A / Side B matching.</div></div>
+      <div><div class="font-semibold text-[13px]">Ready for reconciliation</div></div>
     </div>
 
     <div class="card p-3 mb-4 bg-surface border border-line flex items-center justify-between text-[12.5px] flex-wrap gap-2">
@@ -2396,10 +2396,8 @@
         return `<option value="${f.id}" ${jobFilter === f.id ? 'selected' : ''}>${esc(f.label)} (${f.id}${jTime})</option>`;
       }).join('')}
       </select>
-      <select data-stg-status class="field w-[150px]"><option value="all">All statuses</option><option value="staged" ${st === 'staged' ? 'selected' : ''}>Staged</option><option value="mapped" ${st === 'mapped' ? 'selected' : ''}>Mapped</option><option value="error" ${st === 'error' ? 'selected' : ''}>Error</option></select>
       <button data-act="stg-insert" class="btn btn-primary btn-sm ml-auto">${icon('plus', 'w-3.5 h-3.5')}Insert row</button>
     </div>
-    <div class="text-[11.5px] text-muted mb-3 flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-ok')}Secure staging area · Job <span class="mono font-semibold text-ink">${esc(currentJobId)}</span> · Uploaded <span class="mono font-medium text-ink">${esc(currentUploadTime)}</span> · ${totalRows} rows · 10 rows per page</div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
 
       ${targetFields.map((f, idx) => {
@@ -2535,7 +2533,7 @@
     }
 
     function viewAutoReconciliation() {
-      return topbar('Reconciliation', 'Step 2 · Automated reconciliation of normalized Side A and Side B data', '')
+      return topbar('Reconciliation', 'Automated reconciliation of normalized Side A and Side B data', '')
         + `<div class="flex-1 overflow-y-auto">${dihReconciliation()}</div>`;
     }
 
@@ -2546,7 +2544,7 @@
       const body = tab === 'mapping' ? dihMapping() : tab === 'data' ? dihData() : dihJobs();
 
       const hasFailed = (DB.jobs || []).some(j => j.status === 'failed');
-      return topbar('Data Integration Hub', 'Step 1 · Ingest, map, validate, and normalize source data', '')
+      return topbar('Data Integration Hub', 'Ingest, map, validate, and normalize source data', '')
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
       ${TABS.map(([k, l]) => `<button data-act="dih-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'jobs' && hasFailed ? ` <span class="mono text-[11px] text-bad-ink">!</span>` : ''}</button>`).join('')}
     </div><div class="flex-1 overflow-y-auto fade-in">${body}</div>`;
