@@ -825,7 +825,7 @@
       return matches;
     }
     function arEngine(rec) {
-      if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], perRule: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
+      if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], customers: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], perRule: [], autoGroups: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
       const ar = arDataFromUploads(rec.arData);
       // Uploaded files can reference a customer_id absent from the customers file — fall back
       // instead of crashing, since mismatched real-world CSVs are the norm, not the exception.
@@ -892,18 +892,70 @@
         .filter(g => g.invoiceIds.length && g.paymentIds.length);
       const manualPayIds = new Set(manualGroups.flatMap(g => g.paymentIds));
       const manualInvIds = new Set(manualGroups.flatMap(g => g.invoiceIds));
-      const payA2 = payments.filter(p => !manualPayIds.has(p.paymentId)).map(p => ({ id: p.paymentId, reference: p.paymentId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
-      const invB2 = invoices.filter(inv => !manualInvIds.has(inv.invoiceId)).map(inv => ({ id: inv.invoiceId, reference: inv.invoiceNumber, amount: inv.totalAmount, date: inv.dueDate }));
-      const allocMatches = allocRules.some(r => r.enabled) ? cascadeMatch(payA2, invB2, allocRules) : [];
+
+      // Everything below is scoped per customerId — a payment can only ever be considered against
+      // that same customer's invoices. Without this, two unrelated customers whose amounts happen
+      // to coincide get cross-matched (e.g. Customer A's $2,000 deposit "paying" Customer B's
+      // $2,000 invoice) purely by coincidence, since amount/date alone can't tell them apart.
+      const custIdsInPlay = [...new Set(payments.filter(p => p.customerId && !manualPayIds.has(p.paymentId)).map(p => p.customerId))];
+
+      // Brute-force exact-sum subset search (size 2..maxN) — per-customer pools are tiny in this
+      // app, so this is cheap. Finds cases like "two NEFT transfers together equal one invoice" or
+      // "one lump-sum deposit exactly covers two invoices" that a naive 1:1 matcher can't see.
+      function findExactSumSubset(items, target, maxN) {
+        const n = items.length;
+        for (let size = 2; size <= Math.min(maxN, n); size++) {
+          const combo = [];
+          const pick = start => {
+            if (combo.length === size) return combo.reduce((s, i) => s + items[i].amount, 0) === target ? combo.slice() : null;
+            for (let i = start; i < n; i++) { combo.push(i); const r = pick(i + 1); if (r) return r; combo.pop(); }
+            return null;
+          };
+          const found = pick(0);
+          if (found) return found.map(i => items[i]);
+        }
+        return null;
+      }
+      const autoGroups = [];
+      const autoPayIds = new Set(), autoInvIds = new Set();
+      custIdsInPlay.forEach(cid => {
+        // Many-to-one: N of this customer's payments sum exactly to one of their invoices.
+        invoices.filter(inv => inv.customerId === cid && !manualInvIds.has(inv.invoiceId) && !autoInvIds.has(inv.invoiceId)).forEach(inv => {
+          const avail = payments.filter(p => p.customerId === cid && !manualPayIds.has(p.paymentId) && !autoPayIds.has(p.paymentId)).map(p => ({ id: p.paymentId, amount: p.totalReceived }));
+          const combo = findExactSumSubset(avail, inv.totalAmount, 3);
+          if (combo) { combo.forEach(c => autoPayIds.add(c.id)); autoInvIds.add(inv.invoiceId); autoGroups.push({ invoiceIds: [inv.invoiceId], paymentIds: combo.map(c => c.id), auto: true }); }
+        });
+      });
+      custIdsInPlay.forEach(cid => {
+        // One-to-many: one of this customer's payments sums exactly to N of their invoices.
+        payments.filter(p => p.customerId === cid && !manualPayIds.has(p.paymentId) && !autoPayIds.has(p.paymentId)).forEach(p => {
+          const avail = invoices.filter(inv => inv.customerId === cid && !manualInvIds.has(inv.invoiceId) && !autoInvIds.has(inv.invoiceId)).map(inv => ({ id: inv.invoiceId, amount: inv.totalAmount }));
+          const combo = findExactSumSubset(avail, p.totalReceived, 3);
+          if (combo) { combo.forEach(c => autoInvIds.add(c.id)); autoPayIds.add(p.paymentId); autoGroups.push({ invoiceIds: combo.map(c => c.id), paymentIds: [p.paymentId], auto: true }); }
+        });
+      });
+
+      // Whatever's left goes through the ordinary 1:1 cascade — one cascadeMatch() call per
+      // customer, so a payment can never even be offered a different customer's invoice.
+      const excludedPayIds = new Set([...manualPayIds, ...autoPayIds]);
+      const excludedInvIds = new Set([...manualInvIds, ...autoInvIds]);
+      let allocMatches = [];
+      if (allocRules.some(r => r.enabled)) {
+        custIdsInPlay.forEach(cid => {
+          const payForCust = payments.filter(p => p.customerId === cid && !excludedPayIds.has(p.paymentId)).map(p => ({ id: p.paymentId, reference: p.paymentId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
+          const invForCust = invoices.filter(inv => inv.customerId === cid && !excludedInvIds.has(inv.invoiceId)).map(inv => ({ id: inv.invoiceId, reference: inv.invoiceNumber, amount: inv.totalAmount, date: inv.dueDate }));
+          allocMatches = allocMatches.concat(cascadeMatch(payForCust, invForCust, allocRules));
+        });
+      }
 
       // ── Phase 3: Invoice settlement / short-pay ──
       const shortPayRule = firstEnabled('short-pay');
       const matches = [], shortPays = [], overpays = [], unmatchedInvoices = [];
       const matchedPayIds = new Set();
 
-      // Manual groups first: pool every payment in the group, then waterfall it across the group's
-      // invoices in the order they were selected — leftover after the last invoice becomes overpay.
-      manualGroups.forEach(g => {
+      // Manual groups first, then auto-detected exact-sum groups — same waterfall either way: pool
+      // every payment in the group, apply across its invoices in order, leftover becomes overpay.
+      [...manualGroups, ...autoGroups].forEach(g => {
         const groupInvoices = g.invoiceIds.map(id => invoices.find(i => i.invoiceId === id));
         const groupPayments = g.paymentIds.map(id => payments.find(p => p.paymentId === id));
         const paymentLabel = g.paymentIds.join(', ');
@@ -929,8 +981,9 @@
         });
       });
 
-      // Then rule-based 1:1 matches for whatever wasn't manually grouped.
-      invoices.filter(inv => !manualInvIds.has(inv.invoiceId)).forEach(inv => {
+      // Then rule-based 1:1 matches for whatever wasn't grouped (manually or automatically).
+      const allGroupInvIds = new Set([...manualInvIds, ...autoInvIds]);
+      invoices.filter(inv => !allGroupInvIds.has(inv.invoiceId)).forEach(inv => {
         const m = allocMatches.find(x => x.bId === inv.invoiceId);
         const pay = m ? payments.find(p => p.paymentId === m.aId) : null;
         if (pay) {
@@ -956,6 +1009,14 @@
         } else {
           unmatchedInvoices.push(inv);
         }
+      });
+
+      // Invoices that never had a single payment attempt against them (no group, no cascade
+      // candidate at all) were previously invisible — they only showed up indirectly via the GL
+      // variance. Flag them explicitly so they appear in the inbox like every other exception.
+      unmatchedInvoices.forEach(inv => {
+        const custName = cust(inv.customerId).companyName;
+        flagException('No Payment Received', inv.invoiceId, `${custName} invoice ${inv.invoiceNumber} (${fmtMoney(inv.totalAmount)}) has received no payment`, inv.totalAmount, { date: inv.dueDate, customer: custName, confidence: 100 });
       });
 
       // ── Phase 4: Unapplied cash — payments with leftover / no customer that never got allocated ──
@@ -1011,8 +1072,8 @@
       const perRule = arRules.slice().sort((a, b) => a.priority - b.priority).map(rl => ({ rule: rl, count: rl.enabled ? countFor(rl) : 0 }));
 
       return {
-        invoices, payments, bankStatements, glControlBalances,
-        matches, shortPays, overpays, unapplied, unmatchedInvoices, glMismatch, exceptions, perRule,
+        invoices, payments, bankStatements, glControlBalances, customers: ar.customers,
+        matches, shortPays, overpays, unapplied, unmatchedInvoices, glMismatch, exceptions, perRule, autoGroups,
         rate, matchedVal, breakVal, breaks, matched,
         A: invoices.map((inv, i) => ({ id: `inv-${i}`, side: 'A', amount: inv.totalAmount, date: inv.issueDate, reference: inv.invoiceNumber, counterparty: cust(inv.customerId).companyName, memo: `Invoice ${inv.invoiceNumber}`, kind: 'invoice' })),
         B: payments.map((p, i) => ({ id: `pay-${i}`, side: 'B', amount: p.totalReceived, date: 'N/A', reference: p.paymentId, counterparty: p.customerId ? cust(p.customerId).companyName : 'Unknown', memo: p.paymentId, kind: 'payment' }))
@@ -1440,12 +1501,12 @@
     }
     // Title names what's being compared on each side, not just "matched" — mirrors the topbar's
     // "A ↔ B" convention used across every other reconciliation type.
-    function arMatchedTable(res, title) {
+    function arMatchedTable(rec, res, title) {
       return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${res.matches.length + res.overpays.length})</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Match type</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
       ${[...res.matches, ...res.overpays].map(m => {
-        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`;
-      }).join('') || `<tr><td colspan="5" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-3 py-2.5"><span class="chip">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span></td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`;
+      }).join('') || `<tr><td colspan="6" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
       </tbody></table></div>`;
     }
     function arGatewaySection(rec) {
@@ -1470,7 +1531,7 @@
     }
     function arReconMatches(rec, res) {
       const stream = (DB.ui && DB.ui.arMatchStream) || 'all';
-      const body = stream === 'bank-cash' ? arMatchedTable(res, 'Bank Deposits ↔ Open Invoices')
+      const body = stream === 'bank-cash' ? arMatchedTable(rec, res, 'Bank Deposits ↔ Open Invoices')
         : stream === 'gateway' ? arGatewaySection(rec)
           : stream === 'gl' ? arGlSection(res)
             : arMatchedTable(res, 'Invoices ↔ Payments — All Matches');
@@ -1482,6 +1543,7 @@
       'Timing Difference': 'bg-sunken text-muted',
       'Unapplied Payment': 'bg-warn-soft text-warn-ink',
       'Short-Pay': 'bg-bad-soft text-bad-ink',
+      'No Payment Received': 'bg-bad-soft text-bad-ink',
       'GL Control Mismatch': 'bg-bad-soft text-bad-ink',
       'Gateway Variance': 'bg-accent-soft text-accent-ink',
     };
@@ -1490,7 +1552,24 @@
     }
     // Types that are genuinely a mismatch between two records get the two-table manual matcher;
     // single-value checks (GL, timing, gateway-with-no-counterpart-model) get a resolution note.
-    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment'];
+    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment', 'No Payment Received'];
+    // Single source of truth for how a matched invoice got settled — checked by the Matched tab,
+    // the Finish summary, and Reports alike, so all three agree on 1-to-1 / Many-to-One / One-to-Many.
+    function arMatchTypeFor(rec, res, invId) {
+      const manual = (rec.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
+      if (manual) {
+        if (manual.invoiceIds.length > 1 && manual.paymentIds.length > 1) return 'Many-to-Many (Manual)';
+        if (manual.invoiceIds.length > 1) return 'One-to-Many (Manual)';
+        if (manual.paymentIds.length > 1) return 'Many-to-One (Manual)';
+        return '1-to-1 (Manual)';
+      }
+      const auto = (res.autoGroups || []).find(g => g.invoiceIds.includes(invId));
+      if (auto) {
+        if (auto.invoiceIds.length > 1) return 'One-to-Many';
+        if (auto.paymentIds.length > 1) return 'Many-to-One';
+      }
+      return '1-to-1';
+    }
     function arReconExceptions(rec, res) {
       const f = (DB.ui && DB.ui.arExcFilter) || { q: '', type: 'all', sort: 'amount-desc' };
       const types = [...new Set(res.exceptions.map(e => e.type))];
@@ -1552,8 +1631,8 @@
     // Two-table manual matcher — for Short-Pay / Unapplied Payment exceptions, where the fix is
     // literally "link this invoice to this payment". Radio-select one row per side, then save.
     function arMatchPanel(rec, res, exc) {
-      const custName = id => (rec.arData.customers.find(c => c.customerId === id) || {}).companyName || 'Unknown';
-      const preInv = exc.type === 'Short-Pay' ? exc.relatedId : '';
+      const custName = id => ((res.customers || []).find(c => c.customerId === id) || {}).companyName || 'Unknown';
+      const preInv = (exc.type === 'Short-Pay' || exc.type === 'No Payment Received') ? exc.relatedId : '';
       const prePay = exc.type === 'Unapplied Payment' ? exc.relatedId : '';
       // Checkboxes, not radios — many-to-many: one payment can settle several invoices, or several
       // payments can jointly cover one invoice. Pick any number on each side, then Save changes.
@@ -1617,15 +1696,7 @@
       const unappliedCarried = resolvedExc.filter(e => e.type === 'Unapplied Payment').reduce((s, e) => s + e.amount, 0);
       const gl = res.glControlBalances;
 
-      const manualGroupFor = invId => (rec.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
-      const matchTypeFor = invId => {
-        const g = manualGroupFor(invId);
-        if (!g) return '1-to-1';
-        if (g.invoiceIds.length > 1 && g.paymentIds.length > 1) return 'Many-to-Many';
-        if (g.invoiceIds.length > 1) return 'One-to-Many';
-        if (g.paymentIds.length > 1) return 'Many-to-One';
-        return '1-to-1 (Manual)';
-      };
+      const matchTypeFor = invId => arMatchTypeFor(rec, res, invId);
       const pairRows = [
         ...res.matches.map(m => ({ ...m, statusHtml: statusPill('completed') })),
         ...res.overpays.map(m => ({ ...m, statusHtml: `<span class="text-[11.5px] font-medium text-warn-ink">Resolved (overpaid ${fmtMoney(m.overage)})</span>` })),
@@ -3106,8 +3177,7 @@
       DB.recs.filter(rc => rc.lastRun).forEach(rc => {
         const res = getEngineResult(rc), runId = runIdFor(rc), isAR = rc.type === 'ar-reconciliation';
         if (isAR) {
-          const manualGroupFor = invId => (rc.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
-          const matchTypeFor = invId => { const g = manualGroupFor(invId); if (!g) return 'Exact'; if (g.invoiceIds.length > 1 && g.paymentIds.length > 1) return 'Many-to-Many'; if (g.invoiceIds.length > 1) return 'One-to-Many'; if (g.paymentIds.length > 1) return 'Many-to-One'; return 'Manual'; };
+          const matchTypeFor = invId => arMatchTypeFor(rc, res, invId);
           [...res.matches, ...res.overpays].forEach(m => out.push({
             id: uid('mt'), stream: 'bank-cash', runId, recId: rc.id, date: rc.lastRun.at.slice(0, 10),
             invoiceId: m.invoiceId, invoiceNum: m.invoiceNum, sideA: `Invoice ${m.invoiceNum}`,
