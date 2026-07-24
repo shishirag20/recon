@@ -2032,6 +2032,30 @@
       if (m) m.innerHTML = '';
     }
 
+    function modalBatchJobStarted(fileName, selSource, jobId, rowCount) {
+      openModal(`<div class="w-[460px] max-w-full text-center">
+        <div class="w-12 h-12 rounded-full bg-ok-soft text-ok-ink flex items-center justify-center mx-auto mb-3">
+          ${icon('play', 'w-6 h-6')}
+        </div>
+        <div class="font-bold text-[17px] text-ink mb-1">Batch job started</div>
+        <div class="text-[12.5px] text-muted mb-4">
+          Ingestion batch job <span class="mono font-semibold text-accent-ink">${esc(jobId)}</span> has been successfully initiated and schema mapping confirmed.
+        </div>
+        <div class="card p-3.5 bg-sunken/40 mb-5 text-left text-[12.5px] space-y-2 border border-line">
+          <div class="flex justify-between items-center"><span class="text-muted">Job ID</span><span class="mono font-semibold text-accent-ink">${esc(jobId)}</span></div>
+          <div class="flex justify-between items-center"><span class="text-muted">Source File</span><span class="font-medium text-ink truncate max-w-[220px]">${esc(fileName)}</span></div>
+          <div class="flex justify-between items-center"><span class="text-muted">Category</span><span class="chip text-[11px] font-semibold">${esc(selSource)}</span></div>
+          <div class="flex justify-between items-center"><span class="text-muted">Rows Loaded</span><span class="mono font-semibold">${rowCount} rows</span></div>
+          <div class="flex justify-between items-center"><span class="text-muted">Status</span><span class="inline-flex items-center gap-1.5 text-ok-ink font-semibold text-[11.5px]"><span class="w-2 h-2 rounded-full bg-ok animate-pulse"></span>Batch Job Running</span></div>
+        </div>
+        <div class="flex justify-center">
+          <button data-act="close-modal" class="btn btn-primary w-full justify-center">
+            ${icon('check', 'w-4 h-4')} Done
+          </button>
+        </div>
+      </div>`);
+    }
+
     function openMappingModal(fileName, selSource) {
       DB.ui = DB.ui || {};
       DB.ui.uploadMappingModal = true;
@@ -2581,6 +2605,7 @@
           (DB.recs || []).filter(r => r.type === 'ar-reconciliation').forEach(r => { r.lastRun = null; });
         }
 
+        DB.lastJobInfo = { fileName: file.name, selSource, jobId, rowCount: rowObjs.length };
         logAudit('Ingestion job', `${sourceName} · ${rowObjs.length} rows`);
         save();
         render();
@@ -3037,12 +3062,42 @@
         if (isAR) {
           const manualGroupFor = invId => (rc.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
           const matchTypeFor = invId => { const g = manualGroupFor(invId); if (!g) return 'Exact'; if (g.invoiceIds.length > 1 && g.paymentIds.length > 1) return 'Many-to-Many'; if (g.invoiceIds.length > 1) return 'One-to-Many'; if (g.paymentIds.length > 1) return 'Many-to-One'; return 'Manual'; };
-          [...res.matches, ...res.overpays].forEach(m => out.push({ id: uid('mt'), runId, date: rc.lastRun.at.slice(0, 10), sideA: `Invoice ${m.invoiceNum}`, sideB: `Payment ${m.paymentId}`, customer: m.customer, reference: m.invoiceNum, amount: m.amount, matchType: matchTypeFor(m.invoiceId), at: rc.lastRun.at, user: rc.owner }));
+          [...res.matches, ...res.overpays].forEach(m => out.push({
+            id: uid('mt'), stream: 'bank-cash', runId, recId: rc.id, date: rc.lastRun.at.slice(0, 10),
+            invoiceId: m.invoiceId, invoiceNum: m.invoiceNum, sideA: `Invoice ${m.invoiceNum}`,
+            paymentId: m.paymentId, sideB: `Payment ${m.paymentId}`, customer: m.customer,
+            reference: m.invoiceNum, amount: m.amount, overage: m.overage || 0,
+            matchType: matchTypeFor(m.invoiceId), at: rc.lastRun.at, user: rc.owner, status: 'matched'
+          }));
+          (rc.arData.gatewaySettlements || []).forEach(g => out.push({
+            id: uid('mt'), stream: 'gateway', runId, recId: rc.id, date: rc.lastRun.at.slice(0, 10),
+            settlementId: g.settlementId, gateway: g.gateway, transactionId: g.transactionId,
+            grossAmount: g.grossAmount, feeAmount: g.feeAmount, netAmount: g.netAmount,
+            amount: g.netAmount, customer: g.customer || '—', reference: g.transactionId,
+            matchType: 'Gateway', at: rc.lastRun.at, user: rc.owner, status: g.matched ? 'matched' : 'break'
+          }));
+          if (res.glControlBalances) {
+            const g = res.glControlBalances;
+            out.push({
+              id: uid('mt'), stream: 'gl', runId, recId: rc.id, date: rc.lastRun.at.slice(0, 10),
+              account: g.account, subledgerBalance: g.subledgerBalance, glBalance: g.glBalance,
+              variance: g.variance, amount: g.variance, customer: 'GL Control',
+              reference: g.account, matchType: 'GL Control', at: rc.lastRun.at, user: rc.owner,
+              status: g.variance === 0 ? 'matched' : 'break'
+            });
+          }
         } else {
           res.matched.forEach(m => {
             const a = res.A.find(x => x.id === m.aId), b = res.B.find(x => x.id === m.bId);
             if (!a || !b) return;
-            out.push({ id: uid('mt'), runId, date: rc.lastRun.at.slice(0, 10), sideA: `${a.memo || a.kind || ''} ${a.reference || ''}`.trim(), sideB: `${b.memo || b.kind || ''} ${b.reference || ''}`.trim(), customer: a.counterparty || b.counterparty || '—', reference: a.reference || b.reference || '—', amount: Math.abs(a.amount), matchType: m.ruleId === 'manual' ? 'Manual' : (m.ruleName || 'Rule match'), at: rc.lastRun.at, user: rc.owner });
+            out.push({
+              id: uid('mt'), stream: 'bank-cash', runId, recId: rc.id, date: rc.lastRun.at.slice(0, 10),
+              invoiceId: a.id, invoiceNum: a.reference || a.id, sideA: `${a.memo || a.kind || ''} ${a.reference || ''}`.trim(),
+              paymentId: b.reference || b.id, sideB: `${b.memo || b.kind || ''} ${b.reference || ''}`.trim(),
+              customer: a.counterparty || b.counterparty || '—', reference: a.reference || b.reference || '—',
+              amount: Math.abs(a.amount), overage: 0, matchType: m.ruleId === 'manual' ? 'Manual' : (m.ruleName || 'Rule match'),
+              at: rc.lastRun.at, user: rc.owner, status: 'matched'
+            });
           });
         }
       });
@@ -3074,7 +3129,21 @@
     const excStatusPill = s => s === 'Open' ? '<span class="chip bg-warn-soft text-warn-ink border-warn-soft">Open</span>' : s === 'Written off' ? '<span class="chip bg-sunken text-muted">Written off</span>' : `<span class="chip bg-ok-soft text-ok-ink border-ok-soft">${s}</span>`;
     const excTag = t => { const m = { 'Short-Pay': 'bg-warn-soft text-warn-ink', 'Unapplied Payment': 'bg-warn-soft text-warn-ink', 'Timing Difference': 'bg-sunken text-ink-soft', 'Overpayment': 'bg-accent-soft text-accent-ink', 'Write-off': 'bg-sunken text-muted', 'GL Control Mismatch': 'bg-bad-soft text-bad-ink', 'Gateway Variance': 'bg-bad-soft text-bad-ink', 'Unmatched': 'bg-sunken text-ink-soft' }; return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${m[t] || 'bg-sunken text-muted'}">${esc(t)}</span>`; };
     function repRunsFiltered() { const f = DB.ui.rep, q = (f.runQ || '').toLowerCase(); return liveReportRuns().filter(r => { if (f.runStatus !== 'all' && r.status !== f.runStatus) return false; if (f.runType !== 'all' && r.type !== f.runType) return false; if (q && ![r.runId, r.type, r.preparedBy, r.status].join(' ').toLowerCase().includes(q)) return false; return true; }); }
-    function repMatchedFiltered() { const f = DB.ui.rep, q = (f.matQ || '').toLowerCase(); return liveReportMatched().filter(m => { if (f.matType !== 'all' && m.matchType !== f.matType) return false; if (f.matRun !== 'all' && m.runId !== f.matRun) return false; if (q && ![m.customer, m.reference, m.sideA, m.sideB, (m.amount / 100).toFixed(2), m.runId].join(' ').toLowerCase().includes(q)) return false; return true; }); }
+    function repMatchedFiltered() {
+      const f = DB.ui.rep || {};
+      const stream = (DB.ui && DB.ui.repMatchStream) || 'all';
+      const q = (f.matQ || '').toLowerCase();
+      return liveReportMatched().filter(m => {
+        if (stream !== 'all' && m.stream !== stream) return false;
+        if (f.matType && f.matType !== 'all' && m.matchType !== f.matType) return false;
+        if (f.matRun && f.matRun !== 'all' && m.runId !== f.matRun) return false;
+        if (q) {
+          const fields = [m.customer, m.reference, m.invoiceNum, m.paymentId, m.settlementId, m.account, m.runId, (m.amount / 100).toFixed(2)];
+          if (!fields.some(v => (v || '').toString().toLowerCase().includes(q))) return false;
+        }
+        return true;
+      });
+    }
     function repExcFiltered() { const f = DB.ui.rep, q = (f.excQ || '').toLowerCase(); return liveReportExceptions().filter(x => { if (f.excType !== 'all' && x.type !== f.excType) return false; if (f.excStatus !== 'all' && x.status !== f.excStatus) return false; if (q && ![x.customer, x.reference, x.reasonCode, x.type, x.runId].join(' ').toLowerCase().includes(q)) return false; return true; }); }
     function repAuditRows() { const f = DB.ui.rep, q = (f.audQ || '').toLowerCase(); let rows = (DB.audit || []).map(a => ({ at: a.at, user: a.user, event: a.action, category: auditCategoryFor(a.action), runId: '—', detail: a.detail })).sort((a, b) => a.at < b.at ? 1 : -1); if (f.audCat !== 'all') rows = rows.filter(r => r.category === f.audCat); if (q) rows = rows.filter(r => [r.user, r.event, r.detail, r.runId].join(' ').toLowerCase().includes(q)); return rows; }
     // ── exports ──
@@ -3084,7 +3153,7 @@
     function exportReport(kind, fmt) {
       let headers, rows, name;
       if (kind === 'runs') { headers = ['Run ID', 'Date', 'Type', 'Volume', 'Matched', 'Match rate %', 'Unapplied cash', 'Exceptions', 'Status', 'Prepared by', 'Reviewed by']; rows = repRunsFiltered().map(r => [r.runId, r.date, r.type, r.volume, r.matched, r.matchRate, (r.unappliedCash / 100).toFixed(2), r.exceptions, r.status, r.preparedBy, r.reviewedBy || '']); name = 'reconciliation-runs'; }
-      else if (kind === 'matched') { headers = ['Run ID', 'Date', 'Side A', 'Side B', 'Customer', 'Reference', 'Amount', 'Match type', 'Timestamp', 'User']; rows = repMatchedFiltered().map(m => [m.runId, m.date, m.sideA, m.sideB, m.customer, m.reference, (m.amount / 100).toFixed(2), m.matchType, m.at, m.user]); name = 'matched-transactions'; }
+      else if (kind === 'matched') { headers = ['Run ID', 'Date', 'Invoice / Side A', 'Payment / Side B', 'Customer', 'Reference', 'Amount', 'Match type', 'Timestamp', 'User']; rows = repMatchedFiltered().map(m => [m.runId, m.date, m.invoiceNum || m.sideA, m.paymentId || m.sideB, m.customer, m.reference, (m.amount / 100).toFixed(2), m.matchType, m.at, m.user]); name = 'matched-transactions'; }
       else { headers = ['Run ID', 'Date', 'Type', 'Customer', 'Reference', 'Amount', 'Reason code', 'Status', 'Resolver']; rows = repExcFiltered().map(x => [x.runId, x.date, x.type, x.customer, x.reference, (x.amount / 100).toFixed(2), x.reasonCode, x.status, x.resolver || '']); name = 'exceptions-log'; }
       if (fmt === 'xls') { const html = '<table border="1"><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>' + rows.map(r => '<tr>' + r.map(c => `<td>${String(c).replace(/</g, '&lt;')}</td>`).join('') + '</tr>').join('') + '</table>'; downloadBlob(name + '.xls', 'application/vnd.ms-excel', html); }
       else downloadBlob(name + '.csv', 'text/csv;charset=utf-8;', toCSV(headers, rows));
@@ -3157,33 +3226,51 @@
       </div>`;
     }
     function repMatched() {
-      const f = DB.ui.rep, all = liveReportMatched(), rows = repMatchedFiltered();
-      const runIds = ['all', ...new Set(all.map(m => m.runId))];
-      const matchTypes = ['all', ...new Set(all.map(m => m.matchType))];
-      const opt = (cur, arr) => arr.map(o => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${o === 'all' ? 'All' : esc(o)}</option>`).join('');
-      return `<div class="p-6">
-        <div class="flex items-center gap-2 mb-3">
-          <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input data-rep-q="mat" class="field pl-9" value="${esc(f.matQ)}" placeholder="Search customer, reference, amount"></div>
-          <select data-rep-sel="matType" class="field w-[150px]">${opt(f.matType, matchTypes)}</select>
-          <select data-rep-sel="matRun" class="field w-[170px]">${opt(f.matRun, runIds)}</select>
-          <div class="ml-auto flex gap-2"><button data-act="rep-export" data-kind="matched" data-fmt="csv" class="btn btn-ghost btn-sm">${icon('download', 'w-3.5 h-3.5')}CSV</button><button data-act="rep-export" data-kind="matched" data-fmt="xls" class="btn btn-primary btn-sm">${icon('download', 'w-3.5 h-3.5')}Excel</button></div>
+      const f = DB.ui.rep || {};
+      const stream = (DB.ui && DB.ui.repMatchStream) || 'all';
+      const allMatches = liveReportMatched();
+      const rows = repMatchedFiltered();
+      const runIds = ['all', ...new Set(allMatches.map(m => m.runId))];
+      const matchTypes = ['all', ...new Set(allMatches.map(m => m.matchType))];
+      const opt = (cur, arr, defaultLabel) => arr.map(o => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${o === 'all' ? defaultLabel : esc(o)}</option>`).join('');
+
+      let body = '';
+      if (stream === 'gateway') {
+        body = `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Gateway Settlements ↔ Invoice Line Items (${rows.length})</div></div>
+        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Settlement</th><th class="px-3 py-2 font-semibold">Gateway</th><th class="px-3 py-2 font-semibold">Txn ID</th><th class="px-3 py-2 font-semibold text-right">Gross</th><th class="px-3 py-2 font-semibold text-right">Fee</th><th class="px-3 py-2 font-semibold text-right">Net</th><th class="px-3 py-2 font-semibold">Run</th><th class="px-4 py-2 font-semibold text-right">Status</th></tr></thead><tbody>
+        ${rows.length ? rows.map(g => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${esc(g.settlementId || '—')}</td><td class="px-3 py-2.5">${esc(g.gateway || '—')}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(g.transactionId || '—')}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.grossAmount || 0)}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(g.feeAmount || 0)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${fmtMoney(g.netAmount || g.amount || 0)}</td><td class="px-3 py-2.5 mono text-[11px] text-faint">${esc(g.runId)}</td><td class="px-4 py-2.5 text-right">${statusPill(g.status || 'matched')}</td></tr>`).join('')
+          : `<tr><td colspan="8" class="px-4 py-10 text-center text-muted">No gateway settlements match your filters.</td></tr>`}
+        </tbody></table></div>`;
+      } else if (stream === 'gl') {
+        body = `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">AR Sub-Ledger ↔ GL Account Control (${rows.length})</div></div>
+        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">GL Account</th><th class="px-3 py-2 text-right">Sub-ledger balance</th><th class="px-3 py-2 text-right">GL balance</th><th class="px-3 py-2 text-right">Variance</th><th class="px-4 py-2 font-semibold text-right">Status</th></tr></thead><tbody>
+        ${rows.length ? rows.map(g => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 mono font-semibold text-accent-ink">${esc(g.runId)}</td><td class="px-3 py-2.5 font-medium">${esc(g.account)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.subledgerBalance)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.glBalance)}</td><td class="px-3 py-2.5 text-right mono ${g.variance ? 'text-bad-ink' : 'text-ok-ink'}">${fmtMoney(g.variance)}</td><td class="px-4 py-2.5 text-right">${statusPill(g.variance === 0 ? 'matched' : 'break')}</td></tr>`).join('')
+          : `<tr><td colspan="6" class="px-4 py-10 text-center text-muted">No GL control records match your filters.</td></tr>`}
+        </tbody></table></div>`;
+      } else {
+        const title = stream === 'bank-cash' ? 'Bank Deposits ↔ Open Invoices' : 'Invoices ↔ Payments — All Matches';
+        body = `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${rows.length})</div></div>
+        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Invoice</th><th class="px-3 py-2 font-semibold">Customer</th><th class="px-3 py-2 font-semibold text-right">Amount</th><th class="px-3 py-2 font-semibold">Payment</th><th class="px-4 py-2 font-semibold text-right">Status</th></tr></thead><tbody>
+        ${rows.length ? rows.map(m => `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${esc(m.invoiceNum || m.sideA)}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(m.paymentId || m.sideB)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`).join('')
+          : `<tr><td colspan="6" class="px-4 py-10 text-center text-muted">No matches match your filters.</td></tr>`}
+        </tbody></table></div>`;
+      }
+
+      return `<div class="p-6 fade-in">
+        <div class="inline-flex items-center gap-1 p-1 bg-sunken rounded-lg mb-4">
+          ${AR_MATCH_STREAMS.map(([k, l]) => `<button data-act="rep-match-stream" data-stream="${k}" class="px-3 py-1.5 rounded-md text-[12.5px] font-semibold transition ${stream === k ? 'bg-surface shadow-sm text-ink' : 'text-muted hover:text-ink'}">${l}</button>`).join('')}
         </div>
-        <div class="text-[11.5px] text-muted mb-3">${rows.length} matched records · read-only audit log of paired transactions</div>
-        <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
-          <th class="px-4 py-2 font-semibold">Date</th><th class="px-3 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">Side A ↔ Side B</th>
-          <th class="px-3 py-2 font-semibold">Customer</th><th class="px-3 py-2 font-semibold">Reference</th><th class="px-3 py-2 font-semibold text-right">Amount</th>
-          <th class="px-3 py-2 font-semibold">Match type</th><th class="px-3 py-2 font-semibold">Timestamp</th><th class="px-3 py-2 font-semibold">User</th></tr></thead><tbody>
-          ${rows.length ? rows.map(m => `<tr class="border-b border-line-soft row-hover">
-            <td class="px-4 py-2.5 text-muted">${fmtDate(m.date)}</td>
-            <td class="px-3 py-2.5 mono text-[11px] text-faint">${esc(m.runId)}</td>
-            <td class="px-3 py-2.5"><div class="text-[12px]">${esc(m.sideA)}</div><div class="text-[11px] text-faint">${esc(m.sideB)}</div></td>
-            <td class="px-3 py-2.5 font-medium">${esc(m.customer)}</td>
-            <td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(m.reference)}</td>
-            <td class="px-3 py-2.5 text-right mono font-medium">${fmtMoney(m.amount)}</td>
-            <td class="px-3 py-2.5"><span class="chip">${esc(m.matchType)}</span></td>
-            <td class="px-3 py-2.5 mono text-[11px] text-faint">${m.at.replace('T', ' ')}</td>
-            <td class="px-3 py-2.5 text-muted">${esc(m.user)}</td></tr>`).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-muted">No matched records match your filters.</td></tr>`}
-        </tbody></table></div></div>
+        <div class="flex items-center gap-2 mb-4 flex-wrap">
+          <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
+            <input data-rep-q="mat" class="field pl-9" value="${esc(f.matQ || '')}" placeholder="Search customer, reference, amount"></div>
+          <select data-rep-sel="matRun" class="field w-[170px]">${opt(f.matRun || 'all', runIds, 'All')}</select>
+          <select data-rep-sel="matType" class="field w-[150px]">${opt(f.matType || 'all', matchTypes, 'All')}</select>
+          <div class="ml-auto flex gap-2">
+            <button data-act="rep-export" data-kind="matched" data-fmt="csv" class="btn btn-ghost btn-sm">${icon('download', 'w-3.5 h-3.5')}CSV</button>
+            <button data-act="rep-export" data-kind="matched" data-fmt="xls" class="btn btn-primary btn-sm">${icon('download', 'w-3.5 h-3.5')}Excel</button>
+          </div>
+        </div>
+        ${body}
       </div>`;
     }
     function repExceptions() {
@@ -3487,6 +3574,8 @@
       'open-recon-tab': d => { DB.route = { name: 'recon', recId: d.id, tab: d.t }; render(); },
       'recon-tab': d => { DB.route.tab = d.t; DB.ui.editRule = null; render(); },
       'ar-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.arMatchStream = d.stream; render(); },
+      'rep-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.repMatchStream = d.stream; render(); },
+      'open-mapping-modal': d => openMappingModal(d.file, d.source),
       'ar-open-exception': d => { DB.ui = DB.ui || {}; DB.ui.arActiveException = DB.ui.arActiveException === d.key ? null : d.key; render(); },
       'ar-close-exception': () => { DB.ui = DB.ui || {}; DB.ui.arActiveException = null; render(); },
       'ar-save-manual-match': d => {
@@ -3628,6 +3717,8 @@
         closeModal();
         render();
         toast('Mapping Saved', 'ok');
+        const info = DB.lastJobInfo || { fileName: DB.ui.uploadMappingFile || 'Uploaded file', selSource: DB.ui.uploadMappingSource || 'GL', jobId: 'job_102', rowCount: 3 };
+        modalBatchJobStarted(info.fileName, info.selSource, info.jobId, info.rowCount);
       },
 
 
