@@ -289,15 +289,41 @@
     }
 
     @media print {
-      body * { visibility: hidden; }
-      #ar-finish-summary-print, #ar-finish-summary-print * { visibility: visible; }
-      #ar-finish-summary-print {
-        position: absolute; inset: 0; width: 100% !important; max-width: none !important;
-        max-height: none !important; overflow: visible !important; padding: 24px;
+      body * {
+        visibility: hidden;
       }
-      #modal .modal-back { position: static !important; background: none !important; backdrop-filter: none !important; padding: 0 !important; display: block !important; }
-      #modal .card.shadow-xl { box-shadow: none !important; padding: 0 !important; }
-      .print-hide { display: none !important; }
+
+      #ar-finish-summary-print,
+      #ar-finish-summary-print * {
+        visibility: visible;
+      }
+
+      #ar-finish-summary-print {
+        position: absolute;
+        inset: 0;
+        width: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        overflow: visible !important;
+        padding: 24px;
+      }
+
+      #modal .modal-back {
+        position: static !important;
+        background: none !important;
+        backdrop-filter: none !important;
+        padding: 0 !important;
+        display: block !important;
+      }
+
+      #modal .card.shadow-xl {
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+
+      .print-hide {
+        display: none !important;
+      }
     }
   </style>
 </head>
@@ -638,7 +664,7 @@
         buildRec('inventory', 'Goods Receipt ↔ Invoices', 'Sam Whitlock'),
         buildRec('close', 'AR Subledger ↔ GL', 'Priya Nair'),
       ];
-      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation (Data Hub)', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
       recs.push(arRec);
       // No precomputation — every reconciliation starts unrun. Results only appear once
       // "Run reconciliation" is pressed; Rules Studio still shows a live simulation preview.
@@ -1427,7 +1453,7 @@
       return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Gateway Settlements ↔ Invoice Line Items (${rows.length})</div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Settlement</th><th class="px-3 py-2">Gateway</th><th class="px-3 py-2">Txn ID</th><th class="px-3 py-2 text-right">Gross</th><th class="px-3 py-2 text-right">Fee</th><th class="px-3 py-2 text-right">Net</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
       ${rows.length ? rows.map(g => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${g.settlementId}</td><td class="px-3 py-2.5">${esc(g.gateway)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${g.transactionId}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.grossAmount)}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(g.feeAmount)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${fmtMoney(g.netAmount)}</td><td class="px-4 py-2.5 text-right">${statusPill(g.matched ? 'matched' : 'break')}</td></tr>`).join('')
-        : `<tr><td colspan="7" class="px-4 py-10 text-center text-muted">No gateway settlements in this dataset — this sample's cash all arrived via bank wire/ACH. This stream is ready to reconcile once payout-batch data is available.</td></tr>`}
+          : `<tr><td colspan="7" class="px-4 py-10 text-center text-muted">No gateway settlements in this dataset — this sample's cash all arrived via bank wire/ACH. This stream is ready to reconcile once payout-batch data is available.</td></tr>`}
       </tbody></table></div>`;
     }
     function arGlSection(res) {
@@ -1446,8 +1472,8 @@
       const stream = (DB.ui && DB.ui.arMatchStream) || 'all';
       const body = stream === 'bank-cash' ? arMatchedTable(res, 'Bank Deposits ↔ Open Invoices')
         : stream === 'gateway' ? arGatewaySection(rec)
-        : stream === 'gl' ? arGlSection(res)
-        : arMatchedTable(res, 'Invoices ↔ Payments — All Matches');
+          : stream === 'gl' ? arGlSection(res)
+            : arMatchedTable(res, 'Invoices ↔ Payments — All Matches');
       return `<div class="p-6 fade-in">${arMatchSegControl(stream)}${body}</div>`;
     }
     // ── Exception & Action Inbox: every unmatched item / variance across all 3 AR streams in one
@@ -2028,6 +2054,7 @@
     function openModal(html) { $('#modal').innerHTML = `<div class="fixed inset-0 z-40 modal-back flex items-center justify-center p-6" data-act="close-modal" data-backdrop="1"><div class="card p-6 shadow-xl fade-in">${html}</div></div>`; }
     function closeModal() {
       if (DB.ui) DB.ui.uploadMappingModal = false;
+      DB.pendingUpload = null;
       const m = $('#modal');
       if (m) m.innerHTML = '';
     }
@@ -2454,6 +2481,21 @@
       return normHeader(header) || header;
     }
 
+    function countMatchedFields(headers, sourceType) {
+      const map = SOURCE_FIELD_MAPS[sourceType];
+      if (!map || !headers || !headers.length) return 0;
+      let count = 0;
+      headers.forEach(h => {
+        const n = normHeader(h);
+        if (!n) return;
+        if (map[n]) { count++; return; }
+        for (const [k, v] of Object.entries(map)) {
+          if (n.includes(k) || k.includes(n)) { count++; return; }
+        }
+      });
+      return count;
+    }
+
     const OPTIONAL_TARGET_FIELDS = new Set(['variance', 'status', 'clearing_status', 'payment_terms', 'credit_limit', 'currency_code']);
     function isFieldRequired(field) {
       if (!field) return false;
@@ -2575,41 +2617,30 @@
       // Finishes the job once we know the real row objects (either parsed from the actual file,
       // or — for formats we can't parse client-side — a mocked fallback for that category).
       const finish = (rowObjs, headers) => {
-        populateMappingsFromHeaders(headers, file.name, selSource);
-
-        const newStaging = rowObjs.map(rowData => ({
-          id: uid('stg'), jobId, sourceLabel: sourceName, category: selSource, status: 'mapped', rowData,
-          txnId: rowData.bank_txn_id || rowData.invoice_id || rowData.gl_balance_id || rowData.customer_id || uid('TXN'),
-          date: rowData.transaction_date || rowData.issue_date || rowData.posting_date || todayISO(),
-          reference: rowData.bank_reference || rowData.bank_reference_number || rowData.invoice_number || rowData.payment_terms || '',
-          counterparty: rowData.payer_name || rowData.company_name || rowData.customer_id || rowData.gl_account_code || 'Party',
-          description: `${sourceName} record`,
-          amount: parseFloat(String(rowData.amount || rowData.total_amount || rowData.control_account_balance || rowData.credit_limit || '0').replace(/[^0-9.\-]/g, '')) || 0,
-          currency: 'USD',
-        }));
-        DB.staging = (DB.staging || []).concat(newStaging);
-
-        DB.jobs.unshift({
-          id: jobId, source: sourceName, kind: 'manual', format: (ext || 'file').toUpperCase(),
-          rows: rowObjs.length, status: 'success', errors: 0, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
-        });
-
-        if (DB.lastUploadedFile) DB.lastUploadedFile.rows = rowObjs.length;
-        DB.filters = DB.filters || {};
-        DB.filters.stgJobId = jobId;
-        DB.filters.stgPage = 1;
-
-        // A fresh upload of one of the 4 AR source types invalidates any prior AR run — the next
-        // open/Run will automatically pick this file up via arDataFromUploads().
-        if (['GL', 'SL', 'Bank Statements', 'Customers'].includes(selSource)) {
-          (DB.recs || []).filter(r => r.type === 'ar-reconciliation').forEach(r => { r.lastRun = null; });
+        const matchedFieldCount = countMatchedFields(headers, selSource);
+        if (matchedFieldCount === 0) {
+          DB.lastUploadedFile = null;
+          render();
+          toast(`No fields are matched to be mapped for category "${selSource}"`, 'bad');
+          return;
         }
 
+        populateMappingsFromHeaders(headers, file.name, selSource);
+
+        DB.pendingUpload = {
+          file,
+          fileName: file.name,
+          selSource,
+          sourceName,
+          jobId,
+          ext,
+          rowObjs,
+          headers
+        };
+
         DB.lastJobInfo = { fileName: file.name, selSource, jobId, rowCount: rowObjs.length };
-        logAudit('Ingestion job', `${sourceName} · ${rowObjs.length} rows`);
-        save();
         render();
-        toast(`${file.name} uploaded successfully (${selSource} · ${rowObjs.length} row${rowObjs.length === 1 ? '' : 's'})`, 'ok');
+        toast(`${file.name} parsed (${selSource} · ${rowObjs.length} row${rowObjs.length === 1 ? '' : 's'}). Confirm mapping to save file.`, 'ok');
         openMappingModal(file.name, selSource);
       };
 
@@ -3239,20 +3270,20 @@
         body = `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Gateway Settlements ↔ Invoice Line Items (${rows.length})</div></div>
         <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Settlement</th><th class="px-3 py-2 font-semibold">Gateway</th><th class="px-3 py-2 font-semibold">Txn ID</th><th class="px-3 py-2 font-semibold text-right">Gross</th><th class="px-3 py-2 font-semibold text-right">Fee</th><th class="px-3 py-2 font-semibold text-right">Net</th><th class="px-3 py-2 font-semibold">Run</th><th class="px-4 py-2 font-semibold text-right">Status</th></tr></thead><tbody>
         ${rows.length ? rows.map(g => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${esc(g.settlementId || '—')}</td><td class="px-3 py-2.5">${esc(g.gateway || '—')}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(g.transactionId || '—')}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.grossAmount || 0)}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(g.feeAmount || 0)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${fmtMoney(g.netAmount || g.amount || 0)}</td><td class="px-3 py-2.5 mono text-[11px] text-faint">${esc(g.runId)}</td><td class="px-4 py-2.5 text-right">${statusPill(g.status || 'matched')}</td></tr>`).join('')
-          : `<tr><td colspan="8" class="px-4 py-10 text-center text-muted">No gateway settlements match your filters.</td></tr>`}
+            : `<tr><td colspan="8" class="px-4 py-10 text-center text-muted">No gateway settlements match your filters.</td></tr>`}
         </tbody></table></div>`;
       } else if (stream === 'gl') {
         body = `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">AR Sub-Ledger ↔ GL Account Control (${rows.length})</div></div>
         <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">GL Account</th><th class="px-3 py-2 text-right">Sub-ledger balance</th><th class="px-3 py-2 text-right">GL balance</th><th class="px-3 py-2 text-right">Variance</th><th class="px-4 py-2 font-semibold text-right">Status</th></tr></thead><tbody>
         ${rows.length ? rows.map(g => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 mono font-semibold text-accent-ink">${esc(g.runId)}</td><td class="px-3 py-2.5 font-medium">${esc(g.account)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.subledgerBalance)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.glBalance)}</td><td class="px-3 py-2.5 text-right mono ${g.variance ? 'text-bad-ink' : 'text-ok-ink'}">${fmtMoney(g.variance)}</td><td class="px-4 py-2.5 text-right">${statusPill(g.variance === 0 ? 'matched' : 'break')}</td></tr>`).join('')
-          : `<tr><td colspan="6" class="px-4 py-10 text-center text-muted">No GL control records match your filters.</td></tr>`}
+            : `<tr><td colspan="6" class="px-4 py-10 text-center text-muted">No GL control records match your filters.</td></tr>`}
         </tbody></table></div>`;
       } else {
         const title = stream === 'bank-cash' ? 'Bank Deposits ↔ Open Invoices' : 'Invoices ↔ Payments — All Matches';
         body = `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${rows.length})</div></div>
         <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Invoice</th><th class="px-3 py-2 font-semibold">Customer</th><th class="px-3 py-2 font-semibold text-right">Amount</th><th class="px-3 py-2 font-semibold">Payment</th><th class="px-4 py-2 font-semibold text-right">Status</th></tr></thead><tbody>
         ${rows.length ? rows.map(m => `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${esc(m.invoiceNum || m.sideA)}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${esc(m.paymentId || m.sideB)}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`).join('')
-          : `<tr><td colspan="6" class="px-4 py-10 text-center text-muted">No matches match your filters.</td></tr>`}
+            : `<tr><td colspan="6" class="px-4 py-10 text-center text-muted">No matches match your filters.</td></tr>`}
         </tbody></table></div>`;
       }
 
@@ -3712,11 +3743,46 @@
         DB.ui = DB.ui || {};
         DB.ui.mappingConfirmed = true;
         DB.ui.uploadMappingModal = false;
+
+        if (DB.pendingUpload) {
+          const { jobId, sourceName, selSource, ext, rowObjs } = DB.pendingUpload;
+
+          const newStaging = rowObjs.map(rowData => ({
+            id: uid('stg'), jobId, sourceLabel: sourceName, category: selSource, status: 'mapped', rowData,
+            txnId: rowData.bank_txn_id || rowData.invoice_id || rowData.gl_balance_id || rowData.customer_id || uid('TXN'),
+            date: rowData.transaction_date || rowData.issue_date || rowData.posting_date || todayISO(),
+            reference: rowData.bank_reference || rowData.bank_reference_number || rowData.invoice_number || rowData.payment_terms || '',
+            counterparty: rowData.payer_name || rowData.company_name || rowData.customer_id || rowData.gl_account_code || 'Party',
+            description: `${sourceName} record`,
+            amount: parseFloat(String(rowData.amount || rowData.total_amount || rowData.control_account_balance || rowData.credit_limit || '0').replace(/[^0-9.\-]/g, '')) || 0,
+            currency: 'USD',
+          }));
+          DB.staging = (DB.staging || []).concat(newStaging);
+
+          DB.jobs = DB.jobs || [];
+          DB.jobs.unshift({
+            id: jobId, source: sourceName, kind: 'manual', format: (ext || 'file').toUpperCase(),
+            rows: rowObjs.length, status: 'success', errors: 0, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5)
+          });
+
+          if (DB.lastUploadedFile) DB.lastUploadedFile.rows = rowObjs.length;
+          DB.filters = DB.filters || {};
+          DB.filters.stgJobId = jobId;
+          DB.filters.stgPage = 1;
+
+          if (['GL', 'SL', 'Bank Statements', 'Customers'].includes(selSource)) {
+            (DB.recs || []).filter(r => r.type === 'ar-reconciliation').forEach(r => { r.lastRun = null; });
+          }
+
+          logAudit('Ingestion job', `${sourceName} · ${rowObjs.length} rows`);
+          DB.pendingUpload = null;
+        }
+
         logAudit('Confirmed schema mapping', `${(DB.mappings || []).length} field(s) mapped`);
         save();
         closeModal();
         render();
-        toast('Mapping Saved', 'ok');
+        toast('Mapping Saved & File Stored', 'ok');
         const info = DB.lastJobInfo || { fileName: DB.ui.uploadMappingFile || 'Uploaded file', selSource: DB.ui.uploadMappingSource || 'GL', jobId: 'job_102', rowCount: 3 };
         modalBatchJobStarted(info.fileName, info.selSource, info.jobId, info.rowCount);
       },
