@@ -2512,41 +2512,46 @@
       'Customers': ['customer_id', 'company_name', 'payment_terms', 'credit_limit', 'currency_code']
     };
 
-    const CATEGORY_SAMPLE_DATA = {
-      'GL': [
-        { gl_balance_id: 'GL-BAL-2026-06', posting_date: '2026-06-30', gl_account_code: '1200 (A/R)', control_account_balance: '$7,800.00', subledger_calculated_balance: '$7,500.00', variance: '$300.00' },
-        { gl_balance_id: 'GL-BAL-2026-05', posting_date: '2026-05-31', gl_account_code: '1200 (A/R)', control_account_balance: '$6,400.00', subledger_calculated_balance: '$6,400.00', variance: '$0.00' },
-        { gl_balance_id: 'GL-BAL-2026-04', posting_date: '2026-04-30', gl_account_code: '1200 (A/R)', control_account_balance: '$5,200.00', subledger_calculated_balance: '$5,200.00', variance: '$0.00' },
-      ],
-      'SL': [
-        { invoice_id: 'INV-101', customer_id: 'CUST-001', invoice_number: 'INV-2026-001', issue_date: '2026-06-01', due_date: '2026-07-01', total_amount: '$1,000.00', status: 'Open' },
-        { invoice_id: 'INV-102', customer_id: 'CUST-002', invoice_number: 'INV-2026-002', issue_date: '2026-06-10', due_date: '2026-06-25', total_amount: '$2,500.00', status: 'Open' },
-        { invoice_id: 'INV-103', customer_id: 'CUST-003', invoice_number: 'INV-2026-003', issue_date: '2026-06-15', due_date: '2026-07-15', total_amount: '$5,000.00', status: 'Open' },
-      ],
-      'Bank Statements': [
-        { bank_txn_id: 'BANK-901', transaction_date: '2026-06-20', bank_reference: 'ACH-883920', payer_name: 'Acme Corp', amount: '$1,000.00', clearing_status: 'Pending' },
-        { bank_txn_id: 'BANK-902', transaction_date: '2026-06-22', bank_reference: 'WIRE-112233', payer_name: 'Globex Inc', amount: '$2,400.00', clearing_status: 'Pending' },
-        { bank_txn_id: 'BANK-903', transaction_date: '2026-06-28', bank_reference: 'ACH-994821', payer_name: 'Mystery Payer', amount: '$500.00', clearing_status: 'Pending' },
-      ],
-      'Customers': [
-        { customer_id: 'CUST-001', company_name: 'Acme Corp', payment_terms: 'Net 30', credit_limit: '$50,000.00', currency_code: 'USD' },
-        { customer_id: 'CUST-002', company_name: 'Globex Inc', payment_terms: 'Net 15', credit_limit: '$25,000.00', currency_code: 'USD' },
-        { customer_id: 'CUST-003', company_name: 'Stark Industries', payment_terms: 'Net 30', credit_limit: '$100,000.00', currency_code: 'USD' },
-      ]
-    };
+    // const CATEGORY_SAMPLE_DATA = {
+    //   'GL': [
+    //     { gl_balance_id: 'GL-BAL-2026-06', posting_date: '2026-06-30', gl_account_code: '1200 (A/R)', control_account_balance: '$7,800.00', subledger_calculated_balance: '$7,500.00', variance: '$300.00' },
+    //     { gl_balance_id: 'GL-BAL-2026-05', posting_date: '2026-05-31', gl_account_code: '1200 (A/R)', control_account_balance: '$6,400.00', subledger_calculated_balance: '$6,400.00', variance: '$0.00' },
+    //     { gl_balance_id: 'GL-BAL-2026-04', posting_date: '2026-04-30', gl_account_code: '1200 (A/R)', control_account_balance: '$5,200.00', subledger_calculated_balance: '$5,200.00', variance: '$0.00' },
+    //   ],
+    //   'SL': [
+    //     { invoice_id: 'INV-101', customer_id: 'CUST-001', invoice_number: 'INV-2026-001', issue_date: '2026-06-01', due_date: '2026-07-01', total_amount: '$1,000.00', status: 'Open' },
+    //     { invoice_id: 'INV-102', customer_id: 'CUST-002', invoice_number: 'INV-2026-002', issue_date: '2026-06-10', due_date: '2026-06-25', total_amount: '$2,500.00', status: 'Open' },
+    //     { invoice_id: 'INV-103', customer_id: 'CUST-003', invoice_number: 'INV-2026-003', issue_date: '2026-06-15', due_date: '2026-07-15', total_amount: '$5,000.00', status: 'Open' },
+    //   ],
+    //   'Bank Statements': [
+    //     { bank_txn_id: 'BANK-901', transaction_date: '2026-06-20', bank_reference: 'ACH-883920', payer_name: 'Acme Corp', amount: '$1,000.00', clearing_status: 'Pending' },
+    //     { bank_txn_id: 'BANK-902', transaction_date: '2026-06-22', bank_reference: 'WIRE-112233', payer_name: 'Globex Inc', amount: '$2,400.00', clearing_status: 'Pending' },
+    //     { bank_txn_id: 'BANK-903', transaction_date: '2026-06-28', bank_reference: 'ACH-994821', payer_name: 'Mystery Payer', amount: '$500.00', clearing_status: 'Pending' },
+    //   ],
+    //   'Customers': [
+    //     { customer_id: 'CUST-001', company_name: 'Acme Corp', payment_terms: 'Net 30', credit_limit: '$50,000.00', currency_code: 'USD' },
+    //     { customer_id: 'CUST-002', company_name: 'Globex Inc', payment_terms: 'Net 15', credit_limit: '$25,000.00', currency_code: 'USD' },
+    //     { customer_id: 'CUST-003', company_name: 'Stark Industries', payment_terms: 'Net 30', credit_limit: '$100,000.00', currency_code: 'USD' },
+    //   ]
+    // };
 
     function buildJobs() {
-      const T = todayISO(); return [
-        { id: uid('job'), source: 'HDFC Operating · statement', kind: 'auto', format: 'MT940', rows: 642, status: 'success', errors: 0, at: T + 'T06:00' },
-        { id: uid('job'), source: 'Stripe payouts', kind: 'auto', format: 'API', rows: 318, status: 'success', errors: 0, at: T + 'T06:05' },
-        { id: uid('job'), source: 'bank_statement(in).csv', kind: 'manual', format: 'CSV', rows: 3, status: 'success', errors: 0, at: addDays(T, -1) + 'T10:12' },
-        { id: uid('job'), source: 'warehouse-count-w28.xlsx', kind: 'manual', format: 'XLSX', rows: 1204, status: 'partial', errors: 11, at: addDays(T, -1) + 'T15:22' },
-        { id: uid('job'), source: 'Amex corporate card', kind: 'auto', format: 'OFX', rows: 96, status: 'failed', errors: 96, at: addDays(T, -1) + 'T02:00' },
-        { id: uid('job'), source: 'vendor-bills-jul.csv', kind: 'manual', format: 'CSV', rows: 210, status: 'success', errors: 0, at: addDays(T, -2) + 'T09:40' },
-      ];
+      // const T = todayISO(); return [
+      //   { id: uid('job'), source: 'HDFC Operating · statement', kind: 'auto', format: 'MT940', rows: 642, status: 'success', errors: 0, at: T + 'T06:00' },
+      //   { id: uid('job'), source: 'Stripe payouts', kind: 'auto', format: 'API', rows: 318, status: 'success', errors: 0, at: T + 'T06:05' },
+      //   { id: uid('job'), source: 'bank_statement(in).csv', kind: 'manual', format: 'CSV', rows: 3, status: 'success', errors: 0, at: addDays(T, -1) + 'T10:12' },
+      //   { id: uid('job'), source: 'warehouse-count-w28.xlsx', kind: 'manual', format: 'XLSX', rows: 1204, status: 'partial', errors: 11, at: addDays(T, -1) + 'T15:22' },
+      //   { id: uid('job'), source: 'Amex corporate card', kind: 'auto', format: 'OFX', rows: 96, status: 'failed', errors: 96, at: addDays(T, -1) + 'T02:00' },
+      //   { id: uid('job'), source: 'vendor-bills-jul.csv', kind: 'manual', format: 'CSV', rows: 210, status: 'success', errors: 0, at: addDays(T, -2) + 'T09:40' },
+      // ];
+      const T = todayISO();
+      // Filter DB.jobs to only those that ran today
+      const todaysJobs = (DB.jobs || []).filter(j => j.at && j.at.slice(0, 10) === T);
+      return todaysJobs;
     }
     function buildStaging() {
-      const bnkData = CATEGORY_SAMPLE_DATA['Bank Statements'];
+      // const bnkData = CATEGORY_SAMPLE_DATA['Bank Statements'];
+      const bnkData = DB.bankStatements || [];  // Use DB data only
       return bnkData.map((row, idx) => ({
         id: uid('stg'),
         jobId: 'seed',
@@ -2672,8 +2677,14 @@
       } else {
         // XLSX/OFX/QIF etc. aren't parsed client-side in this prototype — fall back to that
         // category's sample rows so the flow still completes, clearly not the real file's content.
-        const sample = CATEGORY_SAMPLE_DATA[selSource] || CATEGORY_SAMPLE_DATA['Bank Statements'];
+        // const sample = CATEGORY_SAMPLE_DATA[selSource] || CATEGORY_SAMPLE_DATA['Bank Statements'];
+        // const headers = CATEGORY_DEFAULT_HEADERS[selSource] || CATEGORY_DEFAULT_HEADERS['GL'];
+        
+        const categoryMap = { 'GL': 'gl', 'SL': 'invoices', 'Bank Statements': 'bankStatements', 'Customers': 'customers' };
+        const dbKey = categoryMap[selSource];
+        const sample = DB[dbKey] || [];
         const headers = CATEGORY_DEFAULT_HEADERS[selSource] || CATEGORY_DEFAULT_HEADERS['GL'];
+
         finish(sample.map(row => ({ ...row })), headers);
       }
     }
@@ -2740,7 +2751,7 @@
       <div class="p-4">
         ${dropzoneHtml}
       </div></div>
-    <div class="card overflow-hidden"><div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Recent ingestion jobs</div><div class="ml-auto text-[11.5px] text-muted">${jobs.length} runs</div></div>
+    <div class="card overflow-hidden"><div class="flex items-center px-4 h-11 border-b border-line"><div class="font-semibold text-[13px]">Today's ingestion jobs</div><div class="ml-auto text-[11.5px] text-muted">${jobs.length} runs</div></div>
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2 font-semibold">Source</th><th class="px-3 py-2 font-semibold">Trigger</th><th class="px-3 py-2 font-semibold">Format</th><th class="px-3 py-2 font-semibold text-right">Rows</th><th class="px-3 py-2 font-semibold text-right">Errors</th><th class="px-3 py-2 font-semibold">Status</th><th class="px-4 py-2 font-semibold">When</th><th class="w-10"></th></tr></thead><tbody>
       ${jobs.map(j => `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="view-job-data" data-id="${j.id}"><td class="px-4 py-2.5 font-medium text-accent-ink hover:underline">${esc(j.source)}</td>
         <td class="px-3 py-2.5"><span class="chip">${j.kind === 'auto' ? 'Automated' : 'Manual'}</span></td>
@@ -2869,11 +2880,14 @@
       `;
 
       return `<div class="p-6">
-    <div class="card px-4 py-3 mb-4 flex items-center gap-3 bg-ok-soft/40 border-ok/20">
-      <span class="text-ok">${icon('check', 'w-5 h-5')}</span>
-      <div><div class="font-semibold text-[13px]">Ready for reconciliation</div></div>
-    </div>
+    <!--
+      <div class="card px-4 py-3 mb-4 flex items-center gap-3 bg-ok-soft/40 border-ok/20">
+        <span class="text-ok">${icon('check', 'w-5 h-5')}</span>
+        <div><div class="font-semibold text-[13px]">Ready for reconciliation</div></div>
+      </div>
+    -->
 
+    <!--
     <div class="card p-3 mb-4 bg-surface border border-line flex items-center justify-between text-[12.5px] flex-wrap gap-2">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded bg-accent/10 text-accent-ink flex items-center justify-center font-bold flex-none">${icon('doc', 'w-4 h-4')}</div>
@@ -2893,10 +2907,11 @@
         <span class="chip bg-ok-soft text-ok-ink border-ok-soft font-medium">${totalRows} row${totalRows === 1 ? '' : 's'} staged</span>
       </div>
     </div>
+    -->
 
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
-        <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ || '')}" placeholder="Query staged rows — Transaction ID, counterparty, reference, amount"></div>
+        <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ || '')}" placeholder="Search"></div>
       <select data-stg-job class="field w-[260px]">
         <option value="all">All files (${staging.length})</option>
         ${files.map(f => {
