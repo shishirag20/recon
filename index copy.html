@@ -1534,7 +1534,7 @@
       const body = stream === 'bank-cash' ? arMatchedTable(rec, res, 'Bank Deposits ↔ Open Invoices')
         : stream === 'gateway' ? arGatewaySection(rec)
           : stream === 'gl' ? arGlSection(res)
-            : arMatchedTable(res, 'Invoices ↔ Payments — All Matches');
+            : arMatchedTable(rec, res, 'Invoices ↔ Payments — All Matches');
       return `<div class="p-6 fade-in">${arMatchSegControl(stream)}${body}</div>`;
     }
     // ── Exception & Action Inbox: every unmatched item / variance across all 3 AR streams in one
@@ -1690,7 +1690,13 @@
       const matchedCount = res.matches.length + res.overpays.length;
       const matchedPct = openingAR ? +(matchedVal / openingAR * 100).toFixed(1) : 0;
       const resolvedExc = res.exceptions.filter(e => e.status === 'Resolved');
-      const glAdjustments = resolvedExc.filter(e => e.type === 'GL Control Mismatch').reduce((s, e) => s + e.amount, 0);
+      // No distinct "adjustment journal" concept exists in this data model yet — every invoice is
+      // either fully Paid (counted in matchedVal) or still open at full face value (short-paid or
+      // never paid), so Opening AR − Collections Matched already *is* the real closing balance,
+      // exactly equal to the sub-ledger figure below. The GL variance is a separate fact (GL vs
+      // sub-ledger, not a component of AR itself) and must never be subtracted a second time here —
+      // doing so previously double-counted it and could even flip the balance negative.
+      const glAdjustments = 0;
       const closingBalance = openingAR - matchedVal - glAdjustments;
       const residualCount = resolvedExc.filter(e => e.type === 'Short-Pay').length;
       const unappliedCarried = resolvedExc.filter(e => e.type === 'Unapplied Payment').reduce((s, e) => s + e.amount, 0);
