@@ -1,0 +1,4 @@
+bank_txn_id,transaction_date,bank_reference_number,payer_name,amount
+BANK-901,2026-06-20,ACH-883920,Acme Corp,100000
+BANK-902,2026-06-29,NEFT-445566,Apex Logistics,140000
+BANK-906,2026-06-30,LUMP-556677,Acme Corp,200000

@@ -460,40 +460,74 @@
     }
     // Sample dataset mirrors the AR reconciliation schema: customers, invoices, bank_statements,
     // payments + payment_allocations, and gl_control_balances. Amounts stored in cents (fmtMoney /100).
+    // Each customer carries a distinct identification signal so the Phase 1A waterfall (Rules Studio
+    // → "Customer Identification") has something real to demonstrate for every rule: Acme locks via
+    // account+IFSC, Globex via UPI handle, Apex via customer code in narration, Stark via GSTIN in
+    // narration, Umbrella via its pre-registered expected UTR (an advance remittance). A sixth,
+    // unregistered payer ("Acme Corpn") only locks via fuzzy company-name matching (rule 7, last
+    // resort) — nothing else about that row points at Acme.
     function genARData() {
       const customers = [
-        { customerId: 'CUST-001', companyName: 'Acme Corp', paymentTerms: 'Net 30', creditLimit: 5000000, currencyCode: 'USD' },
-        { customerId: 'CUST-002', companyName: 'Globex Inc', paymentTerms: 'Net 15', creditLimit: 2500000, currencyCode: 'USD' },
-        { customerId: 'CUST-003', companyName: 'Stark Industries', paymentTerms: 'Net 30', creditLimit: 10000000, currencyCode: 'USD' },
+        { customerId: 'CUST-001', companyName: 'Acme Corp', paymentTerms: 'Net 30', creditLimit: 5000000, currencyCode: 'USD',
+          customerCode: 'ACME01', pan: 'AAAPL1234C', gstin: '27AAAPL1234C1Z5', defaultBankAccount: '000112223301', defaultIFSC: 'HDFC0000123', upiHandle: 'acmecorp@hdfcbank', expectedUTR: '' },
+        { customerId: 'CUST-002', companyName: 'Globex Inc', paymentTerms: 'Net 15', creditLimit: 2500000, currencyCode: 'USD',
+          customerCode: 'GLBX02', pan: 'AAACG5678D', gstin: '29AAACG5678D1Z3', defaultBankAccount: '000445566702', defaultIFSC: 'ICIC0000456', upiHandle: 'globex@icici', expectedUTR: '' },
+        { customerId: 'CUST-003', companyName: 'Stark Industries', paymentTerms: 'Net 30', creditLimit: 10000000, currencyCode: 'USD',
+          customerCode: 'STRK03', pan: 'AAACS9012E', gstin: '06AAACS9012E1Z7', defaultBankAccount: '000778899003', defaultIFSC: 'SBIN0000789', upiHandle: 'stark@sbi', expectedUTR: '' },
+        { customerId: 'CUST-004', companyName: 'Apex Logistics', paymentTerms: 'Net 30', creditLimit: 3000000, currencyCode: 'USD',
+          customerCode: 'APEX04', pan: 'AAACA3456F', gstin: '33AAACA3456F1Z1', defaultBankAccount: '000112233404', defaultIFSC: 'AXIS0000321', upiHandle: 'apexlog@axis', expectedUTR: '' },
+        { customerId: 'CUST-005', companyName: 'Umbrella Corporation', paymentTerms: 'Net 45', creditLimit: 4000000, currencyCode: 'USD',
+          customerCode: 'UMBR05', pan: 'AAACU7890G', gstin: '19AAACU7890G1Z9', defaultBankAccount: '000998877505', defaultIFSC: 'KKBK0000654', upiHandle: 'umbrella@kotak', expectedUTR: 'UTR-ADV-2299' },
       ];
       const invoices = [
-        { invoiceId: 'INV-101', customerId: 'CUST-001', invoiceNumber: 'INV-2026-001', issueDate: '2026-06-01', dueDate: '2026-07-01', totalAmount: 100000, status: 'Open' },
-        { invoiceId: 'INV-102', customerId: 'CUST-002', invoiceNumber: 'INV-2026-002', issueDate: '2026-06-10', dueDate: '2026-06-25', totalAmount: 250000, status: 'Open' },
-        { invoiceId: 'INV-103', customerId: 'CUST-003', invoiceNumber: 'INV-2026-003', issueDate: '2026-06-15', dueDate: '2026-07-15', totalAmount: 500000, status: 'Open' },
+        { invoiceId: 'INV-101', customerId: 'CUST-001', invoiceNumber: 'INV-2026-001', issueDate: '2026-06-01', dueDate: '2026-07-01', totalAmount: 100000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-106', customerId: 'CUST-001', invoiceNumber: 'INV-2026-006', issueDate: '2026-06-22', dueDate: '2026-07-22', totalAmount: 75000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-107', customerId: 'CUST-001', invoiceNumber: 'INV-2026-007', issueDate: '2026-06-24', dueDate: '2026-07-24', totalAmount: 125000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-108', customerId: 'CUST-001', invoiceNumber: 'INV-2026-008', issueDate: '2026-06-25', dueDate: '2026-07-25', totalAmount: 20000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-102', customerId: 'CUST-002', invoiceNumber: 'INV-2026-002', issueDate: '2026-06-10', dueDate: '2026-06-25', totalAmount: 150000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        // 20,000 credit note nets this down to an effective 500,000 — the amount the payment actually
+        // has to match once Phase 2.0's guardrail nets credit/debit notes off before matching runs.
+        { invoiceId: 'INV-103', customerId: 'CUST-003', invoiceNumber: 'INV-2026-003', issueDate: '2026-06-15', dueDate: '2026-07-15', totalAmount: 520000, status: 'Open', creditNotes: 20000, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-104', customerId: 'CUST-004', invoiceNumber: 'INV-2026-004', issueDate: '2026-06-18', dueDate: '2026-07-18', totalAmount: 200000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        // 2% TDS allowed — the customer's ₹1,764.00 remittance is 2% short of the ₹1,800 face value on
+        // purpose; Rule 2.4 (TDS match) recognizes that as a legitimate deduction, not a short-pay.
+        { invoiceId: 'INV-105', customerId: 'CUST-005', invoiceNumber: 'INV-2026-005', issueDate: '2026-06-20', dueDate: '2026-08-04', totalAmount: 180000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 2 },
       ];
       const bankStatements = [
-        { bankTxnId: 'BANK-901', transactionDate: '2026-06-20', bankReferenceNumber: 'ACH-883920', payerName: 'Acme Corp', amount: 100000, clearingStatus: 'Pending' },
-        { bankTxnId: 'BANK-902', transactionDate: '2026-06-22', bankReferenceNumber: 'WIRE-112233', payerName: 'Globex Inc', amount: 240000, clearingStatus: 'Pending' },
-        { bankTxnId: 'BANK-903', transactionDate: '2026-06-28', bankReferenceNumber: 'ACH-994821', payerName: 'Mystery Payer', amount: 50000, clearingStatus: 'Pending' },
+        { bankTxnId: 'BANK-901', transactionDate: '2026-06-20', bankReferenceNumber: 'UTR-HDFC001', payerName: 'Acme Corp', payerAccountNumber: '000112223301', payerIFSC: 'HDFC0000123', narration: 'NEFT PAYMENT FROM ACME CORP', amount: 100000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // Same account+IFSC as above — a second, lump-sum deposit that Rule 2.5 (subset sum) will
+        // discover exactly covers INV-106 + INV-107 together (75,000 + 125,000 = 200,000).
+        { bankTxnId: 'BANK-902', transactionDate: '2026-06-30', bankReferenceNumber: 'UTR-HDFC002', payerName: 'Acme Corp', payerAccountNumber: '000112223301', payerIFSC: 'HDFC0000123', narration: 'NEFT LUMPSUM SETTLEMENT', amount: 200000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // No account/IFSC on file for this row — only the UPI handle embedded in the narration
+        // identifies Globex Inc (Rule 4). ₹1,400 against a ₹1,500 invoice is a genuine ₹100 short-pay.
+        { bankTxnId: 'BANK-903', transactionDate: '2026-06-22', bankReferenceNumber: 'UTR-ICICI010', payerName: 'Globex Inc', payerAccountNumber: '', payerIFSC: '', narration: 'UPI/globex@icici/PAYMENT INV002', amount: 140000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // Identified purely by the customer code token 'APEX04' in the narration (Rule 5). Two
+        // separate NEFT transfers that Rule 2.5 (subset sum) will discover exactly cover INV-104.
+        { bankTxnId: 'BANK-904', transactionDate: '2026-06-29', bankReferenceNumber: 'UTR-AXIS221', payerName: 'Apex Logistics Pvt Ltd', payerAccountNumber: '', payerIFSC: '', narration: 'NEFT TRANSFER REF APEX04 PARTIAL', amount: 120000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        { bankTxnId: 'BANK-905', transactionDate: '2026-06-30', bankReferenceNumber: 'UTR-AXIS222', payerName: 'Apex Logistics Pvt Ltd', payerAccountNumber: '', payerIFSC: '', narration: 'NEFT TRANSFER REF APEX04 BALANCE', amount: 80000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // Identified by extracting the GSTIN straight out of the narration (Rule 6).
+        { bankTxnId: 'BANK-906', transactionDate: '2026-06-25', bankReferenceNumber: 'UTR-SBI333', payerName: 'Stark Industries', payerAccountNumber: '', payerIFSC: '', narration: 'RTGS FROM STARK IND GSTIN 06AAACS9012E1Z7', amount: 500000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // The UTR itself is Umbrella's pre-registered "expected UTR" (an advance remittance) — the
+        // single highest-priority identification rule, so this locks before any other signal is tried.
+        { bankTxnId: 'BANK-907', transactionDate: '2026-06-18', bankReferenceNumber: 'UTR-ADV-2299', payerName: 'Umbrella Corporation', payerAccountNumber: '', payerIFSC: '', narration: 'ADVANCE REMITTANCE UMBRELLA', amount: 176400, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // No customer code, GSTIN/PAN, UPI, or account/IFSC on file — only a near-miss on the company
+        // name itself. Every rule ahead of fuzzy-name (7) has to fail for this one to fall through to it.
+        { bankTxnId: 'BANK-908', transactionDate: '2026-06-26', bankReferenceNumber: 'UTR-MISC777', payerName: 'Acme Corpn', payerAccountNumber: '', payerIFSC: '', narration: 'MISC RECEIPT', amount: 20000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // Same UTR submitted twice — Rule 1 (duplicate transaction reference) catches both rows before
+        // either one is offered to any other identification rule.
+        { bankTxnId: 'BANK-909', transactionDate: '2026-06-27', bankReferenceNumber: 'UTR-DUPE001', payerName: 'Test Vendor Co', payerAccountNumber: '', payerIFSC: '', narration: 'DUPLICATE SUBMISSION TEST', amount: 5000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        { bankTxnId: 'BANK-910', transactionDate: '2026-06-27', bankReferenceNumber: 'UTR-DUPE001', payerName: 'Test Vendor Co', payerAccountNumber: '', payerIFSC: '', narration: 'DUPLICATE SUBMISSION TEST', amount: 5000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // A pure bank charge, not a customer remittance at all — bypasses customer identification and
+        // invoice allocation entirely, posting straight through as a Standalone Bank Charge.
+        { bankTxnId: 'BANK-911', transactionDate: '2026-06-30', bankReferenceNumber: 'FEE-0001', payerName: 'Bank Fee', payerAccountNumber: '', payerIFSC: '', narration: 'MONTHLY ACCOUNT MAINTENANCE FEE', amount: 500, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: true },
       ];
-      // Payment 1: perfect match. Payment 2: short-pay (2,400 applied vs 2,500 invoice). Payment 3: unapplied cash, no customer.
-      const payments = [
-        { paymentId: 'PAY-501', customerId: 'CUST-001', bankTxnId: 'BANK-901', totalReceived: 100000, unappliedAmount: 0 },
-        { paymentId: 'PAY-502', customerId: 'CUST-002', bankTxnId: 'BANK-902', totalReceived: 240000, unappliedAmount: 0 },
-        { paymentId: 'PAY-503', customerId: null, bankTxnId: 'BANK-903', totalReceived: 50000, unappliedAmount: 50000 },
-      ];
-      // Kept as reference/source data only — the "Payment ↔ Invoice allocation" phase now derives
-      // matches live via its rule list (amount + due date) instead of reading this lookup table.
-      const paymentAllocations = [
-        { paymentId: 'PAY-501', invoiceId: 'INV-101', amount: 100000 },
-        { paymentId: 'PAY-502', invoiceId: 'INV-102', amount: 240000 },
-      ];
-      // GL control account 1200 reports 7,800 vs the 7,500 the sub-ledger will calculate — $300 variance by design.
-      const glControlBalances = { account: '1200-AR', glBalance: 780000 };
+      // GL control account 1200 reports 1,70,000 vs the 1,50,000 the sub-ledger will calculate once
+      // every payment above is applied (only Globex's short-pay stays open) — a 20,000 variance by design.
+      const glControlBalances = { account: '1200-AR', glBalance: 170000 };
       // Payment-gateway settlements (payout batches, gateway fees, txn IDs) — this sample dataset's
       // cash all arrived via bank wire/ACH, so there's nothing here yet; the stream is real but empty.
       const gatewaySettlements = [];
-      return { customers, invoices, bankStatements, payments, paymentAllocations, glControlBalances, gatewaySettlements };
+      return { customers, invoices, bankStatements, glControlBalances, gatewaySettlements };
     }
 
     // ── Bridge: pulls the latest Data Hub uploads (GL / SL / Bank Statements / Customers) into
@@ -531,6 +565,9 @@
         customerId: r.customer_id || '', companyName: r.company_name || 'Unknown',
         paymentTerms: r.payment_terms || 'Net 30', creditLimit: parseMoneyToCents(r.credit_limit),
         currencyCode: r.currency_code || 'USD',
+        customerCode: r.customer_code || '', pan: r.pan || '', gstin: r.gstin || '',
+        defaultBankAccount: r.default_bank_account || '', defaultIFSC: r.default_ifsc || '',
+        upiHandle: r.upi_handle || '', expectedUTR: r.expected_utr || '',
       })).filter(c => c.customerId);
     }
     function mapStagedInvoices(rows) {
@@ -538,12 +575,15 @@
         invoiceId: r.invoice_id || '', customerId: r.customer_id || '', invoiceNumber: r.invoice_number || r.invoice_id || '',
         issueDate: normARDate(r.issue_date), dueDate: normARDate(r.due_date),
         totalAmount: parseMoneyToCents(r.total_amount), status: r.status || 'Open',
+        creditNotes: parseMoneyToCents(r.credit_notes), debitNotes: parseMoneyToCents(r.debit_notes),
+        tdsAllowedPct: parseFloat(r.tds_allowed_pct) || 0,
       })).filter(i => i.invoiceId);
     }
     function mapStagedBankStatements(rows) {
       return rows.map(r => ({
         bankTxnId: r.bank_txn_id || '', transactionDate: normARDate(r.transaction_date),
         bankReferenceNumber: r.bank_reference || r.bank_reference_number || '', payerName: r.payer_name || 'Unknown',
+        payerAccountNumber: r.payer_account_number || '', payerIFSC: r.payer_ifsc || '', narration: r.narration || '',
         amount: parseMoneyToCents(r.amount), clearingStatus: r.clearing_status || 'Pending',
       })).filter(b => b.bankTxnId);
     }
@@ -554,19 +594,10 @@
       return { account: String(g.gl_account_code || '1200-AR').replace(/\s*\(.*?\)\s*/g, '').trim(), glBalance: parseMoneyToCents(g.control_account_balance) };
     }
     // There's no separate "Payments" upload category (the source dropdown only has GL/SL/Bank
-    // Statements/Customers) — a bank inflow *is* the payment record, so payments are derived from
-    // whichever bank statements are in effect, linking to a customer by matching payer name.
-    function derivePaymentsFromBank(bankStatements, customers) {
-      const findCustomerId = name => {
-        const n = String(name || '').toLowerCase().trim();
-        const c = customers.find(c => c.companyName.toLowerCase().trim() === n);
-        return c ? c.customerId : null;
-      };
-      return bankStatements.map(bs => {
-        const customerId = findCustomerId(bs.payerName);
-        return { paymentId: 'PAY-' + bs.bankTxnId, customerId, bankTxnId: bs.bankTxnId, totalReceived: bs.amount, unappliedAmount: customerId ? 0 : bs.amount };
-      });
-    }
+    // Statements/Customers) — a bank inflow *is* the payment record. Who it belongs to is no longer
+    // decided here by a blunt payer-name string match — that's now the job of arEngine's Phase 1A/1B
+    // customer-identification waterfall (UTR/account+IFSC/UPI/customer-code/GSTIN-PAN/fuzzy-name),
+    // which needs the full rule list and so runs inside the engine, not this data-bridge step.
     function arDataFromUploads(seed) {
       const upCustomers = stagedRowsForCategory('Customers');
       const upInvoices = stagedRowsForCategory('SL');
@@ -576,10 +607,7 @@
       const invoices = upInvoices.length ? mapStagedInvoices(upInvoices) : seed.invoices;
       const bankStatements = upBank.length ? mapStagedBankStatements(upBank) : seed.bankStatements;
       const glControlBalances = upGL.length ? mapStagedGL(upGL) : seed.glControlBalances;
-      // Payments are re-derived whenever either bank statements or customers came from an upload,
-      // since a new bank file or a new customer list changes who each inflow should link to.
-      const payments = (upBank.length || upCustomers.length) ? derivePaymentsFromBank(bankStatements, customers) : seed.payments;
-      return { customers, invoices, bankStatements, payments, paymentAllocations: seed.paymentAllocations, glControlBalances, gatewaySettlements: seed.gatewaySettlements };
+      return { customers, invoices, bankStatements, glControlBalances, gatewaySettlements: seed.gatewaySettlements };
     }
 
     function genRecords(recId, type) {
@@ -628,28 +656,94 @@
       return rec;
     }
 
-    // The AR reconciliation's 5 fixed phases. Each phase owns its own cascading, addable/deletable
-    // rule list — same Ref/Amount-tolerance/Date-window/Confidence shape as the generic engine's
-    // rules, evaluated first-match-wins in priority order within that phase.
+    // The AR reconciliation's 6 fixed phases, matching the "identify the customer first, only then
+    // look at invoices, never guess" workflow: lock the customer (1A), fall back to a candidate pool
+    // if no rule locks a single customer (1B), then run the scoped invoice-allocation waterfall (2)
+    // — all three phases now made of *named* rules with fixed matching logic (`kind`), not generic
+    // Ref/Amount/Date conditions a user assembles from scratch. The trailing three phases are
+    // unchanged single-threshold checks from before. Every phase's rule list is still
+    // cascading/addable/editable/toggleable and evaluated first-match-wins in priority order —
+    // rules can never be deleted, only added, reordered, edited, and enabled/disabled.
     const AR_PHASES = [
-      { key: 'bank-match', priority: 1, label: 'Bank ↔ Payment verification', hint: 'Matches bank_statements to payments' },
-      { key: 'allocation', priority: 2, label: 'Payment ↔ Invoice allocation', hint: 'Matches payments to invoices by amount + due date (no lookup table — derived live)' },
-      { key: 'short-pay', priority: 3, label: 'Invoice settlement / short-pay', hint: 'Amount tolerance below which a shortfall is not flagged as a dispute' },
-      { key: 'unapplied', priority: 4, label: 'Unapplied cash', hint: 'Amount tolerance below which leftover cash is not flagged' },
-      { key: 'gl-check', priority: 5, label: 'AR Sub-ledger ↔ GL control', hint: 'Amount tolerance below which a GL variance is not flagged' },
+      { key: 'customer-lock', priority: 1, label: 'Customer Identification', hint: 'Locks the paying customer before any invoice is looked at — first rule to succeed wins' },
+      { key: 'candidate-pool', priority: 2, label: 'Candidate Pool', hint: 'Only runs if Customer Identification fails outright — narrows to a short list instead of guessing' },
+      { key: 'allocation', priority: 3, label: 'Scoped Invoice Allocation', hint: 'Matches the locked (or pooled) customer\'s own invoices only — never searches globally' },
+      { key: 'short-pay', priority: 4, label: 'Invoice settlement / short-pay', hint: 'Amount tolerance below which a shortfall is not flagged as a dispute' },
+      { key: 'unapplied', priority: 5, label: 'Unapplied cash', hint: 'Amount tolerance below which leftover cash is not flagged' },
+      { key: 'gl-check', priority: 6, label: 'AR Sub-ledger ↔ GL control', hint: 'Amount tolerance below which a GL variance is not flagged' },
     ];
-    // Reuses ruleC() from the generic engine — AR rules are the exact same shape, just tagged with a phase.
-    function arRuleC(phase, name, priority, ref, amount, date, confidence) {
-      return Object.assign(ruleC(name, true, priority, ref, amount, date, confidence), { phase });
+    // Every matcher kind available per phase — drives the "Add rule" kind picker and the rule-card
+    // condition summary. `usesCond` marks kinds whose editor should show the classic Amount/Date
+    // tolerance controls; kinds with fixed, parameter-less logic only expose Name/Priority/Enabled
+    // (and Confidence, where it doubles as a threshold rather than an informational score).
+    const AR_RULE_KINDS = {
+      'customer-lock': [
+        { kind: 'dup-utr', label: 'Duplicate transaction reference check', usesCond: false, fields: 'Bank reference number (UTR) ↔ every other bank reference number in this run' },
+        { kind: 'expected-utr', label: 'Expected UTR match', usesCond: false, fieldsConfigurable: true, matchModeOptions: [
+          { value: 'exact', label: 'Exact match — reference must equal the expected UTR exactly' },
+          { value: 'contains', label: 'Contains — reference may include the expected UTR alongside other bank text' },
+        ] },
+        { kind: 'account-ifsc', label: 'Payer account + IFSC match', usesCond: false, fieldsConfigurable: true },
+        { kind: 'upi', label: 'UPI handle match', usesCond: false, fieldsConfigurable: true },
+        { kind: 'customer-code', label: 'Customer code in narration', usesCond: false, fieldsConfigurable: true },
+        { kind: 'gstin-pan', label: 'GSTIN / PAN extraction', usesCond: false, fieldsConfigurable: true },
+        { kind: 'fuzzy-name', label: 'Fuzzy company name match', usesCond: false, confidenceLabel: 'Match threshold %', fieldsConfigurable: true },
+      ],
+      'candidate-pool': [
+        { kind: 'account-suffix', label: 'Masked account suffix match (last 4)', usesCond: false, fieldsConfigurable: true },
+        { kind: 'narration-tokens', label: 'Token-based narration match', usesCond: false, fieldsConfigurable: true },
+      ],
+      'allocation': [
+        { kind: 'exact-invoice-num', label: 'Exact invoice number in narration', usesCond: false, fieldsConfigurable: true },
+        { kind: 'invoice-suffix', label: 'Invoice suffix / truncated number', usesCond: false, fieldsConfigurable: true },
+        { kind: 'exact-amount', label: 'Exact amount match', usesCond: false, fieldsConfigurable: true },
+        { kind: 'tds-match', label: 'TDS match', usesCond: false, fieldsConfigurable: true },
+        { kind: 'subset-sum', label: 'Subset sum (many-to-many)', usesCond: true, condLabel: 'Max combo size', condField: 'amount', unit: 'count', fieldsConfigurable: true },
+        { kind: 'bank-fee', label: 'Bank fee / minor variance', usesCond: true, condLabel: 'Variance tolerance', condField: 'amount', unit: 'money', fieldsConfigurable: true },
+        { kind: 'write-off', label: 'Small balance write-off', usesCond: true, condLabel: 'Materiality threshold', condField: 'amount', unit: 'money', fieldsConfigurable: true },
+        { kind: 'overpayment', label: 'Overpayment → On Account', usesCond: false, fieldsConfigurable: true },
+        { kind: 'partial-payment', label: 'Universal partial payment', usesCond: false },
+      ],
+      'short-pay': [{ kind: 'threshold', label: 'Shortfall tolerance', usesCond: true, condField: 'amount', unit: 'money' }],
+      'unapplied': [{ kind: 'threshold', label: 'Unapplied cash threshold', usesCond: true, condField: 'amount', unit: 'money' }],
+      'gl-check': [{ kind: 'threshold', label: 'GL variance tolerance', usesCond: true, condField: 'amount', unit: 'money' }],
+    };
+    const AR_DEFAULT_KIND_FOR_PHASE = { 'customer-lock': 'fuzzy-name', 'candidate-pool': 'narration-tokens', 'allocation': 'exact-amount', 'short-pay': 'threshold', 'unapplied': 'threshold', 'gl-check': 'threshold' };
+    function arRuleKindMeta(phase, kind) { return (AR_RULE_KINDS[phase] || []).find(k => k.kind === kind) || { kind, label: kind, usesCond: true }; }
+    // Reuses ruleC() from the generic engine, extended with `kind` — the fixed matcher the engine
+    // dispatches on. `cond`/`confidence` stay as the tunable knobs for kinds that need one (e.g.
+    // fuzzy-name's `confidence` doubles as its match-threshold %); kinds with nothing to tune just
+    // carry `enabled`/`priority` and ignore `cond`.
+    function arRuleC(phase, kind, name, priority, ref, amount, date, confidence) {
+      return Object.assign(ruleC(name, true, priority, ref, amount, date, confidence), { phase, kind });
     }
     function buildARRules() {
       return [
-        arRuleC('bank-match', 'Exact bank reference', 1, 'exact', { mode: 'exact', value: 0 }, { days: 2 }, 99),
-        arRuleC('allocation', 'Exact amount match', 1, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 95),
-        arRuleC('allocation', 'Partial-payment tolerant (±10%)', 2, 'off', { mode: 'pct', value: 10 }, { days: 30 }, 75),
-        arRuleC('short-pay', 'Shortfall tolerance', 1, 'off', { mode: 'abs', value: 100 }, { days: 0 }, 100),
-        arRuleC('unapplied', 'Unapplied cash threshold', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
-        arRuleC('gl-check', 'GL variance tolerance', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
+        // Phase 1A — Customer Identification, in waterfall priority order.
+        arRuleC('customer-lock', 'dup-utr', 'Duplicate transaction reference check', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 100),
+        Object.assign(arRuleC('customer-lock', 'expected-utr', 'Expected UTR match', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 98), { matchMode: 'exact', bankField: 'bank_reference_number', secondSource: 'customer', secondField: 'expected_utr' }),
+        Object.assign(arRuleC('customer-lock', 'account-ifsc', 'Payer account + IFSC match', 3, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 97), { bankAccountField: 'payer_account_number', custAccountField: 'default_bank_account', bankIfscField: 'payer_ifsc', custIfscField: 'default_ifsc' }),
+        Object.assign(arRuleC('customer-lock', 'upi', 'UPI handle match', 4, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 95), { bankField: 'narration', secondSource: 'customer', secondField: 'upi_handle' }),
+        Object.assign(arRuleC('customer-lock', 'customer-code', 'Customer code in narration', 5, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 90), { bankField: 'narration', secondSource: 'customer', secondField: 'customer_code' }),
+        Object.assign(arRuleC('customer-lock', 'gstin-pan', 'GSTIN / PAN extraction', 6, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 92), { bankField: 'narration', secondSource: 'customer', secondField: 'gstin' }),
+        Object.assign(arRuleC('customer-lock', 'fuzzy-name', 'Fuzzy company name match', 7, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 85), { bankField: 'payer_name', secondSource: 'customer', secondField: 'company_name' }),
+        // Phase 1B — Candidate Pool (only reached if every Phase 1A rule above misses).
+        Object.assign(arRuleC('candidate-pool', 'account-suffix', 'Masked account suffix match (last 4)', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 60), { bankField: 'payer_account_number', secondSource: 'customer', secondField: 'default_bank_account' }),
+        Object.assign(arRuleC('candidate-pool', 'narration-tokens', 'Token-based narration match', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 50), { bankField: 'narration', secondSource: 'customer', secondField: 'company_name' }),
+        // Phase 2 — Scoped Invoice Allocation, in waterfall priority order.
+        Object.assign(arRuleC('allocation', 'exact-invoice-num', 'Exact invoice number in narration', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 98), { bankField: 'narration', secondSource: 'invoice', secondField: 'invoice_number' }),
+        Object.assign(arRuleC('allocation', 'invoice-suffix', 'Invoice suffix / truncated number', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 90), { bankField: 'narration', secondSource: 'invoice', secondField: 'invoice_number' }),
+        Object.assign(arRuleC('allocation', 'exact-amount', 'Exact amount match', 3, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 95), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'tds-match', 'TDS match (invoice − allowed TDS = payment)', 4, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 93), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'subset-sum', 'Subset sum (many-to-many)', 5, 'off', { mode: 'abs', value: 3 }, { days: 30 }, 85), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'bank-fee', 'Bank fee / minor variance', 6, 'off', { mode: 'abs', value: 100 }, { days: 30 }, 80), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'write-off', 'Small balance write-off', 7, 'off', { mode: 'abs', value: 500 }, { days: 30 }, 100), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'overpayment', 'Overpayment → On Account', 8, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 100), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        arRuleC('allocation', 'partial-payment', 'Universal partial payment', 9, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 100),
+        // Phases 3–5 — unchanged single-threshold checks.
+        arRuleC('short-pay', 'threshold', 'Shortfall tolerance', 1, 'off', { mode: 'abs', value: 100 }, { days: 0 }, 100),
+        arRuleC('unapplied', 'threshold', 'Unapplied cash threshold', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
+        arRuleC('gl-check', 'threshold', 'GL variance tolerance', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
       ];
     }
 
@@ -824,14 +918,235 @@
       });
       return matches;
     }
+    // ═══════════════════════════════════════ Phase 1A/1B — Customer Identification ═══════════════════════════════════════
+    // Each matcher answers one question: "does this bank row belong to this specific customer, by
+    // this specific signal?" Called once per (bank row × customer) pair, in the rule's priority
+    // order — Phase 1A stops at the first customer any enabled rule locks onto; Phase 1B (only
+    // reached if 1A locks nobody) instead collects every customer any enabled pool-rule matches.
+    function normDigits(s) { return String(s || '').replace(/\D/g, ''); }
+    function normToken(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+    function findDuplicateUTRs(bankStatements) {
+      const seen = new Map();
+      bankStatements.forEach(b => { const k = normToken(b.bankReferenceNumber); if (!k) return; seen.set(k, (seen.get(k) || 0) + 1); });
+      return new Set(bankStatements.filter(b => seen.get(normToken(b.bankReferenceNumber)) > 1).map(b => b.bankTxnId));
+    }
+    // Which raw bank-row / customer-record fields this rule reads is itself user-configurable (some
+    // banks put the UTR in the dedicated reference column, others bury it in narration; some customer
+    // masters key off expected_utr, others reuse customer_code/GSTIN/PAN/UPI for the same purpose).
+    // `value` is the literal source-CSV column name shown in the UI; `prop` is its camelCase key on
+    // the mapped bank/customer object.
+    const AR_BANK_FIELD_OPTIONS = [
+      { value: 'bank_reference_number', prop: 'bankReferenceNumber' },
+      { value: 'narration', prop: 'narration' },
+      { value: 'payer_name', prop: 'payerName' },
+    ];
+    const AR_CUST_FIELD_OPTIONS = [
+      { value: 'expected_utr', prop: 'expectedUTR' },
+      { value: 'customer_code', prop: 'customerCode' },
+      { value: 'gstin', prop: 'gstin' },
+      { value: 'pan', prop: 'pan' },
+      { value: 'upi_handle', prop: 'upiHandle' },
+      { value: 'company_name', prop: 'companyName' },
+    ];
+    // Allocation-phase (SL vs bank) field options. Invoice number is the only realistic SL-side
+    // identifier field; "amount" is the only bank-side numeric field — both single-option lists are
+    // still real dropdowns (matches the account-ifsc precedent), just with one choice today. The SL
+    // amount side genuinely has two meaningfully different fields: the invoice's original face value
+    // vs its current outstanding balance after credit/debit notes and any partial settlement so far.
+    const AR_INVOICE_FIELD_OPTIONS = [{ value: 'invoice_number', prop: 'invoiceNumber' }];
+    const AR_AMOUNT_BANK_FIELD_OPTIONS = [{ value: 'amount', prop: 'amount' }];
+    const AR_AMOUNT_PAY_FIELD_OPTIONS = [{ value: 'amount', prop: 'totalReceived' }];
+    const AR_AMOUNT_SL_FIELD_OPTIONS = [
+      { value: 'effective_balance', prop: 'effectiveBalance' },
+      { value: 'total_amount', prop: 'totalAmount' },
+    ];
+    // Credit limit is the one numeric field on Customer worth comparing a payment amount against
+    // (e.g. flagging an overpayment relative to the customer's own limit, not just the invoice).
+    const AR_CUST_AMOUNT_FIELD_OPTIONS = [{ value: 'credit_limit', prop: 'creditLimit' }];
+    function arFieldOpt(list, value) { return list.find(o => o.value === value) || list[0]; }
+    // Which entities ("sources") the second side of a comparison can pull from, and which fields
+    // each source exposes — deliberately scoped to what actually exists at the rule's phase: a
+    // customer-identification rule only ever sees the candidate customer (invoices aren't looked at
+    // until Phase 2); an allocation rule additionally sees that customer's own record, since the
+    // customer is already locked by the time allocation runs. A function (not a top-level const) so
+    // it can reference option lists defined later in the file without a temporal-dead-zone error.
+    function arSide2Sources() {
+      return {
+        'customer-only': { customer: { label: 'Customer', options: AR_CUST_FIELD_OPTIONS } },
+        'account-customer-only': { customer: { label: 'Customer', options: AR_ACCOUNT_CUST_FIELD_OPTIONS } },
+        'alloc-text': { invoice: { label: 'Sub-Ledger (Invoice)', options: AR_INVOICE_FIELD_OPTIONS }, customer: { label: 'Customer', options: AR_CUST_FIELD_OPTIONS } },
+        'alloc-amount': { invoice: { label: 'Sub-Ledger (Invoice)', options: AR_AMOUNT_SL_FIELD_OPTIONS }, customer: { label: 'Customer', options: AR_CUST_AMOUNT_FIELD_OPTIONS } },
+      };
+    }
+    // matchMode: 'exact' (default) requires the bank-side field to equal the customer-side field once
+    // normalized; 'contains' allows the bank-side field to merely include it — real bank reference
+    // fields often wrap the UTR in extra bank-specific text (e.g. "NEFT/UTR-ADV-2299/ACME").
+    function matchExpectedUTR(bank, cust, rule) {
+      const custProp = arFieldOpt(AR_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const custVal = cust[custProp];
+      if (!custVal) return false;
+      const custNorm = normToken(custVal), bankNorm = normToken(bank[bankProp]);
+      if (!bankNorm) return false;
+      return ((rule && rule.matchMode) || 'exact') === 'contains' ? bankNorm.includes(custNorm) : bankNorm === custNorm;
+    }
+    // Both the account-number pair and the IFSC pair have an independently pickable bank-side and
+    // customer-side field, same shape as expected-utr's pair.
+    const AR_ACCOUNT_FIELD_OPTIONS = [{ value: 'payer_account_number', prop: 'payerAccountNumber' }, { value: 'narration', prop: 'narration' }];
+    const AR_ACCOUNT_CUST_FIELD_OPTIONS = [{ value: 'default_bank_account', prop: 'defaultBankAccount' }];
+    const AR_IFSC_FIELD_OPTIONS = [{ value: 'payer_ifsc', prop: 'payerIFSC' }, { value: 'narration', prop: 'narration' }];
+    const AR_IFSC_CUST_FIELD_OPTIONS = [{ value: 'default_ifsc', prop: 'defaultIFSC' }];
+    function matchAccountIFSC(bank, cust, rule) {
+      const acctCustProp = arFieldOpt(AR_ACCOUNT_CUST_FIELD_OPTIONS, rule && rule.custAccountField).prop;
+      const ifscCustProp = arFieldOpt(AR_IFSC_CUST_FIELD_OPTIONS, rule && rule.custIfscField).prop;
+      const acctVal = bank[arFieldOpt(AR_ACCOUNT_FIELD_OPTIONS, rule && rule.bankAccountField).prop];
+      const ifscVal = bank[arFieldOpt(AR_IFSC_FIELD_OPTIONS, rule && rule.bankIfscField).prop];
+      if (!acctVal || !ifscVal || !cust[acctCustProp] || !cust[ifscCustProp]) return false;
+      return normDigits(acctVal) === normDigits(cust[acctCustProp]) && normToken(ifscVal) === normToken(cust[ifscCustProp]);
+    }
+    function matchUPI(bank, cust, rule) {
+      const custProp = arFieldOpt(AR_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const custVal = cust[custProp];
+      if (!custVal) return false;
+      const m = String(bank[bankProp] || '').match(/[a-zA-Z0-9.\-_]{2,}@[a-zA-Z0-9.\-_]{2,}/);
+      return !!m && m[0].toLowerCase() === String(custVal).toLowerCase();
+    }
+    function matchCustomerCode(bank, cust, rule) {
+      const custProp = arFieldOpt(AR_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const custVal = cust[custProp];
+      if (!custVal) return false;
+      return String(bank[bankProp] || '').toUpperCase().includes(String(custVal).toUpperCase());
+    }
+    // Historically checked GSTIN OR PAN in one pass; now a single configurable customer-side field
+    // (defaults to gstin) — add a second rule instance with custField='pan' to cover both.
+    function matchGstinPan(bank, cust, rule) {
+      const custProp = arFieldOpt(AR_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const custVal = cust[custProp];
+      if (!custVal) return false;
+      return String(bank[bankProp] || '').toUpperCase().includes(String(custVal).toUpperCase());
+    }
+    // Lightweight Levenshtein-distance similarity — a deliberately simple stand-in for real fuzzy
+    // name-matching (e.g. a proper NLP library), good enough to demonstrate a "≥85% similarity"
+    // threshold deterministically in a prototype without an external dependency.
+    function levenshtein(a, b) {
+      const m = a.length, n = b.length;
+      if (!m) return n; if (!n) return m;
+      const d = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+      for (let i = 0; i <= m; i++) d[i][0] = i;
+      for (let j = 0; j <= n; j++) d[0][j] = j;
+      for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+        d[i][j] = a[i - 1] === b[j - 1] ? d[i - 1][j - 1] : 1 + Math.min(d[i - 1][j], d[i][j - 1], d[i - 1][j - 1]);
+      }
+      return d[m][n];
+    }
+    // Corporate-entity suffixes are noise for identity matching, not signal — "Acme Group Pvt. Ltd."
+    // and "Acme Corp" should be recognized as the same payer. Strip them before comparing.
+    const CORP_SUFFIX_RE = /\b(private|pvt|limited|ltd|llp|llc|inc|incorporated|corp|corporation|co|company|group|industries|industry|enterprises|enterprise|holdings|holding|international|intl|technologies|technology|tech|solutions|solution|services|service|india|and\s+sons)\b\.?/g;
+    function normalizeCompanyName(s) {
+      return String(s || '').toLowerCase().replace(/[.,&'()]/g, ' ').replace(CORP_SUFFIX_RE, ' ').replace(/\s+/g, ' ').trim();
+    }
+    function nameSimilarityPct(a, b) {
+      const na = normalizeCompanyName(a), nb = normalizeCompanyName(b);
+      if (!na || !nb) return 0;
+      return Math.round((1 - levenshtein(na, nb) / Math.max(na.length, nb.length)) * 100);
+    }
+    function matchFuzzyName(bank, cust, rule) {
+      const custProp = arFieldOpt(AR_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      return nameSimilarityPct(bank[bankProp], cust[custProp]) >= ((rule && rule.confidence) || 85);
+    }
+    function matchAccountSuffix(bank, cust, rule) {
+      const bankProp = arFieldOpt(AR_ACCOUNT_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const custProp = arFieldOpt(AR_ACCOUNT_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
+      const bs = normDigits(bank[bankProp]).slice(-4), cs = normDigits(cust[custProp]).slice(-4);
+      return bs.length === 4 && bs === cs;
+    }
+    function matchNarrationTokens(bank, cust, rule) {
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const custProp = arFieldOpt(AR_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
+      const tokens = String(bank[bankProp] || '').toUpperCase().split(/[^A-Z0-9]+/).filter(t => t.length >= 3);
+      const nameTokens = String(cust[custProp] || '').toUpperCase().split(/[^A-Z0-9]+/).filter(t => t.length >= 3);
+      return nameTokens.some(nt => tokens.includes(nt));
+    }
+    const CUSTOMER_LOCK_MATCHERS = {
+      'expected-utr': matchExpectedUTR, 'account-ifsc': matchAccountIFSC, 'upi': matchUPI,
+      'customer-code': matchCustomerCode, 'gstin-pan': matchGstinPan, 'fuzzy-name': matchFuzzyName,
+    };
+    const CANDIDATE_POOL_MATCHERS = { 'account-suffix': matchAccountSuffix, 'narration-tokens': matchNarrationTokens };
+
+    // ═══════════════════════════════════════ Phase 2 — Scoped Invoice Allocation (single-row kinds) ═══════════════════════════════════════
+    // These four run against one bank row and one customer's invoice pool at a time. The remaining
+    // five kinds (subset-sum, bank-fee, write-off, overpayment, partial-payment) need to mutate a
+    // shared "still unclaimed" pool across multiple bank rows and invoices at once, so they're
+    // orchestrated directly inside arEngine's Phase 2 loop rather than expressed as pure functions here.
+    // Resolves the second-side comparison value per pool entry — when the chosen source is the
+    // invoice itself the value varies per invoice; when it's the customer, every invoice in the
+    // pool shares that one (single) customer value, since it doesn't vary per invoice.
+    function arSecondValuesForPool(rl, pool, cust) {
+      const { sourceKey, options } = arSecondSourceInfo(rl);
+      const prop = arFieldOpt(options, rl.secondField).prop;
+      if (sourceKey === 'customer') { const v = cust ? cust[prop] : undefined; return pool.map(inv => ({ inv, val: v })); }
+      return pool.map(inv => ({ inv, val: inv[prop] }));
+    }
+    function matchExactInvoiceNum(bank, pool, rule, cust) {
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const bankVal = String(bank[bankProp] || '').toUpperCase();
+      const entry = arSecondValuesForPool(rule, pool, cust).find(e => e.val && bankVal.includes(String(e.val).toUpperCase()));
+      return entry ? { invoiceIds: [entry.inv.invoiceId], note: 'Invoice number found in narration' } : null;
+    }
+    function matchInvoiceSuffix(bank, pool, rule, cust) {
+      const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const bankVal = String(bank[bankProp] || '').toUpperCase();
+      const entry = arSecondValuesForPool(rule, pool, cust).find(e => e.val && String(e.val).length >= 4 && bankVal.includes(String(e.val).slice(-4).toUpperCase()));
+      return entry ? { invoiceIds: [entry.inv.invoiceId], note: 'Invoice number suffix found in narration' } : null;
+    }
+    function matchExactAmount(bank, pool, rule, cust) {
+      const bankProp = arFieldOpt(AR_AMOUNT_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const hits = arSecondValuesForPool(rule, pool, cust).filter(e => e.val === bank[bankProp]);
+      if (hits.length === 1) return { invoiceIds: [hits[0].inv.invoiceId], note: 'Exact amount match' };
+      if (hits.length > 1) return { ambiguous: true, note: 'Multiple invoices match this amount exactly' };
+      return null;
+    }
+    function matchTDS(bank, pool, rule, cust) {
+      const bankProp = arFieldOpt(AR_AMOUNT_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
+      const entry = arSecondValuesForPool(rule, pool, cust).find(e => e.inv.tdsAllowedPct > 0 && Math.round(e.val * (1 - e.inv.tdsAllowedPct / 100)) === bank[bankProp]);
+      return entry ? { invoiceIds: [entry.inv.invoiceId], note: `TDS deduction of ${entry.inv.tdsAllowedPct}% recognized` } : null;
+    }
+    const ALLOCATION_SINGLE_ROW_MATCHERS = {
+      'exact-invoice-num': matchExactInvoiceNum, 'invoice-suffix': matchInvoiceSuffix,
+      'exact-amount': matchExactAmount, 'tds-match': matchTDS,
+    };
+    // Brute-force exact-sum subset search (size 2..maxN) — per-customer pools are tiny in this
+    // app, so this is cheap. Finds cases like "two NEFT transfers together equal one invoice" or
+    // "one lump-sum deposit exactly covers two invoices" that no single-row matcher can see.
+    function findExactSumSubset(items, target, maxN) {
+      const n = items.length;
+      for (let size = 2; size <= Math.min(maxN, n); size++) {
+        const combo = [];
+        const pick = start => {
+          if (combo.length === size) return combo.reduce((s, i) => s + items[i].amount, 0) === target ? combo.slice() : null;
+          for (let i = start; i < n; i++) { combo.push(i); const r = pick(i + 1); if (r) return r; combo.pop(); }
+          return null;
+        };
+        const found = pick(0);
+        if (found) return found.map(i => items[i]);
+      }
+      return null;
+    }
+
     function arEngine(rec) {
       if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], customers: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], perRule: [], autoGroups: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
       const ar = arDataFromUploads(rec.arData);
       // Uploaded files can reference a customer_id absent from the customers file — fall back
       // instead of crashing, since mismatched real-world CSVs are the norm, not the exception.
       const cust = id => ar.customers.find(c => c.customerId === id) || { customerId: id, companyName: id ? `Unknown (${id})` : 'Unknown customer' };
-      const invoices = ar.invoices.map(i => ({ ...i })); // working copies so status can be updated by the engine
-      const payments = ar.payments.map(p => ({ ...p }));
+      // effectiveBalance nets credit/debit notes off the face value once, up front (Phase 2.0's
+      // guardrail) — every downstream comparison (matching, short-pay, sub-ledger balance) uses
+      // this, never the raw totalAmount, so a credit-noted invoice is judged by what's actually owed.
+      const invoices = ar.invoices.map(i => ({ ...i, effectiveBalance: i.totalAmount - (i.creditNotes || 0) + (i.debitNotes || 0) }));
       const bankStatements = ar.bankStatements.map(b => ({ ...b }));
       const exceptions = [];
       let _exN = 0;
@@ -851,9 +1166,10 @@
 
       const arRules = rec.arRules || [];
       const rulesFor = k => arRules.filter(r => r.phase === k);
-      // Phases 3–5 are single-record threshold checks, not pairwise matches — they use the
+      const enabledRulesFor = k => rulesFor(k).filter(r => r.enabled).sort((a, b) => a.priority - b.priority);
+      // Phases 4–6 are single-record threshold checks, not pairwise matches — they use the
       // highest-priority enabled rule's Amount tolerance only (Ref/Date don't apply to a solo value).
-      const firstEnabled = k => rulesFor(k).filter(r => r.enabled).sort((a, b) => a.priority - b.priority)[0] || null;
+      const firstEnabled = k => enabledRulesFor(k)[0] || null;
       const thresholdOf = (rule, base) => {
         if (!rule) return Infinity; // no enabled rule in this phase → check is off
         const c = rule.cond.amount;
@@ -862,177 +1178,274 @@
         return c.value; // abs, already in cents
       };
 
-      // ── Phase 1: Bank ↔ Payment verification (cascading match) ──
-      const bankRules = rulesFor('bank-match');
-      const bankA = bankStatements.map(bs => ({ id: bs.bankTxnId, reference: bs.bankTxnId, amount: bs.amount, date: bs.transactionDate }));
-      const payB1 = payments.map(p => ({ id: p.paymentId, reference: p.bankTxnId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
-      const bankMatches = bankRules.some(r => r.enabled) ? cascadeMatch(bankA, payB1, bankRules) : [];
-      let bankMatchedCount = 0;
+      const lockHitCounts = {}, poolHitCounts = {}, allocHitCounts = {};
+      const bump = (map, id) => { if (id) map[id] = (map[id] || 0) + 1; };
+
+      // ── Phase 1A: Customer Identification — locks the paying customer before any invoice is
+      // looked at. Rules run in priority order per bank row; the first rule (and first customer)
+      // that succeeds wins. A bank inflow *is* the payment record — payments[] is built fresh here,
+      // one entry per row, since who it belongs to is now this waterfall's job, not a name match.
+      const lockRules = enabledRulesFor('customer-lock');
+      const dupUTRs = lockRules.some(r => r.kind === 'dup-utr') ? findDuplicateUTRs(bankStatements) : new Set();
+      const payments = bankStatements.map(bs => ({
+        paymentId: 'PAY-' + bs.bankTxnId, bankTxnId: bs.bankTxnId, totalReceived: bs.amount, unappliedAmount: bs.amount,
+        customerId: null, lockedBy: null, candidatePool: [], duplicateFlag: false,
+      }));
+      const payFor = bankTxnId => payments.find(p => p.bankTxnId === bankTxnId);
+
       bankStatements.forEach(bs => {
-        const m = bankMatches.find(x => x.aId === bs.bankTxnId);
-        if (!m) {
-          bs.clearingStatus = bankRules.some(r => r.enabled) ? 'Exception' : 'Not checked';
-          if (bankRules.some(r => r.enabled)) flagException('Timing Difference', bs.bankTxnId, `${fmtMoney(bs.amount)} received from ${bs.payerName} has no recorded payment yet`, bs.amount, { date: bs.transactionDate, customer: bs.payerName, confidence: 60 });
-          return;
+        if (bs.isBankCharge) return; // not a customer remittance at all — bypasses identification entirely
+        const pay = payFor(bs.bankTxnId);
+        if (dupUTRs.has(bs.bankTxnId)) { pay.duplicateFlag = true; bump(lockHitCounts, (lockRules.find(r => r.kind === 'dup-utr') || {}).id); return; }
+        for (const rule of lockRules) {
+          if (rule.kind === 'dup-utr') continue; // handled above, once, not per-customer
+          const matcher = CUSTOMER_LOCK_MATCHERS[rule.kind];
+          if (!matcher) continue;
+          const hit = ar.customers.find(c => matcher(bs, c, rule));
+          if (hit) { pay.customerId = hit.customerId; pay.lockedBy = rule; bump(lockHitCounts, rule.id); break; }
         }
-        const pay = payments.find(p => p.paymentId === m.bId);
-        if (pay.customerId) { bs.clearingStatus = 'Reconciled'; bankMatchedCount++; }
-        // No customerId → this becomes an Unapplied Payment exception once Phase 4 evaluates it
-        // below (flagged there, not here, so it's raised exactly once, not once per phase).
-        else { bs.clearingStatus = 'Exception'; }
       });
 
-      // ── Phase 2: Payment ↔ Invoice allocation (cascading match — derived live, no lookup table) ──
-      // Manual matches (saved from the Exceptions inbox) are many-to-many groups — one payment can
-      // cover several invoices, or several payments can jointly settle one invoice. They're pulled
-      // out of the pool before rule-based matching runs, so they can't be re-matched to something else.
-      const allocRules = rulesFor('allocation');
+      // ── Phase 1B: Candidate Pool — only for rows Phase 1A couldn't lock to exactly one customer.
+      // No customer is finalized here; Phase 2's exact-amount rule resolves (or fails to resolve) it.
+      const poolRules = enabledRulesFor('candidate-pool');
+      payments.forEach(pay => {
+        if (pay.customerId || pay.duplicateFlag) return;
+        const bs = bankStatements.find(b => b.bankTxnId === pay.bankTxnId);
+        if (bs.isBankCharge) return;
+        const candidates = new Set();
+        poolRules.forEach(rule => {
+          const matcher = CANDIDATE_POOL_MATCHERS[rule.kind];
+          if (!matcher) return;
+          ar.customers.forEach(c => { if (matcher(bs, c, rule)) { candidates.add(c.customerId); bump(poolHitCounts, rule.id); } });
+        });
+        pay.candidatePool = [...candidates];
+      });
+
+      // ── Phase 2: Scoped Invoice Allocation — every rule below only ever looks at the locked (or
+      // pooled) customer's own invoices, never the full ledger. Manual matches (saved from the
+      // Exceptions inbox) are pulled out of the pool first, same as before.
+      const allocRules = enabledRulesFor('allocation');
       const manualGroups = (rec.arManualMatches || [])
         .map(g => ({ ...g, invoiceIds: (g.invoiceIds || []).filter(id => invoices.some(i => i.invoiceId === id)), paymentIds: (g.paymentIds || []).filter(id => payments.some(p => p.paymentId === id)) }))
         .filter(g => g.invoiceIds.length && g.paymentIds.length);
       const manualPayIds = new Set(manualGroups.flatMap(g => g.paymentIds));
       const manualInvIds = new Set(manualGroups.flatMap(g => g.invoiceIds));
+      const claimedPayIds = new Set(manualPayIds), claimedInvIds = new Set(manualInvIds);
 
-      // Everything below is scoped per customerId — a payment can only ever be considered against
-      // that same customer's invoices. Without this, two unrelated customers whose amounts happen
-      // to coincide get cross-matched (e.g. Customer A's $2,000 deposit "paying" Customer B's
-      // $2,000 invoice) purely by coincidence, since amount/date alone can't tell them apart.
-      const custIdsInPlay = [...new Set(payments.filter(p => p.customerId && !manualPayIds.has(p.paymentId)).map(p => p.customerId))];
-
-      // Brute-force exact-sum subset search (size 2..maxN) — per-customer pools are tiny in this
-      // app, so this is cheap. Finds cases like "two NEFT transfers together equal one invoice" or
-      // "one lump-sum deposit exactly covers two invoices" that a naive 1:1 matcher can't see.
-      function findExactSumSubset(items, target, maxN) {
-        const n = items.length;
-        for (let size = 2; size <= Math.min(maxN, n); size++) {
-          const combo = [];
-          const pick = start => {
-            if (combo.length === size) return combo.reduce((s, i) => s + items[i].amount, 0) === target ? combo.slice() : null;
-            for (let i = start; i < n; i++) { combo.push(i); const r = pick(i + 1); if (r) return r; combo.pop(); }
-            return null;
-          };
-          const found = pick(0);
-          if (found) return found.map(i => items[i]);
-        }
-        return null;
-      }
-      const autoGroups = [];
-      const autoPayIds = new Set(), autoInvIds = new Set();
-      custIdsInPlay.forEach(cid => {
-        // Many-to-one: N of this customer's payments sum exactly to one of their invoices.
-        invoices.filter(inv => inv.customerId === cid && !manualInvIds.has(inv.invoiceId) && !autoInvIds.has(inv.invoiceId)).forEach(inv => {
-          const avail = payments.filter(p => p.customerId === cid && !manualPayIds.has(p.paymentId) && !autoPayIds.has(p.paymentId)).map(p => ({ id: p.paymentId, amount: p.totalReceived }));
-          const combo = findExactSumSubset(avail, inv.totalAmount, 3);
-          if (combo) { combo.forEach(c => autoPayIds.add(c.id)); autoInvIds.add(inv.invoiceId); autoGroups.push({ invoiceIds: [inv.invoiceId], paymentIds: combo.map(c => c.id), auto: true }); }
-        });
-      });
-      custIdsInPlay.forEach(cid => {
-        // One-to-many: one of this customer's payments sums exactly to N of their invoices.
-        payments.filter(p => p.customerId === cid && !manualPayIds.has(p.paymentId) && !autoPayIds.has(p.paymentId)).forEach(p => {
-          const avail = invoices.filter(inv => inv.customerId === cid && !manualInvIds.has(inv.invoiceId) && !autoInvIds.has(inv.invoiceId)).map(inv => ({ id: inv.invoiceId, amount: inv.totalAmount }));
-          const combo = findExactSumSubset(avail, p.totalReceived, 3);
-          if (combo) { combo.forEach(c => autoInvIds.add(c.id)); autoPayIds.add(p.paymentId); autoGroups.push({ invoiceIds: combo.map(c => c.id), paymentIds: [p.paymentId], auto: true }); }
-        });
-      });
-
-      // Whatever's left goes through the ordinary 1:1 cascade — one cascadeMatch() call per
-      // customer, so a payment can never even be offered a different customer's invoice.
-      const excludedPayIds = new Set([...manualPayIds, ...autoPayIds]);
-      const excludedInvIds = new Set([...manualInvIds, ...autoInvIds]);
-      let allocMatches = [];
-      if (allocRules.some(r => r.enabled)) {
-        custIdsInPlay.forEach(cid => {
-          const payForCust = payments.filter(p => p.customerId === cid && !excludedPayIds.has(p.paymentId)).map(p => ({ id: p.paymentId, reference: p.paymentId, amount: p.totalReceived, date: (bankStatements.find(b => b.bankTxnId === p.bankTxnId) || {}).transactionDate || todayISO() }));
-          const invForCust = invoices.filter(inv => inv.customerId === cid && !excludedInvIds.has(inv.invoiceId)).map(inv => ({ id: inv.invoiceId, reference: inv.invoiceNumber, amount: inv.totalAmount, date: inv.dueDate }));
-          allocMatches = allocMatches.concat(cascadeMatch(payForCust, invForCust, allocRules));
-        });
-      }
-
-      // ── Phase 3: Invoice settlement / short-pay ──
       const shortPayRule = firstEnabled('short-pay');
       const matches = [], shortPays = [], overpays = [], unmatchedInvoices = [];
       const matchedPayIds = new Set();
+      const periodEnd = todayISO();
+      const openInvoicesFor = cid => invoices.filter(inv => inv.customerId === cid && inv.issueDate <= periodEnd && !claimedInvIds.has(inv.invoiceId));
 
-      // Manual groups first, then auto-detected exact-sum groups — same waterfall either way: pool
-      // every payment in the group, apply across its invoices in order, leftover becomes overpay.
-      [...manualGroups, ...autoGroups].forEach(g => {
+      // Pools every payment in a group, applies it across the group's invoices in order (leftover
+      // after the last one becomes overpay) — shared by manual groups and every auto-detected group
+      // below, all judged against effectiveBalance so credit/debit notes are already netted in.
+      // g.balanceOverrides (optional, {invoiceId: amount}) lets a rule declare "this invoice counts
+      // as settled at this adjusted amount, not its full effectiveBalance" — needed for TDS match,
+      // bank fee, and write-off, where the payment is *deliberately* short for an explained reason
+      // and must land as a clean match, not a short-pay dispute.
+      function applyGroupToLedger(g) {
+        if (g.auto) autoGroups.push(g); // recorded so arMatchTypeFor() can label Many-to-One/One-to-Many
         const groupInvoices = g.invoiceIds.map(id => invoices.find(i => i.invoiceId === id));
+        const balanceOf = inv => (g.balanceOverrides && g.balanceOverrides[inv.invoiceId] != null) ? g.balanceOverrides[inv.invoiceId] : inv.effectiveBalance;
         const groupPayments = g.paymentIds.map(id => payments.find(p => p.paymentId === id));
         const paymentLabel = g.paymentIds.join(', ');
         groupPayments.forEach(p => { matchedPayIds.add(p.paymentId); p.unappliedAmount = 0; });
         let pool = groupPayments.reduce((s, p) => s + p.totalReceived, 0);
-        const applied = groupInvoices.map(inv => { const a = Math.min(pool, inv.totalAmount); pool -= a; return a; });
+        const applied = groupInvoices.map(inv => { const a = Math.min(pool, balanceOf(inv)); pool -= a; return a; });
         groupInvoices.forEach((inv, idx) => {
           const isLast = idx === groupInvoices.length - 1;
           const paidAmt = applied[idx] + (isLast && pool > 0 ? pool : 0);
+          const bal = balanceOf(inv);
           const custName = cust(inv.customerId).companyName;
-          if (paidAmt >= inv.totalAmount) {
+          if (paidAmt >= bal) {
             inv.status = 'Paid';
-            if (paidAmt > inv.totalAmount) overpays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: inv.totalAmount, paid: paidAmt, overage: paidAmt - inv.totalAmount, paymentId: paymentLabel });
-            else matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: inv.totalAmount, paymentId: paymentLabel });
+            if (paidAmt > bal) overpays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: bal, paid: paidAmt, overage: paidAmt - bal, paymentId: paymentLabel, ruleId: g.ruleId, ruleName: g.ruleName });
+            else matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: bal, paymentId: paymentLabel, ruleId: g.ruleId, ruleName: g.ruleName, note: g.note });
           } else if (paidAmt > 0) {
-            inv.status = 'Open';
-            const shortage = inv.totalAmount - paidAmt;
-            shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: inv.totalAmount, paid: paidAmt, shortage, paymentId: paymentLabel });
-            flagException('Short-Pay', inv.invoiceId, `${custName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage)}`, shortage, { date: inv.dueDate, customer: custName, confidence: 90 });
+            inv.status = 'Partially Settled';
+            const shortage = bal - paidAmt;
+            shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: bal, paid: paidAmt, shortage, paymentId: paymentLabel, ruleId: g.ruleId, ruleName: g.ruleName });
+            const tolerance = thresholdOf(shortPayRule, bal);
+            if (shortage > tolerance) flagException('Short-Pay', inv.invoiceId, `${custName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage)}`, shortage, { date: inv.dueDate, customer: custName, confidence: 90 });
           } else {
             unmatchedInvoices.push(inv);
           }
         });
-      });
+      }
 
-      // Then rule-based 1:1 matches for whatever wasn't grouped (manually or automatically).
-      const allGroupInvIds = new Set([...manualInvIds, ...autoInvIds]);
-      invoices.filter(inv => !allGroupInvIds.has(inv.invoiceId)).forEach(inv => {
-        const m = allocMatches.find(x => x.bId === inv.invoiceId);
-        const pay = m ? payments.find(p => p.paymentId === m.aId) : null;
-        if (pay) {
-          matchedPayIds.add(pay.paymentId);
-          const diff = pay.totalReceived - inv.totalAmount;
-          if (diff < 0) {
-            const shortage = Math.abs(diff);
-            inv.status = 'Open'; // partially paid — remains open
-            pay.unappliedAmount = 0; // fully applied to this invoice, remainder is a short-pay, not unapplied cash
-            const tolerance = thresholdOf(shortPayRule, inv.totalAmount);
-            if (shortage > tolerance) {
-              shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: pay.totalReceived, shortage, paymentId: pay.paymentId });
-              flagException('Short-Pay', inv.invoiceId, `${cust(inv.customerId).companyName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage)}`, shortage, { date: inv.dueDate, customer: cust(inv.customerId).companyName, confidence: 90 });
-            } else {
-              matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paymentId: pay.paymentId });
-            }
-          } else {
-            inv.status = 'Paid';
-            pay.unappliedAmount = Math.max(0, diff);
-            if (diff > 0) overpays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paid: pay.totalReceived, overage: diff, paymentId: pay.paymentId });
-            else matches.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: cust(inv.customerId).companyName, amount: inv.totalAmount, paymentId: pay.paymentId });
+      const autoGroups = [];
+      const singleRowKinds = ['exact-invoice-num', 'invoice-suffix', 'exact-amount', 'tds-match'];
+      const ambiguousPayIds = new Set();
+      const collisionPayIds = new Set();
+
+      // Candidate-pool resolution: try the exact-amount rule against the *union* of every pool
+      // customer's invoices. Exactly one candidate's invoice matching resolves (locks) that customer
+      // retroactively; more than one is a genuine Double Collision — never guessed, always an exception.
+      const exactAmountRule = allocRules.find(r => r.kind === 'exact-amount');
+      if (exactAmountRule) {
+        const poolSlInfo = arSecondSourceInfo(exactAmountRule);
+        const poolSlProp = arFieldOpt(poolSlInfo.options, exactAmountRule.secondField).prop;
+        payments.filter(p => !p.customerId && !p.duplicateFlag && p.candidatePool.length).forEach(p => {
+          const hits = p.candidatePool.map(cid => ({ cid, inv: openInvoicesFor(cid).find(inv => (poolSlInfo.sourceKey === 'customer' ? cust(cid)[poolSlProp] : inv[poolSlProp]) === p.totalReceived) })).filter(x => x.inv);
+          if (hits.length === 1) {
+            p.customerId = hits[0].cid;
+            applyGroupToLedger({ invoiceIds: [hits[0].inv.invoiceId], paymentIds: [p.paymentId], auto: true, note: 'Resolved via candidate pool + exact amount' });
+            claimedPayIds.add(p.paymentId); claimedInvIds.add(hits[0].inv.invoiceId);
+          } else if (hits.length > 1) {
+            collisionPayIds.add(p.paymentId);
+            flagException('Double Collision', p.paymentId, `${fmtMoney(p.totalReceived)} payment matches open invoices from ${hits.length} different candidate customers — never auto-resolved`, p.totalReceived, { customer: 'Ambiguous', confidence: 40 });
           }
-        } else {
-          unmatchedInvoices.push(inv);
+        });
+      }
+
+      const lockedCustIds = [...new Set(payments.filter(p => p.customerId && !manualPayIds.has(p.paymentId)).map(p => p.customerId))];
+      lockedCustIds.forEach(cid => {
+        const custObj = cust(cid);
+        // Rules 2.1–2.4 — single bank row against the customer's open pool, one rule at a time.
+        allocRules.filter(r => singleRowKinds.includes(r.kind)).forEach(rule => {
+          const matcher = ALLOCATION_SINGLE_ROW_MATCHERS[rule.kind];
+          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
+            const pool = openInvoicesFor(cid);
+            if (!pool.length) return;
+            const result = matcher(bankStatements.find(b => b.bankTxnId === p.bankTxnId), pool, rule, custObj);
+            if (!result) return;
+            if (result.ambiguous) { ambiguousPayIds.add(p.paymentId); return; } // never guess between identical amounts
+            claimedPayIds.add(p.paymentId); result.invoiceIds.forEach(id => claimedInvIds.add(id));
+            bump(allocHitCounts, rule.id);
+            // TDS match is deliberately short of the invoice's face effectiveBalance by the allowed
+            // TDS amount — that gap must count as fully settled, not a short-pay dispute.
+            const balanceOverrides = rule.kind === 'tds-match' ? { [result.invoiceIds[0]]: p.totalReceived } : null;
+            applyGroupToLedger({ invoiceIds: result.invoiceIds, paymentIds: [p.paymentId], auto: true, ruleId: rule.id, ruleName: rule.name, note: result.note, balanceOverrides });
+          });
+        });
+
+        // Rule 2.5 — subset sum, many-to-many. Needs the whole remaining pool at once, not one row
+        // at a time: N payments summing to one invoice, then one payment summing to N invoices.
+        // resolveSl: whichever entity the rule's second side points at — an invoice's own field
+        // (varies per invoice) or the locked customer's field (one fixed value for the whole pool).
+        const resolveSl = rule => { const info = arSecondSourceInfo(rule); const prop = arFieldOpt(info.options, rule.secondField).prop; return inv => info.sourceKey === 'customer' ? custObj[prop] : inv[prop]; };
+        const subsetRule = allocRules.find(r => r.kind === 'subset-sum');
+        if (subsetRule) {
+          const maxN = (subsetRule.cond && subsetRule.cond.amount && subsetRule.cond.amount.value) || 3;
+          const subsetSl = resolveSl(subsetRule);
+          openInvoicesFor(cid).forEach(inv => {
+            if (claimedInvIds.has(inv.invoiceId)) return;
+            const avail = payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).map(p => ({ id: p.paymentId, amount: p.totalReceived }));
+            const combo = findExactSumSubset(avail, subsetSl(inv), maxN);
+            if (combo) { combo.forEach(c => claimedPayIds.add(c.id)); claimedInvIds.add(inv.invoiceId); bump(allocHitCounts, subsetRule.id); applyGroupToLedger({ invoiceIds: [inv.invoiceId], paymentIds: combo.map(c => c.id), auto: true, ruleId: subsetRule.id, ruleName: subsetRule.name }); }
+          });
+          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
+            const avail = openInvoicesFor(cid).map(inv => ({ id: inv.invoiceId, amount: subsetSl(inv) }));
+            const combo = findExactSumSubset(avail, p.totalReceived, maxN);
+            if (combo) { combo.forEach(c => claimedInvIds.add(c.id)); claimedPayIds.add(p.paymentId); bump(allocHitCounts, subsetRule.id); applyGroupToLedger({ invoiceIds: combo.map(c => c.id), paymentIds: [p.paymentId], auto: true, ruleId: subsetRule.id, ruleName: subsetRule.name }); }
+          });
+        }
+
+        // Rule 2.6 — bank fee / minor variance. A remaining payment short of a remaining invoice by
+        // no more than the configured tolerance (or by exactly an explicit fee) still counts as fully
+        // matched — the fee is booked separately, not left looking like an unexplained shortfall.
+        const feeRule = allocRules.find(r => r.kind === 'bank-fee');
+        if (feeRule) {
+          const tol = (feeRule.cond && feeRule.cond.amount && feeRule.cond.amount.value) || 0;
+          const feeSl = resolveSl(feeRule);
+          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
+            const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
+            const hit = openInvoicesFor(cid).find(inv => { const diff = feeSl(inv) - p.totalReceived; return diff > 0 && (bs.explicitFee > 0 ? diff === bs.explicitFee : diff <= tol); });
+            if (hit) { claimedPayIds.add(p.paymentId); claimedInvIds.add(hit.invoiceId); bump(allocHitCounts, feeRule.id); applyGroupToLedger({ invoiceIds: [hit.invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: feeRule.id, ruleName: feeRule.name, note: bs.explicitFee ? `Bank fee of ${fmtMoney(bs.explicitFee)} booked separately` : 'Minor variance absorbed into bank charges', balanceOverrides: { [hit.invoiceId]: p.totalReceived } }); }
+          });
+        }
+
+        // Rule 2.7 — small balance write-off. Same shape as the fee rule, different intent: a
+        // residual too small to be worth chasing gets auto-closed instead of left open forever.
+        const writeOffRule = allocRules.find(r => r.kind === 'write-off');
+        if (writeOffRule) {
+          const tol = (writeOffRule.cond && writeOffRule.cond.amount && writeOffRule.cond.amount.value) || 0;
+          const writeOffSl = resolveSl(writeOffRule);
+          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
+            const hit = openInvoicesFor(cid).find(inv => { const diff = writeOffSl(inv) - p.totalReceived; return diff > 0 && diff <= tol; });
+            if (hit) { claimedPayIds.add(p.paymentId); claimedInvIds.add(hit.invoiceId); bump(allocHitCounts, writeOffRule.id); applyGroupToLedger({ invoiceIds: [hit.invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: writeOffRule.id, ruleName: writeOffRule.name, note: 'Small residual balance written off', balanceOverrides: { [hit.invoiceId]: p.totalReceived } }); }
+          });
+        }
+
+        // Rule 2.8 — overpayment. A remaining payment that exceeds a remaining invoice; the excess
+        // routes to that customer's On Account / advance balance via applyGroupToLedger's own overpay branch.
+        const overpayRule = allocRules.find(r => r.kind === 'overpayment');
+        if (overpayRule) {
+          const overpaySl = resolveSl(overpayRule);
+          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
+            const hit = openInvoicesFor(cid).find(inv => p.totalReceived > overpaySl(inv));
+            if (hit) { claimedPayIds.add(p.paymentId); claimedInvIds.add(hit.invoiceId); bump(allocHitCounts, overpayRule.id); applyGroupToLedger({ invoiceIds: [hit.invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: overpayRule.id, ruleName: overpayRule.name }); }
+          });
+        }
+
+        // Rule 2.9 — universal partial payment, the catch-all. Whatever's still unclaimed still gets
+        // associated with the oldest-due remaining invoice for a partial settlement, rather than
+        // being left orphaned with a known customer but no invoice at all.
+        const partialRule = allocRules.find(r => r.kind === 'partial-payment');
+        if (partialRule) {
+          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
+            const pool = openInvoicesFor(cid).slice().sort((a, b) => a.dueDate < b.dueDate ? -1 : 1);
+            if (!pool.length) return;
+            claimedPayIds.add(p.paymentId); claimedInvIds.add(pool[0].invoiceId); bump(allocHitCounts, partialRule.id);
+            applyGroupToLedger({ invoiceIds: [pool[0].invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: partialRule.id, ruleName: partialRule.name, note: 'Partial payment applied' });
+          });
         }
       });
+      manualGroups.forEach(g => applyGroupToLedger(g));
 
-      // Invoices that never had a single payment attempt against them (no group, no cascade
-      // candidate at all) were previously invisible — they only showed up indirectly via the GL
-      // variance. Flag them explicitly so they appear in the inbox like every other exception.
-      unmatchedInvoices.forEach(inv => {
-        const custName = cust(inv.customerId).companyName;
-        flagException('No Payment Received', inv.invoiceId, `${custName} invoice ${inv.invoiceNumber} (${fmtMoney(inv.totalAmount)}) has received no payment`, inv.totalAmount, { date: inv.dueDate, customer: custName, confidence: 100 });
+      // ── Exception routing — "never guess" means every gap below becomes a distinct, visible
+      // exception rather than a silent drop or a coin-flip match. ──
+      payments.forEach(p => {
+        if (p.duplicateFlag) { flagException('Duplicate Transaction', p.paymentId, `${fmtMoney(p.totalReceived)} submitted twice under the same reference (${p.bankTxnId})`, p.totalReceived, { confidence: 100 }); return; }
+        const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
+        if (bs.isBankCharge) { flagException('Standalone Bank Charge', p.paymentId, `${fmtMoney(p.totalReceived)} ${bs.narration || 'bank charge'} — posted directly, not a customer remittance`, p.totalReceived, { confidence: 100 }); return; }
+        if (ambiguousPayIds.has(p.paymentId)) { flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
+        if (collisionPayIds.has(p.paymentId)) return; // already raised as its own Double Collision exception above
+        if (!p.customerId) {
+          if (p.candidatePool.length) flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment (${bs.payerName}) has a candidate pool of ${p.candidatePool.length} customers but none resolved by exact amount`, p.totalReceived, { customer: bs.payerName, confidence: 30 });
+          else flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment from ${bs.payerName} could not be identified to any customer`, p.totalReceived, { customer: bs.payerName, confidence: 20 });
+          return;
+        }
+        if (!claimedPayIds.has(p.paymentId)) flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} identified, but ${fmtMoney(p.totalReceived)} payment ${p.paymentId} matched no open invoice`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 55 });
       });
 
-      // ── Phase 4: Unapplied cash — payments with leftover / no customer that never got allocated ──
+      // Invoices that never had a single payment attempt against them (no group, no rule candidate
+      // at all) were previously invisible — they only showed up indirectly via the GL variance.
+      // Flag them explicitly so they appear in the inbox like every other exception.
+      const touchedInvIds = new Set([...matches, ...overpays, ...shortPays].map(m => m.invoiceId));
+      invoices.forEach(inv => { if (!touchedInvIds.has(inv.invoiceId) && !unmatchedInvoices.includes(inv)) unmatchedInvoices.push(inv); });
+      unmatchedInvoices.forEach(inv => {
+        const custName = cust(inv.customerId).companyName;
+        flagException('No Payment Received', inv.invoiceId, `${custName} invoice ${inv.invoiceNumber} (${fmtMoney(inv.effectiveBalance)}) has received no payment`, inv.effectiveBalance, { date: inv.dueDate, customer: custName, confidence: 100 });
+      });
+
+      // Final bank-statement clearing status, now that every row's fate is known.
+      bankStatements.forEach(bs => {
+        const p = payFor(bs.bankTxnId);
+        if (bs.isBankCharge) bs.clearingStatus = 'Bank Charge';
+        else if (p.duplicateFlag) bs.clearingStatus = 'Exception';
+        else bs.clearingStatus = (p.customerId && matchedPayIds.has(p.paymentId)) ? 'Reconciled' : 'Exception';
+      });
+
+      // ── Unapplied cash — payments never claimed by any allocation rule, above the configured
+      // threshold. (Duplicates/bank-charges/suspense/scoped-exception payments are excluded — each
+      // already has its own, more specific exception above; this stays the catch-all for "we know
+      // who paid, or don't, but there's leftover cash sitting unapplied.") ──
       const unappliedRule = firstEnabled('unapplied');
       const unapplied = payments
-        .filter(p => !matchedPayIds.has(p.paymentId) && p.unappliedAmount > thresholdOf(unappliedRule, p.totalReceived))
+        .filter(p => !p.duplicateFlag && !claimedPayIds.has(p.paymentId) && !bankStatements.find(b => b.bankTxnId === p.bankTxnId).isBankCharge && p.unappliedAmount > thresholdOf(unappliedRule, p.totalReceived))
         .map(p => ({ paymentId: p.paymentId, amount: p.unappliedAmount, customer: p.customerId ? cust(p.customerId).companyName : 'Unknown payer', bankTxnId: p.bankTxnId }));
-      unapplied.forEach(u => flagException('Unapplied Payment', u.paymentId, `${u.customer} payment ${u.paymentId} has ${fmtMoney(u.amount)} left unapplied`, u.amount, { customer: u.customer, confidence: 70 }));
 
-      // ── Phase 5: AR Sub-Ledger vs GL Control Total Check ──
-      // Open-invoice face value, not netted against partial payments — a short-paid invoice still
-      // carries its full amount on the sub-ledger until the dispute is resolved and it's marked Paid.
+      // ── AR Sub-Ledger vs GL Control Total Check ── Open-invoice effective balance (net of
+      // credit/debit notes, not netted against partial payments) — a short-paid invoice still
+      // carries its full remaining balance on the sub-ledger until the dispute is resolved.
       const glRule = firstEnabled('gl-check');
       let glMismatch = null, glControlBalances = null;
       if (glRule) {
-        const subledgerBalance = invoices.filter(i => i.status !== 'Paid').reduce((s, inv) => s + inv.totalAmount, 0);
+        const subledgerBalance = invoices.filter(i => i.status !== 'Paid').reduce((s, inv) => s + inv.effectiveBalance, 0);
         const glBalance = ar.glControlBalances.glBalance;
         const variance = glBalance - subledgerBalance;
         const tolerance = thresholdOf(glRule, glBalance);
@@ -1043,7 +1456,7 @@
         glControlBalances = { account: ar.glControlBalances.account, subledgerBalance, glBalance, variance: Math.abs(variance) };
       }
 
-      // ── Phase 6: Payment Gateway Settlements — payout batches/fees/txn IDs vs invoice line items ──
+      // ── Payment Gateway Settlements — payout batches/fees/txn IDs vs invoice line items ──
       // No sample data ships for this stream yet; wired so real settlement rows flag correctly
       // the moment they exist (matches how the Payment Gateway Settlements tab is already built).
       (ar.gatewaySettlements || []).forEach(g => {
@@ -1057,13 +1470,14 @@
       const total = invoices.length + payments.length;
       const rate = total ? +(matched.length / total * 100).toFixed(1) : 0;
       const matchedVal = matches.reduce((s, m) => s + m.amount, 0);
-      const breakVal = [...unmatchedInvoices.map(i => i.totalAmount), ...shortPays.map(s => s.shortage), ...unapplied.map(u => u.amount)].reduce((s, v) => s + v, 0) + (glMismatch ? glMismatch.variance : 0);
+      const breakVal = [...unmatchedInvoices.map(i => i.effectiveBalance), ...shortPays.map(s => s.shortage), ...unapplied.map(u => u.amount)].reduce((s, v) => s + v, 0) + (glMismatch ? glMismatch.variance : 0);
 
       // Live per-rule result counts, driving both the Rules Studio cards and the Overview's
       // "Rule performance" table — reflects rec.arRules, so edits/adds/deletes show up immediately.
       const countFor = rl => {
-        if (rl.phase === 'bank-match') return bankMatches.filter(m => m.ruleId === rl.id).length;
-        if (rl.phase === 'allocation') return allocMatches.filter(m => m.ruleId === rl.id).length;
+        if (rl.phase === 'customer-lock') return lockHitCounts[rl.id] || 0;
+        if (rl.phase === 'candidate-pool') return poolHitCounts[rl.id] || 0;
+        if (rl.phase === 'allocation') return allocHitCounts[rl.id] || 0;
         if (rl.phase === 'short-pay') return shortPayRule && shortPayRule.id === rl.id ? shortPays.length : 0;
         if (rl.phase === 'unapplied') return unappliedRule && unappliedRule.id === rl.id ? unapplied.length : 0;
         if (rl.phase === 'gl-check') return glRule && glRule.id === rl.id && glMismatch ? 1 : 0;
@@ -1075,7 +1489,7 @@
         invoices, payments, bankStatements, glControlBalances, customers: ar.customers,
         matches, shortPays, overpays, unapplied, unmatchedInvoices, glMismatch, exceptions, perRule, autoGroups,
         rate, matchedVal, breakVal, breaks, matched,
-        A: invoices.map((inv, i) => ({ id: `inv-${i}`, side: 'A', amount: inv.totalAmount, date: inv.issueDate, reference: inv.invoiceNumber, counterparty: cust(inv.customerId).companyName, memo: `Invoice ${inv.invoiceNumber}`, kind: 'invoice' })),
+        A: invoices.map((inv, i) => ({ id: `inv-${i}`, side: 'A', amount: inv.effectiveBalance, date: inv.issueDate, reference: inv.invoiceNumber, counterparty: cust(inv.customerId).companyName, memo: `Invoice ${inv.invoiceNumber}`, kind: 'invoice' })),
         B: payments.map((p, i) => ({ id: `pay-${i}`, side: 'B', amount: p.totalReceived, date: 'N/A', reference: p.paymentId, counterparty: p.customerId ? cust(p.customerId).companyName : 'Unknown', memo: p.paymentId, kind: 'payment' }))
       };
     }
@@ -1380,19 +1794,74 @@
           <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Fully matched (Paid)</td><td class="px-3 py-2.5">${res.matches.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.matches.reduce((s, m) => s + m.amount, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
           <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Over-payments</td><td class="px-3 py-2.5">${res.overpays.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.overpays.reduce((s, o) => s + o.overage, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
           <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Short-payments</td><td class="px-3 py-2.5">${res.shortPays.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s, i) => s + i.totalAmount, 0))}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
+          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s, i) => s + i.effectiveBalance, 0))}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
           <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
         </tbody></table></div>
         <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Phase 2a · bank_statements.clearing_status</div></div>
         <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
-        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus === 'Reconciled' ? statusPill('matched') : statusPill('break')}</td></tr>`).join('')}
+        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus === 'Reconciled' ? statusPill('matched') : bs.clearingStatus === 'Bank Charge' ? statusPill('writeoff') : statusPill('break')}</td></tr>`).join('')}
         </tbody></table></div>
         <div class="card overflow-hidden">
           <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr', 'w-3.5 h-3.5')}</button></div>
           <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Phase</th><th class="px-3 py-2">Rule</th><th class="px-3 py-2">Conditions</th><th class="px-3 py-2 text-right">Results</th><th class="px-3 py-2">Status</th></tr></thead><tbody>
-          ${res.perRule.map(({ rule, count }) => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 text-muted text-[12px]">${esc((AR_PHASES.find(p => p.key === rule.phase) || {}).label || rule.phase)}</td><td class="px-3 py-2.5 font-medium">${esc(rule.name)}</td><td class="px-3 py-2.5">${condChips(rule.cond)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5">${rule.enabled ? '<span class="text-ok-ink text-[12px] font-medium">● Active</span>' : '<span class="text-faint text-[12px]">○ Off</span>'}</td></tr>`).join('')}
+          ${res.perRule.map(({ rule, count }) => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 text-muted text-[12px]">${esc((AR_PHASES.find(p => p.key === rule.phase) || {}).label || rule.phase)}</td><td class="px-3 py-2.5 font-medium">${esc(rule.name)}</td><td class="px-3 py-2.5">${arCondSummary(rule)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5">${rule.enabled ? '<span class="text-ok-ink text-[12px] font-medium">● Active</span>' : '<span class="text-faint text-[12px]">○ Off</span>'}</td></tr>`).join('')}
           </tbody></table>
         </div></div>`;
+    }
+    // Named-kind rules (customer-lock, most of allocation) have fixed matching logic — showing the
+    // generic Ref/Amount/Date chips for them would be meaningless noise (there's no "reference
+    // condition" for a UPI-handle match). This shows what the rule actually checks instead, falling
+    // back to the classic condChips() only for the kinds that genuinely still use a tunable tolerance.
+    // For kinds where which fields get compared is itself a rule setting, this reads the live
+    // selection off the rule rather than a fixed description string. Returns one entry per
+    // independent field-pair the rule checks (account-ifsc checks two; everything else checks one).
+    // Which option lists (and which rule property holds the current selection) apply to a given
+    // kind's non-bank side — customer-lock/candidate-pool kinds compare against a customer field,
+    // allocation kinds compare against a sub-ledger (invoice) field, so the key and label differ.
+    function arFieldOptionsFor(kind) {
+      if (kind === 'account-suffix') return { bank: AR_ACCOUNT_FIELD_OPTIONS, sourceCategory: 'account-customer-only', defaultSource: 'customer' };
+      if (kind === 'exact-invoice-num' || kind === 'invoice-suffix') return { bank: AR_BANK_FIELD_OPTIONS, sourceCategory: 'alloc-text', defaultSource: 'invoice' };
+      if (kind === 'exact-amount' || kind === 'tds-match') return { bank: AR_AMOUNT_BANK_FIELD_OPTIONS, sourceCategory: 'alloc-amount', defaultSource: 'invoice' };
+      if (['subset-sum', 'bank-fee', 'write-off', 'overpayment'].includes(kind)) return { bank: AR_AMOUNT_PAY_FIELD_OPTIONS, sourceCategory: 'alloc-amount', defaultSource: 'invoice' };
+      return { bank: AR_BANK_FIELD_OPTIONS, sourceCategory: 'customer-only', defaultSource: 'customer' };
+    }
+    // Resolves which source (entity) is actually in effect for a rule's second side, and the field
+    // list that source exposes — falls back to the kind's default source if none picked yet, or if
+    // a stale/invalid source got saved (e.g. after switching matchers).
+    function arSecondSourceInfo(rl) {
+      const { sourceCategory, defaultSource } = arFieldOptionsFor(rl.kind);
+      const sources = arSide2Sources()[sourceCategory];
+      const sourceKey = (rl.secondSource && sources[rl.secondSource]) ? rl.secondSource : defaultSource;
+      return { sourceKey, sources, options: sources[sourceKey].options };
+    }
+    function arFieldCompareLines(rl) {
+      if (rl.kind === 'account-ifsc') {
+        const acctOpt = arFieldOpt(AR_ACCOUNT_FIELD_OPTIONS, rl.bankAccountField);
+        const acctCustOpt = arFieldOpt(AR_ACCOUNT_CUST_FIELD_OPTIONS, rl.custAccountField);
+        const ifscOpt = arFieldOpt(AR_IFSC_FIELD_OPTIONS, rl.bankIfscField);
+        const ifscCustOpt = arFieldOpt(AR_IFSC_CUST_FIELD_OPTIONS, rl.custIfscField);
+        return [`${acctOpt.value} ↔ ${acctCustOpt.value}`, `${ifscOpt.value} ↔ ${ifscCustOpt.value}`];
+      }
+      const { bank } = arFieldOptionsFor(rl.kind);
+      const { options } = arSecondSourceInfo(rl);
+      const bankOpt = arFieldOpt(bank, rl.bankField);
+      const secondOpt = arFieldOpt(options, rl.secondField);
+      return [`${bankOpt.value} ↔ ${secondOpt.value}`];
+    }
+    function arCondSummary(rule) {
+      const meta = arRuleKindMeta(rule.phase, rule.kind);
+      if (!meta.usesCond) {
+        const confLabel = meta.confidenceLabel || 'Confidence';
+        const modeChip = meta.matchModeOptions ? `<span class="chip">${esc((meta.matchModeOptions.find(o => o.value === (rule.matchMode || 'exact')) || {}).value === 'contains' ? 'Mode: Contains' : 'Mode: Exact')}</span>` : '';
+        const fieldsChip = meta.fieldsConfigurable ? arFieldCompareLines(rule).map(l => `<span class="chip mono">${esc(l)}</span>`).join('') : '';
+        return `<span class="flex flex-wrap gap-1.5"><span class="chip">${esc(meta.label)}</span>${fieldsChip}${modeChip}<span class="chip">${esc(confLabel)}: ${rule.confidence}${meta.confidenceLabel ? '' : '%'}</span></span>`;
+      }
+      if (meta.condLabel) {
+        const val = rule.cond.amount.value;
+        const fieldsChip = meta.fieldsConfigurable ? arFieldCompareLines(rule).map(l => `<span class="chip mono">${esc(l)}</span>`).join('') : '';
+        return `<span class="flex flex-wrap gap-1.5">${fieldsChip}<span class="chip">${esc(meta.condLabel)}: ${meta.unit === 'money' ? fmtMoney(val) : val}</span></span>`;
+      }
+      return condChips(rule.cond);
     }
     // Same card/editor shape as the generic engine's ruleCard/ruleEditor (Ref/Amount/Date/Confidence),
     // reused via condChips() for exact visual parity — just scoped to one AR phase's rule list.
@@ -1406,7 +1875,7 @@
       <div class="mono text-[12px] text-faint w-4">${rl.priority}</div>
       <div class="flex-1 min-w-0">
         <div class="font-semibold text-[13px] flex items-center gap-2">${esc(rl.name)}${count ? `<span class="text-[11px] font-medium text-muted mono">· ${count} matched</span>` : ''}</div>
-        <div class="mt-1.5">${condChips(rl.cond)}</div></div>
+        <div class="mt-1.5">${arCondSummary(rl)}</div></div>
       <div class="flex items-center gap-3">
         ${confBar(rl.confidence)}
         <button data-act="edit-rule" data-rule="${rl.id}" class="btn btn-ghost btn-sm">${editing ? 'Done' : 'Edit'}</button>
@@ -1414,10 +1883,70 @@
     </div>
     ${editing ? arRuleEditor(rec, rl) : ''}</div>`;
     }
+    // Rules can be added, edited, reordered, and enabled/disabled — never deleted. What's editable
+    // beyond the name/confidence depends entirely on the rule's `kind`: fixed-logic kinds (every
+    // customer-lock rule, most allocation rules) have nothing to tune; a few carry one meaningful
+    // number (subset-sum's combo size, bank-fee/write-off's tolerance); only the three legacy
+    // threshold phases still use the full classic Ref/Amount/Date editor.
     function arRuleEditor(rec, rl) {
+      const meta = arRuleKindMeta(rl.phase, rl.kind);
       const c = rl.cond;
+      const kindOptions = AR_RULE_KINDS[rl.phase] || [];
+      // Only phases with more than one matcher to choose from get a picker — short-pay/unapplied/
+      // gl-check each have exactly one fixed kind ('threshold'), so there's nothing to pick.
+      const kindPicker = kindOptions.length > 1 ? `<div><label class="lbl block mb-1.5">Matcher</label><select class="field" data-arf="kind" data-rule="${rl.id}">${kindOptions.map(k => `<option value="${esc(k.kind)}" ${k.kind === rl.kind ? 'selected' : ''}>${esc(k.label)}</option>`).join('')}</select></div>` : '';
+      const nameField = `<div><label class="lbl block mb-1.5">Rule name</label><input class="field" value="${esc(rl.name)}" data-arf="name" data-rule="${rl.id}"></div>`;
+      const confRow = confLabel => `<div class="col-span-2 flex items-center gap-3"><label class="lbl">${esc(confLabel)}</label>
+        <input type="range" min="50" max="100" value="${rl.confidence}" data-arf="conf" data-rule="${rl.id}" class="flex-1 max-w-[220px]">
+        <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>`;
+      const matchModePicker = meta.matchModeOptions ? `<div class="col-span-2"><label class="lbl block mb-1.5">Match mode</label><select class="field" data-arf="matchMode" data-rule="${rl.id}">${meta.matchModeOptions.map(o => `<option value="${esc(o.value)}" ${(rl.matchMode || 'exact') === o.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>` : '';
+      const selectCell = (key, options, current) => `<select class="field mono" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.value)}" ${arFieldOpt(options, current).value === o.value ? 'selected' : ''}>${esc(o.value)}</option>`).join('')}</select>`;
+      const sourceCell = (key, options, current) => `<select class="field" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.key)}" ${o.key === current ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+      // Every field pair now picks a Source (which entity) before a Field (which attribute on it) —
+      // the bank side only ever has one real source (Bank Statement, this run's incoming rows), but
+      // still renders as a real dropdown for the same reason every single-option list elsewhere does:
+      // consistency, and it's ready to gain more sources without a UI change if more ever get added.
+      // The second side's source set is scoped to what's actually available at the rule's phase.
+      const fieldPicker = !meta.fieldsConfigurable ? '' : rl.kind === 'account-ifsc'
+        ? `<div class="col-span-2 grid grid-cols-[110px_1fr_1fr] gap-3 items-end">
+            <div></div><div class="lbl">Bank-side field</div><div class="lbl">Customer-side field</div>
+            <div class="text-[12px] text-ink-soft font-medium self-center">Account number</div>${selectCell('bankAccountField', AR_ACCOUNT_FIELD_OPTIONS, rl.bankAccountField)}${selectCell('custAccountField', AR_ACCOUNT_CUST_FIELD_OPTIONS, rl.custAccountField)}
+            <div class="text-[12px] text-ink-soft font-medium self-center">IFSC</div>${selectCell('bankIfscField', AR_IFSC_FIELD_OPTIONS, rl.bankIfscField)}${selectCell('custIfscField', AR_IFSC_CUST_FIELD_OPTIONS, rl.custIfscField)}
+          </div>`
+        : (() => {
+            const { bank } = arFieldOptionsFor(rl.kind);
+            const info = arSecondSourceInfo(rl);
+            const secondSourceOptions = Object.keys(info.sources).map(k => ({ key: k, label: info.sources[k].label }));
+            return `<div class="col-span-2 grid grid-cols-[90px_1fr_1fr] gap-3 items-end">
+              <div></div><div class="lbl">Source</div><div class="lbl">Field</div>
+              <div class="text-[12px] text-ink-soft font-medium self-center">Bank field</div>${sourceCell('bankSource', [{ key: 'bank', label: 'Bank Statement' }], 'bank')}${selectCell('bankField', bank, rl.bankField)}
+              <div class="text-[12px] text-ink-soft font-medium self-center">${esc(info.sources[info.sourceKey].label)} field</div>${sourceCell('secondSource', secondSourceOptions, info.sourceKey)}${selectCell('secondField', info.options, rl.secondField)}
+            </div>`;
+          })();
+      const fieldCompareLines = meta.fieldsConfigurable ? `<div class="col-span-2 mono text-[11.5px] text-ink-soft">${arFieldCompareLines(rl).map(l => `<div>${esc(l)}</div>`).join('')}</div>` : '';
+
+      if (!meta.usesCond) {
+        return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-2 gap-4 fade-in">
+      ${kindPicker}${nameField}
+      <div class="col-span-2 mono text-[11.5px] text-ink-soft">${meta.fieldsConfigurable ? arFieldCompareLines(rl).map(l => `<div>${esc(l)}</div>`).join('') : (meta.fields ? esc(meta.fields) : '')}</div>
+      ${fieldPicker}
+      ${matchModePicker}
+      ${confRow(meta.confidenceLabel || 'Confidence')}
+    </div>`;
+      }
+      if (meta.condLabel) {
+        const isCount = meta.unit === 'count';
+        return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-2 gap-4 fade-in">
+      ${kindPicker}${nameField}
+      ${fieldCompareLines}
+      ${fieldPicker}
+      <div><label class="lbl block mb-1.5">${esc(meta.condLabel)}</label>
+        <input class="field" type="number" step="${isCount ? 1 : 0.1}" min="${isCount ? 2 : 0}" value="${isCount ? c.amount.value : (c.amount.value / 100)}" data-arf="aval" data-rule="${rl.id}"></div>
+      ${confRow('Confidence')}
+    </div>`;
+      }
       return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-4 gap-4 fade-in">
-    <div><label class="lbl block mb-1.5">Rule name</label><input class="field" value="${esc(rl.name)}" data-arf="name" data-rule="${rl.id}"></div>
+    ${nameField}
     <div><label class="lbl block mb-1.5">Reference</label><select class="field" data-arf="ref" data-rule="${rl.id}">
       <option value="exact" ${c.ref === 'exact' ? 'selected' : ''}>Exact match</option>
       <option value="fuzzy" ${c.ref === 'fuzzy' ? 'selected' : ''}>Fuzzy match</option>
@@ -1433,13 +1962,13 @@
       <div class="flex items-center gap-3 flex-1"><label class="lbl">Confidence</label>
         <input type="range" min="50" max="100" value="${rl.confidence}" data-arf="conf" data-rule="${rl.id}" class="flex-1 max-w-[220px]">
         <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>
-      <button data-act="del-ar-rule" data-id="${rec.id}" data-rule="${rl.id}" class="btn btn-ghost btn-sm text-bad-ink">${icon('trash', 'w-3.5 h-3.5')}Delete rule</button></div></div>`;
+    </div></div>`;
     }
     function arReconRules(rec, res) {
       const countOf = id => (res.perRule.find(p => p.rule.id === id) || {}).count || 0;
       return `<div class="p-6 fade-in">
         <div class="flex items-center mb-4">
-          <div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Each phase runs its own cascading rule list — add, edit, reorder, or delete rules to see matching change live. This is what the reconciliation runs against.</div></div>
+          <div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Each phase runs its own cascading rule list, first match wins — add, edit, reorder, or enable/disable rules to see matching change live. Rules can never be deleted. This is what the reconciliation runs against.</div></div>
           <button data-act="reset-ar-rules" data-id="${rec.id}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Reset to defaults</button>
         </div>
         <div class="space-y-6">${AR_PHASES.map(ph => {
@@ -1501,12 +2030,51 @@
     }
     // Title names what's being compared on each side, not just "matched" — mirrors the topbar's
     // "A ↔ B" convention used across every other reconciliation type.
+    // Which identification signal locked the customer behind a match's (first) payment — "Manual"
+    // for customer-lock bypassed by a manual/collision match, "Resolved via candidate pool" for a
+    // Phase 1B pool resolved by Phase 2's exact-amount check rather than a Phase 1A lock.
+    function arIdentificationMethodFor(res, paymentIdStr) {
+      const firstId = String(paymentIdStr || '').split(',')[0].trim();
+      const pay = (res.payments || []).find(p => p.paymentId === firstId);
+      if (!pay) return 'Manual';
+      if (pay.lockedBy) return pay.lockedBy.name;
+      return pay.customerId ? 'Resolved via candidate pool' : 'Manual';
+    }
+    // Surfaces the raw values actually compared for signals that are a direct field-vs-field check —
+    // turns an opaque label like "Expected UTR match" into a verifiable audit fact: <bank value> = <customer value>.
+    // Returns one line per independent field-pair the matched rule checked.
+    function arIdentificationFieldCompareLines(res, pay) {
+      if (!pay || !pay.lockedBy || !['expected-utr', 'account-ifsc', 'upi', 'customer-code', 'gstin-pan', 'fuzzy-name'].includes(pay.lockedBy.kind)) return [];
+      const bs = (res.bankStatements || []).find(b => b.bankTxnId === pay.bankTxnId);
+      const cust = (res.customers || []).find(c => c.customerId === pay.customerId);
+      if (!bs || !cust) return [];
+      // Read off the rule itself (lockedBy IS the rule that matched) so this reflects whichever
+      // fields were actually selected at match time, not a hardcoded pair.
+      if (pay.lockedBy.kind === 'account-ifsc') {
+        const acctOpt = arFieldOpt(AR_ACCOUNT_FIELD_OPTIONS, pay.lockedBy.bankAccountField);
+        const acctCustOpt = arFieldOpt(AR_ACCOUNT_CUST_FIELD_OPTIONS, pay.lockedBy.custAccountField);
+        const ifscOpt = arFieldOpt(AR_IFSC_FIELD_OPTIONS, pay.lockedBy.bankIfscField);
+        const ifscCustOpt = arFieldOpt(AR_IFSC_CUST_FIELD_OPTIONS, pay.lockedBy.custIfscField);
+        return [
+          `${acctOpt.value} "${bs[acctOpt.prop]}" = ${acctCustOpt.value} "${cust[acctCustOpt.prop]}"`,
+          `${ifscOpt.value} "${bs[ifscOpt.prop]}" = ${ifscCustOpt.value} "${cust[ifscCustOpt.prop]}"`,
+        ];
+      }
+      const bankOpt = arFieldOpt(AR_BANK_FIELD_OPTIONS, pay.lockedBy.bankField);
+      const custOpt = arFieldOpt(AR_CUST_FIELD_OPTIONS, pay.lockedBy.secondField);
+      return [`${bankOpt.value} "${bs[bankOpt.prop]}" = ${custOpt.value} "${cust[custOpt.prop]}"`];
+    }
     function arMatchedTable(rec, res, title) {
       return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${res.matches.length + res.overpays.length})</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Match type</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Match type</th><th class="px-3 py-2">Resolved via</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
       ${[...res.matches, ...res.overpays].map(m => {
-        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-3 py-2.5"><span class="chip">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span></td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`;
-      }).join('') || `<tr><td colspan="6" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+        const ruleName = m.ruleName || 'Manual match';
+        const idMethod = arIdentificationMethodFor(res, m.paymentId);
+        const firstPayId = String(m.paymentId || '').split(',')[0].trim();
+        const pay = (res.payments || []).find(p => p.paymentId === firstPayId);
+        const idDetailLines = arIdentificationFieldCompareLines(res, pay);
+        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-3 py-2.5"><span class="chip">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span></td><td class="px-3 py-2.5 text-[12px]"><div class="font-medium text-ink-soft">${esc(ruleName)}</div><div class="text-[11px] text-faint">${esc(idMethod)}</div>${idDetailLines.map(l => `<div class="text-[10.5px] text-faint mono mt-0.5">${esc(l)}</div>`).join('')}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`;
+      }).join('') || `<tr><td colspan="7" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
       </tbody></table></div>`;
     }
     function arGatewaySection(rec) {
@@ -1546,13 +2114,22 @@
       'No Payment Received': 'bg-bad-soft text-bad-ink',
       'GL Control Mismatch': 'bg-bad-soft text-bad-ink',
       'Gateway Variance': 'bg-accent-soft text-accent-ink',
+      'Suspense': 'bg-warn-soft text-warn-ink',
+      'Scoped Exception': 'bg-warn-soft text-warn-ink',
+      'Double Collision': 'bg-bad-soft text-bad-ink',
+      'Duplicate Transaction': 'bg-bad-soft text-bad-ink',
+      'Standalone Bank Charge': 'bg-sunken text-ink-soft',
     };
     function arExcTypeBadge(t) {
       return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold whitespace-nowrap ${AR_EXC_TYPE_STYLE[t] || 'bg-sunken text-muted'}">${esc(t)}</span>`;
     }
     // Types that are genuinely a mismatch between two records get the two-table manual matcher;
-    // single-value checks (GL, timing, gateway-with-no-counterpart-model) get a resolution note.
-    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment', 'No Payment Received'];
+    // single-value checks (GL, duplicate, standalone-charge) get a resolution note instead. Suspense
+    // and Scoped Exception are exactly "link this to that" situations too — a human identifying who
+    // really paid, or which invoice a known customer's payment belongs to — so they reuse the same
+    // matcher. Double Collision gets its own dedicated panel (arCollisionPanel) since its ambiguity
+    // is "which candidate customer," not "which invoice."
+    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment', 'No Payment Received', 'Suspense', 'Scoped Exception'];
     // Single source of truth for how a matched invoice got settled — checked by the Matched tab,
     // the Finish summary, and Reports alike, so all three agree on 1-to-1 / Many-to-One / One-to-Many.
     function arMatchTypeFor(rec, res, invId) {
@@ -1621,11 +2198,13 @@
       ${DB.ui && DB.ui.arActiveException ? arExceptionPanel(rec, res, DB.ui.arActiveException) : ''}
       </div>`;
     }
-    // Renders the resolution UI inline, in place of "Open invoices awaiting payment" — either the
-    // two-table matcher (Short-Pay / Unapplied Payment) or a simple resolution-note form.
+    // Renders the resolution UI inline, in place of "Open invoices awaiting payment" — the dedicated
+    // candidate-picker (Double Collision), the two-table matcher (Short-Pay / Unapplied Payment /
+    // No Payment Received / Suspense / Scoped Exception), or a simple resolution-note form.
     function arExceptionPanel(rec, res, key) {
       const exc = res.exceptions.find(e => e.key === key);
       if (!exc) return '';
+      if (exc.type === 'Double Collision') return arCollisionPanel(rec, res, exc);
       return AR_EXC_MATCHABLE.includes(exc.type) ? arMatchPanel(rec, res, exc) : arResolveNotePanel(rec, exc);
     }
     // Two-table manual matcher — for Short-Pay / Unapplied Payment exceptions, where the fix is
@@ -1640,7 +2219,7 @@
         <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-match-inv value="${esc(inv.invoiceId)}" ${inv.invoiceId === preInv ? 'checked' : ''}></td>
         <td class="px-3 py-2 font-medium">${esc(inv.invoiceNumber)}</td>
         <td class="px-3 py-2 text-muted">${esc(custName(inv.customerId))}</td>
-        <td class="px-3 py-2 text-right mono">${fmtMoney(inv.totalAmount)}</td></tr>`).join('');
+        <td class="px-3 py-2 text-right mono">${fmtMoney(inv.effectiveBalance)}</td></tr>`).join('');
       const payRows = res.payments.map(p => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
         <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-match-pay value="${esc(p.paymentId)}" ${p.paymentId === prePay ? 'checked' : ''}></td>
         <td class="px-3 py-2 font-medium">${esc(p.paymentId)}</td>
@@ -1662,6 +2241,30 @@
         </div>
       </div>`;
     }
+    // Double Collision — the payment exactly matches an open invoice from more than one candidate
+    // customer (Phase 1B pool + Phase 2's exact-amount check both ran, neither could pick one). The
+    // fix here is "which customer," not "which invoice" — a single-choice pick, not a checkbox grid.
+    function arCollisionPanel(rec, res, exc) {
+      const pay = (res.payments || []).find(p => p.paymentId === exc.relatedId);
+      const custName = id => ((res.customers || []).find(c => c.customerId === id) || {}).companyName || 'Unknown';
+      const candidates = (pay && pay.candidatePool || []).map(cid => {
+        const inv = res.invoices.find(i => i.customerId === cid && i.status !== 'Paid' && i.effectiveBalance === pay.totalReceived);
+        return inv ? { cid, name: custName(cid), inv } : null;
+      }).filter(Boolean);
+      return `<div class="card overflow-hidden">
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve double collision</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        <div class="text-[11.5px] text-muted mb-3">${pay ? fmtMoney(pay.totalReceived) : ''} exactly matches an open invoice from more than one candidate customer — pick the correct one instead of guessing.</div>
+        <div class="space-y-2 mb-4">${candidates.length ? candidates.map((c, i) => `<label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
+          <input type="radio" name="ar-collision-cust" data-ar-collision-cust value="${esc(c.cid)}" ${i === 0 ? 'checked' : ''}>
+          <div class="flex-1"><div class="font-medium text-[13px]">${esc(c.name)}</div><div class="text-[11.5px] text-muted">${esc(c.inv.invoiceNumber)} · ${fmtMoney(c.inv.effectiveBalance)}</div></div>
+          <input type="hidden" data-ar-collision-inv="${esc(c.cid)}" value="${esc(c.inv.invoiceId)}"></label>`).join('') : `<div class="text-center text-muted py-6">Candidate customers no longer have a matching open invoice — resolve from the exceptions note instead.</div>`}</div>
+        <label class="lbl block mb-1.5">Note</label>
+        <textarea id="ar-collision-note" class="field h-16 resize-none mb-4" placeholder="How this was confirmed (e.g. called customer, checked remittance advice)"></textarea>
+        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-resolve-collision" data-id="${rec.id}" data-key="${esc(exc.key)}" data-pay="${esc(exc.relatedId)}" class="btn btn-primary" ${candidates.length ? '' : 'disabled'}>${icon('check', 'w-4 h-4')}Confirm customer</button></div>
+        </div>
+      </div>`;
+    }
     // Single-value exceptions (GL, timing, gateway) aren't "match this to that" — they just need
     // a resolution note (write-off, investigated, adjustment posted, etc.)
     function arResolveNotePanel(rec, exc) {
@@ -1677,15 +2280,34 @@
     // Read-only post-completion summary — shown once "Finish Reconciliation" is clicked (and
     // reopenable afterwards from the "Reconciliation finished" badge). Every figure is derived
     // live from rec/res, nothing here is separately stored or editable.
+    // Canonical, deterministic snapshot of a run's outcome — hashed via Web Crypto at sign-off time
+    // (see the async 'ar-finish-recon' handler) for a real tamper-evident integrity check, not a
+    // cosmetic RUN-<date>-<id> string. Async, so it's computed once and stored on rec.arFinished.hash
+    // rather than inside arFinishSummaryModal, which must stay a synchronous string-returning function.
+    async function computeRunHash(rec, res, finishedAt) {
+      const payload = JSON.stringify({
+        recId: rec.id, finishedAt, finishedBy: DB.user.name,
+        invoices: res.invoices.map(i => ({ id: i.invoiceId, status: i.status, bal: i.effectiveBalance })),
+        matches: res.matches.map(m => ({ inv: m.invoiceId, pay: m.paymentId, amt: m.amount })),
+        overpays: res.overpays.map(m => ({ inv: m.invoiceId, pay: m.paymentId, amt: m.amount })),
+        shortPays: res.shortPays.map(m => ({ inv: m.invoiceId, pay: m.paymentId, shortage: m.shortage })),
+        exceptions: res.exceptions.map(e => ({ key: e.key, status: e.status, note: ((rec.arResolved || {})[e.key] || {}).note || null })),
+        gl: res.glControlBalances,
+      });
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+      return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+    }
     function arFinishSummaryModal(rec, res) {
       const isSignedOff = !!rec.arFinished;
       const finishedAt = rec.arFinished ? rec.arFinished.at : (rec.lastRun ? rec.lastRun.at : todayISO() + 'T' + new Date().toTimeString().slice(0, 5));
       const [fDate, fTime] = finishedAt.split('T');
       const fd = parseISO(fDate);
       const fDateLabel = `${MON[fd.getMonth()]} ${fd.getDate()}, ${fd.getFullYear()}`;
-      const runId = `RUN-${fDate.replace(/-/g, '')}-${(rec.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase()}`;
+      const runHash = rec.arFinished && rec.arFinished.hash;
 
-      const openingAR = res.invoices.reduce((s, i) => s + i.totalAmount, 0);
+      // effectiveBalance (net of credit/debit notes), not raw totalAmount — keeps this exactly
+      // consistent with the sub-ledger balance shown just below, by the same construction as before.
+      const openingAR = res.invoices.reduce((s, i) => s + i.effectiveBalance, 0);
       const matchedVal = res.matches.reduce((s, m) => s + m.amount, 0) + res.overpays.reduce((s, m) => s + m.amount, 0);
       const matchedCount = res.matches.length + res.overpays.length;
       const matchedPct = openingAR ? +(matchedVal / openingAR * 100).toFixed(1) : 0;
@@ -1714,6 +2336,23 @@
         <td class="px-3 py-2 text-right mono">${fmtMoney(m.amount)}</td>
         <td class="px-3 py-2 mono text-[12px] text-muted">${esc(m.paymentId)}</td>
         <td class="px-3 py-2 text-right">${m.statusHtml}</td></tr>`).join('');
+
+      // One row per bank statement row — how (or whether) Phase 1A/1B identified who it belongs to.
+      const identAuditRows = res.bankStatements.map(bs => {
+        const pay = (res.payments || []).find(p => p.bankTxnId === bs.bankTxnId);
+        let outcome = 'Not identified', badge = 'bg-warn-soft text-warn-ink', conf = null;
+        if (bs.isBankCharge) { outcome = 'Standalone charge — bypassed'; badge = 'bg-sunken text-ink-soft'; }
+        else if (pay && pay.duplicateFlag) { outcome = 'Duplicate — flagged'; badge = 'bg-bad-soft text-bad-ink'; }
+        else if (pay && pay.lockedBy) { outcome = pay.lockedBy.name; badge = 'bg-ok-soft text-ok-ink'; conf = pay.lockedBy.confidence; }
+        else if (pay && pay.customerId) { outcome = 'Resolved via candidate pool'; badge = 'bg-ok-soft text-ok-ink'; }
+        else if (pay && pay.candidatePool && pay.candidatePool.length) { outcome = `Candidate pool of ${pay.candidatePool.length} — unresolved`; }
+        const idDetailLines = arIdentificationFieldCompareLines(res, pay);
+        return `<tr class="border-b border-line-soft last:border-0">
+        <td class="px-3 py-2 mono text-[12px] text-muted">${esc(bs.bankTxnId)}</td>
+        <td class="px-3 py-2">${esc(bs.payerName)}</td>
+        <td class="px-3 py-2"><span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold ${badge}">${esc(outcome)}</span>${idDetailLines.map(l => `<div class="text-[10.5px] text-faint mono mt-0.5">${esc(l)}</div>`).join('')}</td>
+        <td class="px-3 py-2 text-right mono">${conf == null ? '—' : conf + '%'}</td></tr>`;
+      }).join('');
 
       const auditRows = resolvedExc.map(e => {
         const r = (rec.arResolved || {})[e.key] || {};
@@ -1777,6 +2416,12 @@
         </div>
 
         <div class="card overflow-hidden mb-5">
+          <div class="px-4 h-10 flex items-center border-b border-line font-semibold text-[13px]">Customer identification audit</div>
+          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-3 py-2">Bank txn</th><th class="px-3 py-2">Payer (as received)</th><th class="px-3 py-2">Identification outcome</th><th class="px-3 py-2 text-right">Confidence</th></tr></thead>
+          <tbody>${identAuditRows || `<tr><td colspan="4" class="px-3 py-6 text-center text-muted">No bank rows in this run</td></tr>`}</tbody></table>
+        </div>
+
+        <div class="card overflow-hidden mb-5">
           <div class="px-4 h-10 flex items-center border-b border-line font-semibold text-[13px]">Resolution &amp; exception audit register</div>
           <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-3 py-2">Exception ID</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Related record</th><th class="px-3 py-2">Resolution action taken</th><th class="px-3 py-2">User stamp</th><th class="px-3 py-2">Timestamp</th></tr></thead>
           <tbody>${auditRows || `<tr><td colspan="6" class="px-3 py-6 text-center text-muted">No exceptions to resolve</td></tr>`}</tbody></table>
@@ -1785,15 +2430,39 @@
         <div class="rounded-md bg-sunken border border-line p-3 text-[11.5px] text-muted space-y-1 mb-1">
           <div><span class="font-semibold text-ink">Executed by:</span> ${esc(DB.user.name)} (${esc(DB.user.role)})</div>
           <div><span class="font-semibold text-ink">${isSignedOff ? 'Sign-off timestamp' : 'Last run timestamp'}:</span> ${fDateLabel}, at ${fTime}</div>
-          <div><span class="font-semibold text-ink">Audit run ID:</span> <span class="mono">${esc(runId)}</span></div>
+          <div><span class="font-semibold text-ink">Audit run hash (SHA-256):</span> <span class="mono text-[10.5px] break-all">${runHash ? esc(runHash) : 'Computed at sign-off'}</span></div>
         </div>
 
         <div class="print-hide flex justify-end gap-2 mt-4 pt-3 border-t border-line">
           <button data-act="ar-print-summary" class="btn btn-ghost">${icon('doc', 'w-4 h-4')}Download as PDF</button>
-          <button data-act="toast-soon" class="btn btn-ghost">${icon('doc', 'w-4 h-4')}Export to Excel</button>
+          <button data-act="ar-export-summary-xls" data-id="${rec.id}" class="btn btn-ghost">${icon('doc', 'w-4 h-4')}Export to Excel</button>
           <button data-act="close-modal" class="btn btn-primary">${icon('check', 'w-4 h-4')}Close</button>
         </div>
       </div>`;
+    }
+    // Real Excel export (was a toast-soon stub) — same downloadBlob/HTML-table-as-.xls pattern
+    // Reports already uses for its own statement export (runStatementHTML/exportRunXls).
+    function arExportSummaryXls(rec, res) {
+      const isSignedOff = !!rec.arFinished;
+      const finishedAt = rec.arFinished ? rec.arFinished.at : (rec.lastRun ? rec.lastRun.at : todayISO());
+      const runHash = rec.arFinished && rec.arFinished.hash;
+      const openingAR = res.invoices.reduce((s, i) => s + i.effectiveBalance, 0);
+      const matchedVal = res.matches.reduce((s, m) => s + m.amount, 0) + res.overpays.reduce((s, m) => s + m.amount, 0);
+      const gl = res.glControlBalances;
+      const table = (title, headers, rows) => `<h3>${title}</h3><table border="1"><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map(c => `<td>${String(c == null ? '' : c).replace(/</g, '&lt;')}</td>`).join('')}</tr>`).join('')}</table>`;
+      const html = `<html><head><title>${esc(rec.name)} — Summary</title></head><body>
+        <h2>${esc(rec.name)} — AR Reconciliation Summary</h2>
+        <p>${isSignedOff ? 'Signed off' : 'Not yet signed off'} · ${finishedAt.replace('T', ' ')} · Executed by ${esc(DB.user.name)}</p>
+        ${table('Executive summary', ['Opening AR', 'Collections matched', 'Closing balance'], [[fmtMoney(openingAR), '-' + fmtMoney(matchedVal), fmtMoney(openingAR - matchedVal)]])}
+        ${table('Sub-ledger vs GL control proof', ['AR sub-ledger', 'GL control', 'Variance'], [[fmtMoney(gl ? gl.subledgerBalance : 0), fmtMoney(gl ? gl.glBalance : 0), gl ? fmtMoney(gl.variance) : '0.00']])}
+        ${table('Final matched pairs', ['Invoice', 'Customer', 'Amount', 'Payment ref(s)', 'Rule'], [...res.matches, ...res.overpays].map(m => [m.invoiceNum, m.customer, fmtMoney(m.amount), m.paymentId, m.ruleName || 'Manual']))}
+        ${table('Resolution & exception audit register', ['Exception ID', 'Type', 'Related record', 'Resolution', 'User', 'Timestamp'], res.exceptions.filter(e => e.status === 'Resolved').map(e => { const r = (rec.arResolved || {})[e.key] || {}; return [e.id, e.type, e.relatedId, r.note || '', DB.user.name, (r.at || '').replace('T', ' ')]; }))}
+        ${table('Customer identification audit', ['Bank txn', 'Payer', 'Outcome', 'Compared fields'], res.bankStatements.map(bs => { const p = (res.payments || []).find(x => x.bankTxnId === bs.bankTxnId); const outcome = bs.isBankCharge ? 'Standalone charge' : (p && p.duplicateFlag) ? 'Duplicate' : (p && p.lockedBy) ? p.lockedBy.name : (p && p.customerId) ? 'Candidate pool' : 'Not identified'; return [bs.bankTxnId, bs.payerName, outcome, arIdentificationFieldCompareLines(res, p).join('; ')]; }))}
+        <p>Audit run hash (SHA-256): ${runHash || 'Computed at sign-off'}</p>
+        </body></html>`;
+      downloadBlob(`${rec.name.replace(/[^a-zA-Z0-9]/g, '_')}-summary.xls`, 'application/vnd.ms-excel', html);
+      logAudit('Exported summary', `${rec.name} · Excel workbook`);
+      toast('Excel workbook exported');
     }
 
     function reconOverview(rec, res) {
@@ -2530,6 +3199,10 @@
         'due_date': 'due_date',
         'total_amount': 'total_amount',
         'status': 'status',
+        'credit_notes': 'credit_notes',
+        'debit_notes': 'debit_notes',
+        'tds_allowed_pct': 'tds_allowed_pct',
+        'tds_pct': 'tds_allowed_pct',
       },
       'Bank Statements': {
         'bank_txn_id': 'bank_txn_id',
@@ -2537,6 +3210,11 @@
         'bank_reference': 'bank_reference',
         'bank_reference_number': 'bank_reference',
         'payer_name': 'payer_name',
+        'payer_account_number': 'payer_account_number',
+        'payer_account': 'payer_account_number',
+        'payer_ifsc': 'payer_ifsc',
+        'ifsc': 'payer_ifsc',
+        'narration': 'narration',
         'amount': 'amount',
         'clearing_status': 'clearing_status',
       },
@@ -2546,6 +3224,13 @@
         'payment_terms': 'payment_terms',
         'credit_limit': 'credit_limit',
         'currency_code': 'currency_code',
+        'customer_code': 'customer_code',
+        'pan': 'pan',
+        'gstin': 'gstin',
+        'default_bank_account': 'default_bank_account',
+        'default_ifsc': 'default_ifsc',
+        'upi_handle': 'upi_handle',
+        'expected_utr': 'expected_utr',
       },
     };
     const normHeader = h => String(h || '').toLowerCase().trim().replace(/\s+/g, '_').replace(/[()]/g, '');
@@ -2573,7 +3258,12 @@
       return count;
     }
 
-    const OPTIONAL_TARGET_FIELDS = new Set(['variance', 'status', 'clearing_status', 'payment_terms', 'credit_limit', 'currency_code']);
+    const OPTIONAL_TARGET_FIELDS = new Set([
+      'variance', 'status', 'clearing_status', 'payment_terms', 'credit_limit', 'currency_code',
+      'payer_account_number', 'payer_ifsc', 'narration',
+      'customer_code', 'pan', 'gstin', 'default_bank_account', 'default_ifsc', 'upi_handle', 'expected_utr',
+      'credit_notes', 'debit_notes', 'tds_allowed_pct',
+    ]);
     function isFieldRequired(field) {
       if (!field) return false;
       const f = String(field).toLowerCase().trim();
@@ -2584,9 +3274,9 @@
     // Category default headers matching the sample files in screenshots
     const CATEGORY_DEFAULT_HEADERS = {
       'GL': ['gl_balance_id', 'period_date', 'gl_account_code', 'control_account_balance (GL)', 'subledger calculated balance', 'variance'],
-      'SL': ['invoice_id', 'customer_id', 'invoice_number', 'issue_date', 'due_date', 'total_amount', 'status'],
-      'Bank Statements': ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'amount', 'clearing_status'],
-      'Customers': ['customer_id', 'company_name', 'payment_terms', 'credit_limit', 'currency_code']
+      'SL': ['invoice_id', 'customer_id', 'invoice_number', 'issue_date', 'due_date', 'total_amount', 'status', 'credit_notes', 'debit_notes', 'tds_allowed_pct'],
+      'Bank Statements': ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'payer_account_number', 'payer_ifsc', 'narration', 'amount', 'clearing_status'],
+      'Customers': ['customer_id', 'company_name', 'payment_terms', 'credit_limit', 'currency_code', 'customer_code', 'pan', 'gstin', 'default_bank_account', 'default_ifsc', 'upi_handle', 'expected_utr']
     };
 
     // const CATEGORY_SAMPLE_DATA = {
@@ -3734,9 +4424,35 @@
         logAudit('Resolved AR exception without match', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
-      'ar-finish-recon': d => {
+      // Double Collision resolved by picking exactly one candidate customer — same persistence as a
+      // manual match (a single-invoice, single-payment group), just deriving the invoice from the
+      // chosen customer's hidden field instead of reading a grid of checkboxes.
+      'ar-resolve-collision': d => {
         const rec = getRec(d.id); if (!rec) return;
-        rec.arFinished = { at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), by: DB.user.name };
+        const chosen = document.querySelector('input[data-ar-collision-cust]:checked');
+        if (!chosen) { toast('Pick a customer', 'bad'); return; }
+        const invField = document.querySelector(`input[data-ar-collision-inv="${chosen.value}"]`);
+        if (!invField) return;
+        const invoiceId = invField.value, paymentId = d.pay;
+        const note = ($('#ar-collision-note') && $('#ar-collision-note').value) || '';
+        rec.arManualMatches = (rec.arManualMatches || [])
+          .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invoiceId), paymentIds: g.paymentIds.filter(id => id !== paymentId) }))
+          .filter(g => g.invoiceIds.length && g.paymentIds.length);
+        rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
+        rec.arResolved = rec.arResolved || {};
+        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        logAudit('Resolved double collision', `${paymentId} → ${chosen.value} · ${invoiceId}`);
+        DB.ui.arActiveException = null; render(); toast('Customer confirmed');
+      },
+      // async is safe here — the click dispatcher below calls ACT[act](...) without awaiting, same
+      // shape as the existing 'map-ai' async handler; save/render/openModal still run in order once
+      // the digest resolves, just deferred a tick past the click itself.
+      'ar-finish-recon': async d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+        const res = getEngineResult(rec);
+        const hash = await computeRunHash(rec, res, at);
+        rec.arFinished = { at, by: DB.user.name, hash };
         logAudit('Finished reconciliation', rec.name);
         save(); render(); toast('Reconciliation finished', 'ok');
         openModal(arFinishSummaryModal(rec, getEngineResult(rec)));
@@ -3746,6 +4462,7 @@
         openModal(arFinishSummaryModal(rec, getEngineResult(rec)));
       },
       'ar-print-summary': () => { window.print(); },
+      'ar-export-summary-xls': d => { const rec = getRec(d.id); if (!rec) return; arExportSummaryXls(rec, getEngineResult(rec)); },
       'new-recon': () => { DB.ui.newType = 'payments'; modalNew(); },
       'new-type': d => { DB.ui.newType = d.t; modalNew(); },
       'create-recon': () => {
@@ -3779,10 +4496,10 @@
       'toggle-ar-rule': d => { const rec = getRec(d.id); const rl = (rec.arRules || []).find(x => x.id === d.rule); if (rl) rl.enabled = !rl.enabled; render(); },
       'add-ar-rule': d => {
         const rec = getRec(d.id); const inPhase = (rec.arRules || []).filter(r => r.phase === d.phase); const maxP = Math.max(0, ...inPhase.map(r => r.priority));
-        const rl = arRuleC(d.phase, 'New rule', maxP + 1, 'off', { mode: 'exact', value: 0 }, { days: 2 }, 85);
+        const kind = d.kind || AR_DEFAULT_KIND_FOR_PHASE[d.phase] || 'threshold';
+        const rl = arRuleC(d.phase, kind, 'New rule', maxP + 1, 'off', { mode: 'exact', value: 0 }, { days: 2 }, 85);
         rec.arRules = rec.arRules || []; rec.arRules.push(rl); DB.ui.editRule = rl.id; render();
       },
-      'del-ar-rule': d => { const rec = getRec(d.id); const rl = (rec.arRules || []).find(r => r.id === d.rule); if (!rl) return; rec.arRules = rec.arRules.filter(r => r.id !== d.rule); reprioritizeARPhase(rec, rl.phase); DB.ui.editRule = null; render(); toast('Rule deleted', 'warn'); },
       'ar-rule-up': d => moveARRule(d.id, d.rule, -1), 'ar-rule-down': d => moveARRule(d.id, d.rule, 1),
       'reset-ar-rules': d => { const rec = getRec(d.id); rec.arRules = buildARRules(); DB.ui.editRule = null; render(); toast('AR rules reset to defaults', 'ok'); },
       'mfilter': d => { DB.filters.m = d.f; render(); },
@@ -3891,7 +4608,6 @@
       const i = sorted.findIndex(r => r.id === ruleId); const j = i + dir; if (j < 0 || j >= sorted.length) return;
       const p = sorted[i].priority; sorted[i].priority = sorted[j].priority; sorted[j].priority = p; render();
     }
-    function reprioritizeARPhase(rec, phase) { (rec.arRules || []).filter(r => r.phase === phase).sort((a, b) => a.priority - b.priority).forEach((r, i) => r.priority = i + 1); }
     function moveARRule(recId, ruleId, dir) {
       const rec = getRec(recId); const rl = (rec.arRules || []).find(r => r.id === ruleId); if (!rl) return;
       const sorted = rec.arRules.filter(r => r.phase === rl.phase).sort((a, b) => a.priority - b.priority);
@@ -3980,11 +4696,38 @@
       const rec = getRec(DB.route.recId); if (!rec) return; const rl = (rec.arRules || []).find(r => r.id === t.dataset.rule); if (!rl) return;
       const f = t.dataset.arf, v = t.value;
       if (f === 'name') rl.name = v;
+      else if (f === 'kind') {
+        // Switching matcher mid-edit — reset to that kind's default label/condition rather than
+        // keep whatever the previous matcher's tolerance meant (a TDS-match rule has no tolerance
+        // at all; a subset-sum rule's "tolerance" is a combo-size count, not a money amount).
+        rl.kind = v; const meta = arRuleKindMeta(rl.phase, v); rl.name = meta.label;
+        if (meta.usesCond && meta.condLabel) rl.cond = { ref: 'off', amount: { mode: 'abs', value: meta.unit === 'count' ? 3 : 10000 }, date: { days: 30 } };
+      }
       else if (f === 'ref') rl.cond.ref = v;
       else if (f === 'amode') { rl.cond.amount.mode = v; if (v === 'exact') rl.cond.amount.value = 0; }
-      else if (f === 'aval') { rl.cond.amount.value = rl.cond.amount.mode === 'abs' ? Math.round((+v || 0) * 100) : (+v || 0); }
+      else if (f === 'aval') {
+        // subset-sum's tolerance is a plain combo-size count (2/3), never a money value — every
+        // other 'abs' condition (short-pay/unapplied/gl-check thresholds, bank-fee, write-off) is.
+        const isCount = arRuleKindMeta(rl.phase, rl.kind).unit === 'count';
+        rl.cond.amount.value = (rl.cond.amount.mode === 'abs' && !isCount) ? Math.round((+v || 0) * 100) : (+v || 0);
+      }
       else if (f === 'date') rl.cond.date.days = clamp(+v || 0, 0, 60);
       else if (f === 'conf') rl.confidence = clamp(+v || 50, 50, 100);
+      else if (f === 'matchMode') rl.matchMode = v;
+      else if (f === 'bankField') rl.bankField = v;
+      else if (f === 'bankSource') { /* only one source (Bank Statement) exists today — nothing to do */ }
+      else if (f === 'bankAccountField') rl.bankAccountField = v;
+      else if (f === 'bankIfscField') rl.bankIfscField = v;
+      else if (f === 'custAccountField') rl.custAccountField = v;
+      else if (f === 'custIfscField') rl.custIfscField = v;
+      else if (f === 'secondField') rl.secondField = v;
+      else if (f === 'secondSource') {
+        // Switching source invalidates whatever field was picked under the old source — reset to
+        // that source's first field rather than leave a stale value pointing at the wrong entity.
+        rl.secondSource = v;
+        const sources = arSide2Sources()[arFieldOptionsFor(rl.kind).sourceCategory];
+        rl.secondField = (sources[v] && sources[v].options[0] && sources[v].options[0].value) || '';
+      }
       const active = document.activeElement; const key = active && active.dataset ? active.dataset.arf : null; const rid = active && active.dataset ? active.dataset.rule : null; const pos = active ? active.selectionStart : null;
       render();
       if (key) { const ne = document.querySelector(`[data-arf="${key}"][data-rule="${rid}"]`); if (ne) { ne.focus(); try { if (pos != null && ne.setSelectionRange) ne.setSelectionRange(pos, pos); } catch (_) { } } }
@@ -3995,3 +4738,5 @@
 </body>
 
 </html>
+
+Source
