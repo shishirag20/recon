@@ -1071,10 +1071,17 @@
       const bankProp = arFieldOpt(AR_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
       return nameSimilarityPct(bank[bankProp], cust[custProp]) >= ((rule && rule.confidence) || 85);
     }
+    // Only a meaningful signal when the bank-side value is genuinely a masked/truncated account
+    // number (some banks only ever expose e.g. "XXXXXXXX5544") — fewer digits than the customer's
+    // full registered account is what masking actually looks like. If the bank side already has a
+    // complete account number that simply didn't match in full, comparing just its last 4 digits
+    // isn't reusing a weak-but-real signal — it's manufacturing coincidental overlap as evidence.
     function matchAccountSuffix(bank, cust, rule) {
       const bankProp = arFieldOpt(AR_ACCOUNT_FIELD_OPTIONS, rule && rule.bankField).prop;
       const custProp = arFieldOpt(AR_ACCOUNT_CUST_FIELD_OPTIONS, rule && rule.secondField).prop;
-      const bs = normDigits(bank[bankProp]).slice(-4), cs = normDigits(cust[custProp]).slice(-4);
+      const bankDigits = normDigits(bank[bankProp]), custDigits = normDigits(cust[custProp]);
+      if (!bankDigits || !custDigits || bankDigits.length >= custDigits.length) return false;
+      const bs = bankDigits.slice(-4), cs = custDigits.slice(-4);
       return bs.length === 4 && bs === cs;
     }
     function matchNarrationTokens(bank, cust, rule) {
@@ -1411,6 +1418,7 @@
 
       // ── Exception routing — "never guess" means every gap below becomes a distinct, visible
       // exception rather than a silent drop or a coin-flip match. ──
+      const unappliedRule = firstEnabled('unapplied');
       payments.forEach(p => {
         if (p.duplicateFlag) { flagException('Duplicate Transaction', p.paymentId, `${fmtMoney(p.totalReceived)} repeats the same reference as ${p.duplicateOfTxnId} — ${p.duplicateOfTxnId} was treated as the original and matched normally`, p.totalReceived, { confidence: 100 }); return; }
         const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
@@ -1422,7 +1430,12 @@
           else flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment from ${bs.payerName} could not be identified to any customer`, p.totalReceived, { customer: bs.payerName, confidence: 20 });
           return;
         }
-        if (!claimedPayIds.has(p.paymentId)) flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} identified, but ${fmtMoney(p.totalReceived)} payment ${p.paymentId} matched no open invoice`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 55 });
+        // Not ambiguous (nothing to choose between) — the customer is known but no invoice claimed
+        // any of this payment at all, so it's just sitting unapplied on their account. Below the
+        // configured tolerance, leftover cash this small is intentionally not worth flagging.
+        if (!claimedPayIds.has(p.paymentId) && p.unappliedAmount > thresholdOf(unappliedRule, p.totalReceived)) {
+          flagException('Unapplied Payment', p.paymentId, `${cust(p.customerId).companyName} identified, but ${fmtMoney(p.totalReceived)} payment ${p.paymentId} matched no open invoice`, p.unappliedAmount, { customer: cust(p.customerId).companyName, confidence: 55 });
+        }
       });
 
       // Invoices that never had a single payment attempt against them (no group, no rule candidate
@@ -1443,14 +1456,11 @@
         else bs.clearingStatus = (p.customerId && matchedPayIds.has(p.paymentId)) ? 'Reconciled' : 'Exception';
       });
 
-      // ── Unapplied cash — payments never claimed by any allocation rule, above the configured
-      // threshold. (Duplicates/bank-charges/suspense/scoped-exception payments are excluded — each
-      // already has its own, more specific exception above; this stays the catch-all for "we know
-      // who paid, or don't, but there's leftover cash sitting unapplied.") ──
-      const unappliedRule = firstEnabled('unapplied');
-      const unapplied = payments
-        .filter(p => !p.duplicateFlag && !claimedPayIds.has(p.paymentId) && !bankStatements.find(b => b.bankTxnId === p.bankTxnId).isBankCharge && p.unappliedAmount > thresholdOf(unappliedRule, p.totalReceived))
-        .map(p => ({ paymentId: p.paymentId, amount: p.unappliedAmount, customer: p.customerId ? cust(p.customerId).companyName : 'Unknown payer', bankTxnId: p.bankTxnId }));
+      // Unapplied cash — derived from the Unapplied Payment exceptions just flagged above, not a
+      // separate recomputation, so the Overview KPI and the Exceptions inbox can never disagree.
+      const unapplied = exceptions
+        .filter(e => e.type === 'Unapplied Payment')
+        .map(e => ({ paymentId: e.relatedId, amount: e.amount, customer: e.customer || 'Unknown payer', bankTxnId: (payFor(e.relatedId) || {}).bankTxnId }));
 
       // ── AR Sub-Ledger vs GL Control Total Check ── Open-invoice effective balance (net of
       // credit/debit notes, not netted against partial payments) — a short-paid invoice still
