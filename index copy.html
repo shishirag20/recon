@@ -3705,7 +3705,18 @@
           const isId = f.includes('id') || f.includes('number');
           const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
           const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
-          return `<td class="px-3 py-2.5 ${cls}">${esc(val)}</td>`;
+          return `<td class="px-3 py-2.5 ${cls}">
+            <input class="w-full bg-transparent outline-none border-0" value="${esc(val)}"
+              onchange="(function(el){
+                const row=(DB.staging||[]).find(x=>x.id==='${r.id}');
+                if(row){
+                  row.rowData=row.rowData||{};
+                  row.rowData['${f}']=el.value;
+                  saveDB&&saveDB();
+                  toast&&toast('Value updated');
+                }
+              })(this)">
+          </td>`;
         }).join('')}
           <td class="px-2 py-2.5 text-right"><button data-act="stg-del" data-id="${r.id}" class="text-faint hover:text-bad-ink">${icon('trash', 'w-4 h-4')}</button></td>
         </tr>`;
