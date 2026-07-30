@@ -1,0 +1,12 @@
+customer_id,company_name,payment_terms,credit_limit,currency_code,customer_code,pan,gstin,default_bank_account,default_ifsc,upi_handle,expected_utr
+CUST-001,Acme Industries Pvt Ltd,Net 30,500000,INR,,,,,,,UTR-ADV-7001
+CUST-002,Bright Textiles Pvt Ltd,Net 30,400000,INR,,,,112233445566,HDFC0001234,,
+CUST-003,Nimbus Traders,Net 15,200000,INR,,,,,,nimbus@okhdfc,
+CUST-004,Kestrel Freight Co,Net 30,300000,INR,KEST04,,,,,,
+CUST-005,Solace Pharma Ltd,Net 45,600000,INR,,,27AASCS1234F1Z5,,,,
+CUST-006,Vantage Retail Solutions,Net 30,250000,INR,,,,,,,
+CUST-007,Halcyon Foods,Net 30,150000,INR,,,,,,,
+CUST-008,Meridian Freight Lines,Net 30,350000,INR,,,,998877665544,KKBK0005544,,
+CUST-009,Silverline Traders,Net 30,200000,INR,,,,550011227788,ICIC0007788,,
+CUST-010,Silverline Exports,Net 30,200000,INR,,,,990022337788,AXIS0009988,,
+CUST-011,Coral Living Pvt Ltd,Net 30,180000,INR,CORL12,,,,,,

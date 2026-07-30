@@ -585,6 +585,8 @@
         bankReferenceNumber: r.bank_reference || r.bank_reference_number || '', payerName: r.payer_name || 'Unknown',
         payerAccountNumber: r.payer_account_number || '', payerIFSC: r.payer_ifsc || '', narration: r.narration || '',
         amount: parseMoneyToCents(r.amount), clearingStatus: r.clearing_status || 'Pending',
+        explicitFee: parseMoneyToCents(r.explicit_fee),
+        isBankCharge: ['true', '1', 'yes'].includes(String(r.is_bank_charge || '').trim().toLowerCase()),
       })).filter(b => b.bankTxnId);
     }
     function mapStagedGL(rows) {
@@ -925,10 +927,21 @@
     // reached if 1A locks nobody) instead collects every customer any enabled pool-rule matches.
     function normDigits(s) { return String(s || '').replace(/\D/g, ''); }
     function normToken(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+    // "Never guess" for duplicates applies to the repeat(s), not the original — the first row under
+    // a given reference is trusted and proceeds through normal identification; only the 2nd+
+    // occurrence(s) get held for review, since flagging the legitimate original too would just add
+    // review burden with no compensating safety benefit. Returns bankTxnId (repeat) -> bankTxnId
+    // (the first occurrence it duplicates), so the exception can point back to it.
     function findDuplicateUTRs(bankStatements) {
-      const seen = new Map();
-      bankStatements.forEach(b => { const k = normToken(b.bankReferenceNumber); if (!k) return; seen.set(k, (seen.get(k) || 0) + 1); });
-      return new Set(bankStatements.filter(b => seen.get(normToken(b.bankReferenceNumber)) > 1).map(b => b.bankTxnId));
+      const firstSeen = new Map();
+      const dupes = new Map();
+      bankStatements.forEach(b => {
+        const k = normToken(b.bankReferenceNumber);
+        if (!k) return;
+        if (firstSeen.has(k)) dupes.set(b.bankTxnId, firstSeen.get(k));
+        else firstSeen.set(k, b.bankTxnId);
+      });
+      return dupes;
     }
     // Which raw bank-row / customer-record fields this rule reads is itself user-configurable (some
     // banks put the UTR in the dedicated reference column, others bury it in narration; some customer
@@ -1186,17 +1199,17 @@
       // that succeeds wins. A bank inflow *is* the payment record — payments[] is built fresh here,
       // one entry per row, since who it belongs to is now this waterfall's job, not a name match.
       const lockRules = enabledRulesFor('customer-lock');
-      const dupUTRs = lockRules.some(r => r.kind === 'dup-utr') ? findDuplicateUTRs(bankStatements) : new Set();
+      const dupUTRs = lockRules.some(r => r.kind === 'dup-utr') ? findDuplicateUTRs(bankStatements) : new Map();
       const payments = bankStatements.map(bs => ({
         paymentId: 'PAY-' + bs.bankTxnId, bankTxnId: bs.bankTxnId, totalReceived: bs.amount, unappliedAmount: bs.amount,
-        customerId: null, lockedBy: null, candidatePool: [], duplicateFlag: false,
+        customerId: null, lockedBy: null, candidatePool: [], duplicateFlag: false, duplicateOfTxnId: null,
       }));
       const payFor = bankTxnId => payments.find(p => p.bankTxnId === bankTxnId);
 
       bankStatements.forEach(bs => {
         if (bs.isBankCharge) return; // not a customer remittance at all — bypasses identification entirely
         const pay = payFor(bs.bankTxnId);
-        if (dupUTRs.has(bs.bankTxnId)) { pay.duplicateFlag = true; bump(lockHitCounts, (lockRules.find(r => r.kind === 'dup-utr') || {}).id); return; }
+        if (dupUTRs.has(bs.bankTxnId)) { pay.duplicateFlag = true; pay.duplicateOfTxnId = dupUTRs.get(bs.bankTxnId); bump(lockHitCounts, (lockRules.find(r => r.kind === 'dup-utr') || {}).id); return; }
         for (const rule of lockRules) {
           if (rule.kind === 'dup-utr') continue; // handled above, once, not per-customer
           const matcher = CUSTOMER_LOCK_MATCHERS[rule.kind];
@@ -1292,7 +1305,7 @@
           const hits = p.candidatePool.map(cid => ({ cid, inv: openInvoicesFor(cid).find(inv => (poolSlInfo.sourceKey === 'customer' ? cust(cid)[poolSlProp] : inv[poolSlProp]) === p.totalReceived) })).filter(x => x.inv);
           if (hits.length === 1) {
             p.customerId = hits[0].cid;
-            applyGroupToLedger({ invoiceIds: [hits[0].inv.invoiceId], paymentIds: [p.paymentId], auto: true, note: 'Resolved via candidate pool + exact amount' });
+            applyGroupToLedger({ invoiceIds: [hits[0].inv.invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: exactAmountRule.id, ruleName: exactAmountRule.name, note: 'Resolved via candidate pool + exact amount' });
             claimedPayIds.add(p.paymentId); claimedInvIds.add(hits[0].inv.invoiceId);
           } else if (hits.length > 1) {
             collisionPayIds.add(p.paymentId);
@@ -1362,7 +1375,7 @@
         // residual too small to be worth chasing gets auto-closed instead of left open forever.
         const writeOffRule = allocRules.find(r => r.kind === 'write-off');
         if (writeOffRule) {
-          const tol = (writeOffRule.cond && writeOffRule.cond.amount && writeOffRule.cond.amount.value) || 0;
+          const tol =  (writeOffRule.cond && writeOffRule.cond.amount && writeOffRule.cond.amount.value) || 0;
           const writeOffSl = resolveSl(writeOffRule);
           payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
             const hit = openInvoicesFor(cid).find(inv => { const diff = writeOffSl(inv) - p.totalReceived; return diff > 0 && diff <= tol; });
@@ -1399,7 +1412,7 @@
       // ── Exception routing — "never guess" means every gap below becomes a distinct, visible
       // exception rather than a silent drop or a coin-flip match. ──
       payments.forEach(p => {
-        if (p.duplicateFlag) { flagException('Duplicate Transaction', p.paymentId, `${fmtMoney(p.totalReceived)} submitted twice under the same reference (${p.bankTxnId})`, p.totalReceived, { confidence: 100 }); return; }
+        if (p.duplicateFlag) { flagException('Duplicate Transaction', p.paymentId, `${fmtMoney(p.totalReceived)} repeats the same reference as ${p.duplicateOfTxnId} — ${p.duplicateOfTxnId} was treated as the original and matched normally`, p.totalReceived, { confidence: 100 }); return; }
         const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
         if (bs.isBankCharge) { flagException('Standalone Bank Charge', p.paymentId, `${fmtMoney(p.totalReceived)} ${bs.narration || 'bank charge'} — posted directly, not a customer remittance`, p.totalReceived, { confidence: 100 }); return; }
         if (ambiguousPayIds.has(p.paymentId)) { flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
@@ -1900,35 +1913,38 @@
         <input type="range" min="50" max="100" value="${rl.confidence}" data-arf="conf" data-rule="${rl.id}" class="flex-1 max-w-[220px]">
         <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>`;
       const matchModePicker = meta.matchModeOptions ? `<div class="col-span-2"><label class="lbl block mb-1.5">Match mode</label><select class="field" data-arf="matchMode" data-rule="${rl.id}">${meta.matchModeOptions.map(o => `<option value="${esc(o.value)}" ${(rl.matchMode || 'exact') === o.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>` : '';
-      const selectCell = (key, options, current) => `<select class="field mono" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.value)}" ${arFieldOpt(options, current).value === o.value ? 'selected' : ''}>${esc(o.value)}</option>`).join('')}</select>`;
-      const sourceCell = (key, options, current) => `<select class="field" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.key)}" ${o.key === current ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
-      // Every field pair now picks a Source (which entity) before a Field (which attribute on it) —
-      // the bank side only ever has one real source (Bank Statement, this run's incoming rows), but
-      // still renders as a real dropdown for the same reason every single-option list elsewhere does:
-      // consistency, and it's ready to gain more sources without a UI change if more ever get added.
-      // The second side's source set is scoped to what's actually available at the rule's phase.
+      // Every field pair shows a Source dropdown before its Field dropdown, even when a side has
+      // only one valid source today (the bank side always; the second side for identification
+      // rules) — keeps the entity-selection concept visible and consistent everywhere, ready to
+      // gain more sources later without a UI change, rather than silently hiding the control.
+      const fieldSelect = (key, options, current) => `<select class="field mono text-[12.5px] w-[195px]" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.value)}" ${arFieldOpt(options, current).value === o.value ? 'selected' : ''}>${esc(o.value)}</option>`).join('')}</select>`;
+      const sourceSelect = (key, options, current) => `<select class="field text-[12.5px] w-[175px]" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.key)}" ${o.key === current ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+      const BANK_SOURCE_OPTIONS = [{ key: 'bank', label: 'Bank Statement' }];
       const fieldPicker = !meta.fieldsConfigurable ? '' : rl.kind === 'account-ifsc'
-        ? `<div class="col-span-2 grid grid-cols-[110px_1fr_1fr] gap-3 items-end">
-            <div></div><div class="lbl">Bank-side field</div><div class="lbl">Customer-side field</div>
-            <div class="text-[12px] text-ink-soft font-medium self-center">Account number</div>${selectCell('bankAccountField', AR_ACCOUNT_FIELD_OPTIONS, rl.bankAccountField)}${selectCell('custAccountField', AR_ACCOUNT_CUST_FIELD_OPTIONS, rl.custAccountField)}
-            <div class="text-[12px] text-ink-soft font-medium self-center">IFSC</div>${selectCell('bankIfscField', AR_IFSC_FIELD_OPTIONS, rl.bankIfscField)}${selectCell('custIfscField', AR_IFSC_CUST_FIELD_OPTIONS, rl.custIfscField)}
+        ? `<div class="col-span-2 space-y-2">
+            <div class="flex items-center gap-2 text-[12px]"><span class="text-faint w-[104px] shrink-0">Account number</span>${fieldSelect('bankAccountField', AR_ACCOUNT_FIELD_OPTIONS, rl.bankAccountField)}<span class="text-faint">↔</span>${fieldSelect('custAccountField', AR_ACCOUNT_CUST_FIELD_OPTIONS, rl.custAccountField)}</div>
+            <div class="flex items-center gap-2 text-[12px]"><span class="text-faint w-[104px] shrink-0">IFSC</span>${fieldSelect('bankIfscField', AR_IFSC_FIELD_OPTIONS, rl.bankIfscField)}<span class="text-faint">↔</span>${fieldSelect('custIfscField', AR_IFSC_CUST_FIELD_OPTIONS, rl.custIfscField)}</div>
           </div>`
         : (() => {
             const { bank } = arFieldOptionsFor(rl.kind);
             const info = arSecondSourceInfo(rl);
             const secondSourceOptions = Object.keys(info.sources).map(k => ({ key: k, label: info.sources[k].label }));
-            return `<div class="col-span-2 grid grid-cols-[90px_1fr_1fr] gap-3 items-end">
-              <div></div><div class="lbl">Source</div><div class="lbl">Field</div>
-              <div class="text-[12px] text-ink-soft font-medium self-center">Bank field</div>${sourceCell('bankSource', [{ key: 'bank', label: 'Bank Statement' }], 'bank')}${selectCell('bankField', bank, rl.bankField)}
-              <div class="text-[12px] text-ink-soft font-medium self-center">${esc(info.sources[info.sourceKey].label)} field</div>${sourceCell('secondSource', secondSourceOptions, info.sourceKey)}${selectCell('secondField', info.options, rl.secondField)}
+            return `<div class="col-span-2">
+              <label class="lbl block mb-1.5">Compares</label>
+              <div class="flex items-end gap-3 flex-wrap">
+                <div class="flex flex-col gap-1"><span class="lbl">Source</span>${sourceSelect('bankSource', BANK_SOURCE_OPTIONS, 'bank')}</div>
+                <div class="flex flex-col gap-1"><span class="lbl">Field</span>${fieldSelect('bankField', bank, rl.bankField)}</div>
+                <span class="text-faint text-[12px] pb-2.5">↔</span>
+                <div class="flex flex-col gap-1"><span class="lbl">Source</span>${sourceSelect('secondSource', secondSourceOptions, info.sourceKey)}</div>
+                <div class="flex flex-col gap-1"><span class="lbl">Field</span>${fieldSelect('secondField', info.options, rl.secondField)}</div>
+              </div>
             </div>`;
           })();
-      const fieldCompareLines = meta.fieldsConfigurable ? `<div class="col-span-2 mono text-[11.5px] text-ink-soft">${arFieldCompareLines(rl).map(l => `<div>${esc(l)}</div>`).join('')}</div>` : '';
 
       if (!meta.usesCond) {
         return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-2 gap-4 fade-in">
       ${kindPicker}${nameField}
-      <div class="col-span-2 mono text-[11.5px] text-ink-soft">${meta.fieldsConfigurable ? arFieldCompareLines(rl).map(l => `<div>${esc(l)}</div>`).join('') : (meta.fields ? esc(meta.fields) : '')}</div>
+      ${meta.fieldsConfigurable ? '' : `<div class="col-span-2 mono text-[11.5px] text-ink-soft">${meta.fields ? esc(meta.fields) : ''}</div>`}
       ${fieldPicker}
       ${matchModePicker}
       ${confRow(meta.confidenceLabel || 'Confidence')}
@@ -1938,7 +1954,6 @@
         const isCount = meta.unit === 'count';
         return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-2 gap-4 fade-in">
       ${kindPicker}${nameField}
-      ${fieldCompareLines}
       ${fieldPicker}
       <div><label class="lbl block mb-1.5">${esc(meta.condLabel)}</label>
         <input class="field" type="number" step="${isCount ? 1 : 0.1}" min="${isCount ? 2 : 0}" value="${isCount ? c.amount.value : (c.amount.value / 100)}" data-arf="aval" data-rule="${rl.id}"></div>
@@ -2064,17 +2079,52 @@
       const custOpt = arFieldOpt(AR_CUST_FIELD_OPTIONS, pay.lockedBy.secondField);
       return [`${bankOpt.value} "${bs[bankOpt.prop]}" = ${custOpt.value} "${cust[custOpt.prop]}"`];
     }
+    // Three columns, not seven: what's matching (the invoice side), what it matched to (the
+    // payment side), and why (Resolved via) — each cell groups the details that used to be spread
+    // across their own columns (customer/amount with the invoice; overage/status with the payment).
+    // One-to-Many auto-groups (one payment settling several invoices, e.g. subset-sum) push one
+    // match row per invoice, all carrying the same paymentId — grouped here by that id so the
+    // Payment/Resolved-via cells render once (rowspan) instead of repeating on every invoice row.
     function arMatchedTable(rec, res, title) {
-      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${res.matches.length + res.overpays.length})</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Match type</th><th class="px-3 py-2">Resolved via</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
-      ${[...res.matches, ...res.overpays].map(m => {
-        const ruleName = m.ruleName || 'Manual match';
-        const idMethod = arIdentificationMethodFor(res, m.paymentId);
-        const firstPayId = String(m.paymentId || '').split(',')[0].trim();
-        const pay = (res.payments || []).find(p => p.paymentId === firstPayId);
-        const idDetailLines = arIdentificationFieldCompareLines(res, pay);
-        return `<tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">${m.invoiceNum}</td><td class="px-3 py-2.5">${esc(m.customer)}</td><td class="px-3 py-2.5 mono">${fmtMoney(m.amount)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${m.paymentId}</td><td class="px-3 py-2.5"><span class="chip">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span></td><td class="px-3 py-2.5 text-[12px]"><div class="font-medium text-ink-soft">${esc(ruleName)}</div><div class="text-[11px] text-faint">${esc(idMethod)}</div>${idDetailLines.map(l => `<div class="text-[10.5px] text-faint mono mt-0.5">${esc(l)}</div>`).join('')}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}${m.overage ? ` <span class="mono text-[11px] text-ok-ink">+${fmtMoney(m.overage)}</span>` : ''}</td></tr>`;
-      }).join('') || `<tr><td colspan="7" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+      const all = [...res.matches, ...res.overpays];
+      const groups = [];
+      const groupIndex = new Map();
+      all.forEach(m => {
+        const key = m.paymentId || `__${m.invoiceId}`;
+        if (!groupIndex.has(key)) { groupIndex.set(key, groups.length); groups.push([]); }
+        groups[groupIndex.get(key)].push(m);
+      });
+      const rowsHtml = groups.map(group => {
+        const isGroup = group.length > 1;
+        return group.map((m, i) => {
+          const invoiceCell = `<td class="px-4 py-2.5 ${isGroup ? 'border-l-2 border-accent' : ''}">
+          <div class="font-medium">${m.invoiceNum}</div>
+          <div class="text-[11.5px] text-muted">${esc(m.customer)} · ${fmtMoney(m.amount)}</div>
+          <span class="chip mt-1 inline-block">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span>
+        </td>`;
+          if (i > 0) return `<tr class="border-b border-line-soft">${invoiceCell}</tr>`;
+          const ruleName = m.ruleName || 'Manual match';
+          const idMethod = arIdentificationMethodFor(res, m.paymentId);
+          const firstPayId = String(m.paymentId || '').split(',')[0].trim();
+          const pay = (res.payments || []).find(p => p.paymentId === firstPayId);
+          const idDetailLines = arIdentificationFieldCompareLines(res, pay);
+          return `<tr class="border-b border-line-soft">
+        ${invoiceCell}
+        <td class="px-3 py-2.5" rowspan="${group.length}">
+          <div class="mono text-[12px] text-ink-soft">${m.paymentId}</div>
+          <div class="mt-1">${statusPill('matched')}</div>
+          ${m.overage ? `<div class="mono text-[11px] text-ok-ink mt-1">+${fmtMoney(m.overage)} on account</div>` : ''}
+        </td>
+        <td class="px-4 py-2.5 text-[12px]" rowspan="${group.length}">
+          <div class="font-medium text-ink-soft">${esc(ruleName)}</div>
+          <div class="text-[11px] text-faint">${esc(idMethod)}</div>
+          ${idDetailLines.map(l => `<div class="text-[10.5px] text-faint mono mt-0.5">${esc(l)}</div>`).join('')}
+        </td></tr>`;
+        }).join('');
+      }).join('');
+      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${all.length})</div></div>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2">Resolved via</th></tr></thead><tbody>
+      ${rowsHtml || `<tr><td colspan="3" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
       </tbody></table></div>`;
     }
     function arGatewaySection(rec) {
@@ -3217,6 +3267,8 @@
         'narration': 'narration',
         'amount': 'amount',
         'clearing_status': 'clearing_status',
+        'explicit_fee': 'explicit_fee',
+        'is_bank_charge': 'is_bank_charge',
       },
       'Customers': {
         'customer_id': 'customer_id',
@@ -3262,7 +3314,7 @@
       'variance', 'status', 'clearing_status', 'payment_terms', 'credit_limit', 'currency_code',
       'payer_account_number', 'payer_ifsc', 'narration',
       'customer_code', 'pan', 'gstin', 'default_bank_account', 'default_ifsc', 'upi_handle', 'expected_utr',
-      'credit_notes', 'debit_notes', 'tds_allowed_pct',
+      'credit_notes', 'debit_notes', 'tds_allowed_pct', 'explicit_fee', 'is_bank_charge',
     ]);
     function isFieldRequired(field) {
       if (!field) return false;
@@ -3275,7 +3327,7 @@
     const CATEGORY_DEFAULT_HEADERS = {
       'GL': ['gl_balance_id', 'period_date', 'gl_account_code', 'control_account_balance (GL)', 'subledger calculated balance', 'variance'],
       'SL': ['invoice_id', 'customer_id', 'invoice_number', 'issue_date', 'due_date', 'total_amount', 'status', 'credit_notes', 'debit_notes', 'tds_allowed_pct'],
-      'Bank Statements': ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'payer_account_number', 'payer_ifsc', 'narration', 'amount', 'clearing_status'],
+      'Bank Statements': ['bank_txn_id', 'transaction_date', 'bank_reference', 'payer_name', 'payer_account_number', 'payer_ifsc', 'narration', 'amount', 'clearing_status', 'explicit_fee', 'is_bank_charge'],
       'Customers': ['customer_id', 'company_name', 'payment_terms', 'credit_limit', 'currency_code', 'customer_code', 'pan', 'gstin', 'default_bank_account', 'default_ifsc', 'upi_handle', 'expected_utr']
     };
 
@@ -3765,7 +3817,7 @@
       </div>`;
     }
     function dihReconciliation() {
-      const rows = DB.recs.map(rc => {
+      const rows = DB.recs.filter(rc => rc.type === 'ar-reconciliation').map(rc => {
         const res = getEngineResult(rc);
         return { rc, res };
       });
