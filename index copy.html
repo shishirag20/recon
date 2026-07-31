@@ -1181,6 +1181,8 @@
           status: r ? 'Resolved' : 'Open', resolutionNotes: r ? r.note : null,
           date: (extra && extra.date) || todayISO(), customer: (extra && extra.customer) || null,
           confidence: (extra && extra.confidence != null) ? extra.confidence : 80,
+          suggestedInvoiceId: (extra && extra.suggestedInvoiceId) || null,
+          suggestedCustomerId: (extra && extra.suggestedCustomerId) || null,
         });
       };
 
@@ -1210,6 +1212,7 @@
       const payments = bankStatements.map(bs => ({
         paymentId: 'PAY-' + bs.bankTxnId, bankTxnId: bs.bankTxnId, totalReceived: bs.amount, unappliedAmount: bs.amount,
         customerId: null, lockedBy: null, candidatePool: [], duplicateFlag: false, duplicateOfTxnId: null,
+        suggestedCustomerId: null, suggestedInvoiceId: null,
       }));
       const payFor = bankTxnId => payments.find(p => p.bankTxnId === bankTxnId);
       // Which bank-side identifiers to surface in an exception description — always the bank_txn_id
@@ -1312,8 +1315,12 @@
       const collisionPayIds = new Set();
 
       // Candidate-pool resolution: try the exact-amount rule against the *union* of every pool
-      // customer's invoices. Exactly one candidate's invoice matching resolves (locks) that customer
-      // retroactively; more than one is a genuine Double Collision — never guessed, always an exception.
+      // customer's invoices — but never finalize identity purely off this. A candidate-pool signal
+      // (narration tokens, account suffix) converging with one amount match is still two weak
+      // signals agreeing, not confirmed identity: in a larger book, a different customer could
+      // coincidentally hold an open invoice at the same amount. Exactly one hit is recorded as a
+      // suggestion for a human to confirm (flagged below as Suspense); more than one hit is a
+      // genuine Double Collision — never guessed, always an exception either way.
       const exactAmountRule = allocRules.find(r => r.kind === 'exact-amount');
       if (exactAmountRule) {
         const poolSlInfo = arSecondSourceInfo(exactAmountRule);
@@ -1321,9 +1328,8 @@
         payments.filter(p => !p.customerId && !p.duplicateFlag && p.candidatePool.length).forEach(p => {
           const hits = p.candidatePool.map(cid => ({ cid, inv: openInvoicesFor(cid).find(inv => (poolSlInfo.sourceKey === 'customer' ? cust(cid)[poolSlProp] : inv[poolSlProp]) === p.totalReceived) })).filter(x => x.inv);
           if (hits.length === 1) {
-            p.customerId = hits[0].cid;
-            applyGroupToLedger({ invoiceIds: [hits[0].inv.invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: exactAmountRule.id, ruleName: exactAmountRule.name, note: 'Resolved via candidate pool + exact amount' });
-            claimedPayIds.add(p.paymentId); claimedInvIds.add(hits[0].inv.invoiceId);
+            p.suggestedCustomerId = hits[0].cid;
+            p.suggestedInvoiceId = hits[0].inv.invoiceId;
           } else if (hits.length > 1) {
             collisionPayIds.add(p.paymentId);
             const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
@@ -1437,7 +1443,11 @@
         if (ambiguousPayIds.has(p.paymentId)) { flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} (${bankRef(bs)}) exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
         if (collisionPayIds.has(p.paymentId)) return; // already raised as its own Double Collision exception above
         if (!p.customerId) {
-          if (p.candidatePool.length) flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment (${bs.payerName}, ${bankRef(bs)}) has a candidate pool of ${p.candidatePool.length} customers but none resolved by exact amount`, p.totalReceived, { customer: bs.payerName, confidence: 30 });
+          if (p.suggestedCustomerId) {
+            const suggestedCust = cust(p.suggestedCustomerId), suggestedInv = invoices.find(i => i.invoiceId === p.suggestedInvoiceId);
+            flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment (${bankRef(bs)}) has one likely match — ${suggestedCust.companyName}, invoice ${suggestedInv.invoiceNumber} for the exact amount — but identity wasn't independently confirmed; review and confirm`, p.totalReceived, { customer: suggestedCust.companyName, confidence: 65, suggestedInvoiceId: p.suggestedInvoiceId, suggestedCustomerId: p.suggestedCustomerId });
+          }
+          else if (p.candidatePool.length) flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment (${bs.payerName}, ${bankRef(bs)}) has a candidate pool of ${p.candidatePool.length} customers but none resolved by exact amount`, p.totalReceived, { customer: bs.payerName, confidence: 30 });
           else flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment from ${bs.payerName} (${bankRef(bs)}) could not be identified to any customer`, p.totalReceived, { customer: bs.payerName, confidence: 20 });
           return;
         }
@@ -2282,8 +2292,11 @@
     // literally "link this invoice to this payment". Radio-select one row per side, then save.
     function arMatchPanel(rec, res, exc) {
       const custName = id => ((res.customers || []).find(c => c.customerId === id) || {}).companyName || 'Unknown';
-      const preInv = (exc.type === 'Short-Pay' || exc.type === 'No Payment Received') ? exc.relatedId : '';
-      const prePay = exc.type === 'Unapplied Payment' ? exc.relatedId : '';
+      // A Suspense exception carrying a suggested customer/invoice (candidate-pool + exact-amount
+      // agreed, but never auto-locked) pre-checks both sides so confirming it is a single click —
+      // the reviewer is verifying a suggestion, not building the match from scratch.
+      const preInv = (exc.type === 'Short-Pay' || exc.type === 'No Payment Received') ? exc.relatedId : (exc.suggestedInvoiceId || '');
+      const prePay = exc.type === 'Unapplied Payment' ? exc.relatedId : (exc.suggestedInvoiceId ? exc.relatedId : '');
       // Checkboxes, not radios — many-to-many: one payment can settle several invoices, or several
       // payments can jointly cover one invoice. Pick any number on each side, then Save changes.
       const invRows = res.invoices.map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
