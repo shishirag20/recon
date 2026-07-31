@@ -353,6 +353,8 @@
     };
     const pct = (n) => { return (n >= 0 ? '' : '') + n.toFixed(1) + '%'; };
     let _uid = 0; const uid = p => `${p}_${(++_uid).toString(36)}${Date.now().toString(36).slice(-3)}`;
+    const AR_EXCEPTION_STATUS = { OPEN: 'Open', RESOLVED: 'Resolved', AUTO_RESOLVED: 'Auto-resolved' };
+    const arIsResolvedStatus = s => s === AR_EXCEPTION_STATUS.RESOLVED || s === AR_EXCEPTION_STATUS.AUTO_RESOLVED;
 
     // ═══════════════════════════════════════ icons ═══════════════════════════════════════
     const IC = {
@@ -1192,13 +1194,17 @@
       const flagException = (type, relatedId, description, amount, extra) => {
         const key = type + ':' + relatedId;
         const r = resolvedMap[key];
+        const autoDefault = (extra && extra.autoResolve) ? AR_EXCEPTION_STATUS.AUTO_RESOLVED : AR_EXCEPTION_STATUS.OPEN;
+        const status = r ? (r.status || AR_EXCEPTION_STATUS.RESOLVED) : autoDefault;
+        const defaultNote = (extra && extra.defaultNote) || null;
         exceptions.push({
           id: 'EXC-' + String(++_exN).padStart(3, '0'), key, type, relatedId, description, amount,
-          status: r ? 'Resolved' : 'Open', resolutionNotes: r ? r.note : null,
+          status, resolutionNotes: r ? (r.note || null) : (status === AR_EXCEPTION_STATUS.AUTO_RESOLVED ? defaultNote : null),
           date: (extra && extra.date) || todayISO(), customer: (extra && extra.customer) || null,
           confidence: (extra && extra.confidence != null) ? extra.confidence : 80,
           suggestedInvoiceId: (extra && extra.suggestedInvoiceId) || null,
           suggestedCustomerId: (extra && extra.suggestedCustomerId) || null,
+          glEntry: (extra && extra.glEntry) || null,
         });
       };
 
@@ -1456,9 +1462,38 @@
       // ── Exception routing — "never guess" means every gap below becomes a distinct, visible
       // exception rather than a silent drop or a coin-flip match. ──
       const unappliedRule = firstEnabled('unapplied');
+      const bankChargePolicy = {
+        debitAccount: '6100 Bank Charges Expense',
+        creditAccount: '1010 Cash Control',
+        reviewThreshold: 500000,
+        ...(rec.arBankChargePolicy || {}),
+      };
       payments.forEach(p => {
         const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
-        if (bs.isBankCharge) { flagException('Standalone Bank Charge', p.paymentId, `${fmtMoney(p.totalReceived)} ${bs.narration || 'bank charge'} — posted directly, not a customer remittance`, p.totalReceived, { confidence: 100 }); return; }
+        if (bs.isBankCharge) {
+          const autoResolve = p.totalReceived <= bankChargePolicy.reviewThreshold;
+          const glEntry = {
+            debitAccount: bankChargePolicy.debitAccount,
+            creditAccount: bankChargePolicy.creditAccount,
+            amount: p.totalReceived,
+            date: bs.transactionDate || todayISO(),
+            reference: bs.bankReferenceNumber || bs.bankTxnId,
+            narration: bs.narration || 'Bank charge',
+          };
+          const desc = autoResolve
+            ? `${fmtMoney(p.totalReceived)} ${bs.narration || 'bank charge'} — auto-posted (Dr ${glEntry.debitAccount} / Cr ${glEntry.creditAccount}), not a customer remittance`
+            : `${fmtMoney(p.totalReceived)} ${bs.narration || 'bank charge'} — exceeds auto-post threshold and needs manual review`;
+          const autoNote = `Auto JE posted: Dr ${glEntry.debitAccount} / Cr ${glEntry.creditAccount} · ${fmtMoney(glEntry.amount)} · Ref ${glEntry.reference}`;
+          flagException('Standalone Bank Charge', p.paymentId, desc, p.totalReceived, {
+            confidence: autoResolve ? 100 : 90,
+            customer: 'Bank initiated',
+            date: glEntry.date,
+            autoResolve,
+            defaultNote: autoResolve ? autoNote : null,
+            glEntry,
+          });
+          return;
+        }
         if (ambiguousPayIds.has(p.paymentId)) { flagException('Multiple Invoice Match', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
         if (collisionPayIds.has(p.paymentId)) return; // already raised as its own Double Collision exception above
         if (!p.customerId) {
@@ -1559,9 +1594,9 @@
 
     // ═══════════════════════════════════════ small components ═══════════════════════════════════════
     function statusPill(k) {
-      const m = { matched: ['ok', 'Matched'], suggested: ['warn', 'Suggested'], break: ['bad', 'Break'], resolved: ['ok', 'Resolved'], completed: ['ok', 'Completed'], writeoff: ['muted', 'Written off'], investigate: ['warn', 'Investigating'], journal: ['ok', 'Journal entry'] };
+      const m = { matched: ['ok', 'Matched'], suggested: ['warn', 'Suggested'], break: ['bad', 'Break'], resolved: ['ok', 'Resolved'], autoresolved: ['accent', 'Auto-resolved'], completed: ['ok', 'Completed'], writeoff: ['muted', 'Written off'], investigate: ['warn', 'Investigating'], journal: ['ok', 'Journal entry'] };
       const [t, l] = m[k] || ['muted', k];
-      const bg = t === 'ok' ? 'bg-ok-soft text-ok-ink' : t === 'warn' ? 'bg-warn-soft text-warn-ink' : t === 'bad' ? 'bg-bad-soft text-bad-ink' : 'bg-sunken text-muted';
+      const bg = t === 'ok' ? 'bg-ok-soft text-ok-ink' : t === 'warn' ? 'bg-warn-soft text-warn-ink' : t === 'bad' ? 'bg-bad-soft text-bad-ink' : t === 'accent' ? 'bg-accent-soft text-accent-ink' : 'bg-sunken text-muted';
       return `<span class="inline-flex items-center gap-1 h-[20px] px-2 rounded text-[11px] font-semibold ${bg}">${l}</span>`;
     }
     function confBar(c) {
@@ -2281,7 +2316,7 @@
         const c = av < bv ? -1 : av > bv ? 1 : 0;
         return sortDir === 'asc' ? c : -c;
       });
-      const openCount = res.exceptions.filter(e => e.status === 'Open').length;
+      const openCount = res.exceptions.filter(e => e.status === AR_EXCEPTION_STATUS.OPEN).length;
       return `<div class="p-6 fade-in">
       <div class="flex items-center gap-2 mb-4 flex-wrap">
         <div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
@@ -2307,7 +2342,7 @@
           <td class="px-3 py-2.5 text-muted mono text-[12px]">${fmtDate(e.date)}</td>
           <td class="px-3 py-2.5 text-right mono">${e.confidence}%</td>
           <td class="px-3 py-2.5 text-right mono font-semibold text-bad-ink">${fmtMoney(e.amount)}</td>
-          <td class="px-4 py-2.5 text-right">${e.status === 'Resolved' ? statusPill('completed') : statusPill('break')}</td></tr>`).join('')
+          <td class="px-4 py-2.5 text-right">${e.status === AR_EXCEPTION_STATUS.AUTO_RESOLVED ? statusPill('autoresolved') : arIsResolvedStatus(e.status) ? statusPill('completed') : statusPill('break')}</td></tr>`).join('')
           : `<tr><td colspan="7" class="px-4 py-10 text-center text-muted">${res.exceptions.length ? 'No exceptions match your filters.' : 'No open exceptions — everything reconciled.'}</td></tr>`}
         </tbody></table>
       </div>
@@ -2520,6 +2555,24 @@
     // Single-value exceptions (GL, timing, gateway) aren't "match this to that" — they just need
     // a resolution note (write-off, investigated, adjustment posted, etc.)
     function arResolveNotePanel(rec, exc) {
+      if (exc.type === 'Standalone Bank Charge' && exc.status === AR_EXCEPTION_STATUS.AUTO_RESOLVED) {
+        const gl = exc.glEntry || {};
+        return `<div class="card overflow-hidden" data-ar-exc-panel>
+          <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Auto-resolved bank charge</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+          <div class="p-4 space-y-3">
+            <div class="rounded-lg border border-line bg-sunken/40 p-3">
+              <div class="text-[11px] text-muted mb-1.5">Auto-posted GL entry</div>
+              <div class="text-[12.5px]">Debit: <span class="mono">${esc(gl.debitAccount || '—')}</span></div>
+              <div class="text-[12.5px]">Credit: <span class="mono">${esc(gl.creditAccount || '—')}</span></div>
+              <div class="text-[12.5px]">Amount: <span class="mono">${fmtMoney(gl.amount || exc.amount)}</span></div>
+              <div class="text-[12.5px]">Reference: <span class="mono">${esc(gl.reference || exc.relatedId)}</span></div>
+            </div>
+            <label class="lbl block mb-1.5">Resolution note</label>
+            <textarea id="ar-resolve-note" class="field h-20 resize-none" placeholder="What was done to resolve this?">${esc(exc.resolutionNotes || '')}</textarea>
+            <div class="flex justify-end gap-2"><button data-act="ar-reopen-exception" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-ghost">Reopen for review</button><button data-act="ar-save-resolution" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Mark resolved</button></div>
+          </div>
+        </div>`;
+      }
       return `<div class="card overflow-hidden">
         <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Mark resolved</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
         <div class="p-4">
@@ -2563,7 +2616,7 @@
       const matchedVal = res.matches.reduce((s, m) => s + m.amount, 0) + res.overpays.reduce((s, m) => s + m.amount, 0);
       const matchedCount = res.matches.length + res.overpays.length;
       const matchedPct = openingAR ? +(matchedVal / openingAR * 100).toFixed(1) : 0;
-      const resolvedExc = res.exceptions.filter(e => e.status === 'Resolved');
+      const resolvedExc = res.exceptions.filter(e => arIsResolvedStatus(e.status));
       // No distinct "adjustment journal" concept exists in this data model yet — every invoice is
       // either fully Paid (counted in matchedVal) or still open at full face value (short-paid or
       // never paid), so Opening AR − Collections Matched already *is* the real closing balance,
@@ -2708,7 +2761,7 @@
         ${table('Executive summary', ['Opening AR', 'Collections matched', 'Closing balance'], [[fmtMoney(openingAR), '-' + fmtMoney(matchedVal), fmtMoney(openingAR - matchedVal)]])}
         ${table('Sub-ledger vs GL control proof', ['AR sub-ledger', 'GL control', 'Variance'], [[fmtMoney(gl ? gl.subledgerBalance : 0), fmtMoney(gl ? gl.glBalance : 0), gl ? fmtMoney(gl.variance) : '0.00']])}
         ${table('Final matched pairs', ['Invoice', 'Customer', 'Amount', 'Payment ref(s)', 'Rule'], [...res.matches, ...res.overpays].map(m => [m.invoiceNum, m.customer, fmtMoney(m.amount), m.paymentId, m.ruleName || 'Manual']))}
-        ${table('Resolution & exception audit register', ['Exception ID', 'Type', 'Related record', 'Resolution', 'User', 'Timestamp'], res.exceptions.filter(e => e.status === 'Resolved').map(e => { const r = (rec.arResolved || {})[e.key] || {}; return [e.id, e.type, e.relatedId, r.note || '', DB.user.name, (r.at || '').replace('T', ' ')]; }))}
+        ${table('Resolution & exception audit register', ['Exception ID', 'Type', 'Related record', 'Resolution', 'User', 'Timestamp'], res.exceptions.filter(e => arIsResolvedStatus(e.status)).map(e => { const r = (rec.arResolved || {})[e.key] || {}; return [e.id, e.type, e.relatedId, r.note || '', DB.user.name, (r.at || '').replace('T', ' ')]; }))}
         ${table('Customer identification audit', ['Bank txn', 'Payer', 'Outcome', 'Compared fields'], res.bankStatements.map(bs => { const p = (res.payments || []).find(x => x.bankTxnId === bs.bankTxnId); const outcome = bs.isBankCharge ? 'Standalone charge' : (p && p.duplicateFlag) ? 'Duplicate' : (p && p.lockedBy) ? p.lockedBy.name : (p && p.customerId) ? 'Candidate pool' : 'Not identified'; return [bs.bankTxnId, bs.payerName, outcome, arIdentificationFieldCompareLines(res, p).join('; ')]; }))}
         <p>Audit run hash (SHA-256): ${runHash || 'Computed at sign-off'}</p>
         </body></html>`;
@@ -4675,7 +4728,7 @@
           .filter(g => g.invoiceIds.length && g.paymentIds.length);
         rec.arManualMatches.push({ id: uid('arm'), invoiceIds, paymentIds, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Manually matched AR exception', `${invoiceIds.join(', ')} ↔ ${paymentIds.join(', ')}`);
         DB.ui.arActiveException = null; render(); toast('Match saved');
       },
@@ -4683,9 +4736,21 @@
         const rec = getRec(d.id); if (!rec) return;
         const note = ($('#ar-resolve-note') && $('#ar-resolve-note').value) || '';
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved AR exception', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
+      },
+      'ar-reopen-exception': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const existing = ((rec.arResolved || {})[d.key] || {});
+        rec.arResolved = rec.arResolved || {};
+        rec.arResolved[d.key] = {
+          status: AR_EXCEPTION_STATUS.OPEN,
+          note: existing.note || 'Manually reopened for review',
+          at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5),
+        };
+        logAudit('Reopened AR exception', d.key);
+        DB.ui.arActiveException = null; render(); toast('Exception reopened');
       },
       // No invoice/payment fits (e.g. genuinely unidentifiable cash, or a residual not worth
       // chasing) — resolve straight from the matcher without forming a manual match group.
@@ -4693,7 +4758,7 @@
         const rec = getRec(d.id); if (!rec) return;
         const note = ($('#ar-match-note') && $('#ar-match-note').value) || '';
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved AR exception without match', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
@@ -4714,7 +4779,7 @@
             .filter(g => g.invoiceIds.length && g.paymentIds.length);
           rec.arManualMatches.push({ id: uid('arm'), invoiceIds: reassignInv, paymentIds: reassignPay, note: note || 'Reassigned from short-pay', at });
           rec.arResolved = rec.arResolved || {};
-          rec.arResolved[d.key] = { note, disposition: disposition ? disposition.value : null, at };
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, disposition: disposition ? disposition.value : null, at };
           logAudit('Resolved AR exception with reassignment', `${reassignInv.join(', ')} ↔ ${reassignPay.join(', ')}`);
         } else {
           // Normal short-pay resolution: check for extra payments to apply
@@ -4732,7 +4797,7 @@
             }
           }
           rec.arResolved = rec.arResolved || {};
-          rec.arResolved[d.key] = { note, disposition: disposition ? disposition.value : null, at };
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, disposition: disposition ? disposition.value : null, at };
           logAudit('Resolved AR exception', `Short-Pay${disposition ? ' · ' + disposition.value : ''}`);
         }
         DB.ui.arActiveException = null; render(); toast('Exception resolved');
@@ -4753,7 +4818,7 @@
           .filter(g => g.invoiceIds.length && g.paymentIds.length);
         rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved double collision', `${paymentId} → ${chosen.value} · ${invoiceId}`);
         DB.ui.arActiveException = null; render(); toast('Customer confirmed');
       },
