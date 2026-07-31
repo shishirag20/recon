@@ -1129,7 +1129,7 @@
       const bankProp = arFieldOpt(AR_AMOUNT_BANK_FIELD_OPTIONS, rule && rule.bankField).prop;
       const hits = arSecondValuesForPool(rule, pool, cust).filter(e => e.val === bank[bankProp]);
       if (hits.length === 1) return { invoiceIds: [hits[0].inv.invoiceId], note: 'Exact amount match' };
-      if (hits.length > 1) return { ambiguous: true, note: 'Multiple invoices match this amount exactly' };
+      if (hits.length > 1) return { ambiguous: true, ambiguousInvoiceIds: hits.map(h => h.inv.invoiceId), note: 'Multiple invoices match this amount exactly' };
       return null;
     }
     function matchTDS(bank, pool, rule, cust) {
@@ -1205,6 +1205,7 @@
           suggestedInvoiceId: (extra && extra.suggestedInvoiceId) || null,
           suggestedCustomerId: (extra && extra.suggestedCustomerId) || null,
           glEntry: (extra && extra.glEntry) || null,
+          ambiguousInvoiceIds: (extra && extra.ambiguousInvoiceIds) || null,
         });
       };
 
@@ -1234,7 +1235,7 @@
       const payments = bankStatements.map(bs => ({
         paymentId: 'PAY-' + bs.bankTxnId, bankTxnId: bs.bankTxnId, totalReceived: bs.amount, unappliedAmount: bs.amount,
         customerId: null, lockedBy: null, candidatePool: [], duplicateFlag: false, duplicateOfTxnId: null,
-        suggestedCustomerId: null, suggestedInvoiceId: null,
+        suggestedCustomerId: null, suggestedInvoiceId: null, ambiguousInvoiceIds: [],
       }));
       const payFor = bankTxnId => payments.find(p => p.bankTxnId === bankTxnId);
       // Which bank-side identifiers to surface in an exception description — always the bank_txn_id
@@ -1374,7 +1375,12 @@
             if (!pool.length) return;
             const result = matcher(bankStatements.find(b => b.bankTxnId === p.bankTxnId), pool, rule, custObj);
             if (!result) return;
-            if (result.ambiguous) { ambiguousPayIds.add(p.paymentId); return; } // never guess between identical amounts
+            // claimedPayIds is added here too, not just ambiguousPayIds — every later allocation
+            // rule (subset-sum, bank-fee, write-off, overpayment, partial-payment) only checks
+            // claimedPayIds, so without this an ambiguous payment could still get silently swept
+            // up by a later rule (most dangerously the partial-payment catch-all) before a human
+            // ever resolves which invoice it was actually for — exactly what "never guess" forbids.
+            if (result.ambiguous) { ambiguousPayIds.add(p.paymentId); claimedPayIds.add(p.paymentId); p.ambiguousInvoiceIds = result.ambiguousInvoiceIds || []; return; }
             claimedPayIds.add(p.paymentId); result.invoiceIds.forEach(id => claimedInvIds.add(id));
             bump(allocHitCounts, rule.id);
             // TDS match is deliberately short of the invoice's face effectiveBalance by the allowed
@@ -2357,6 +2363,7 @@
       if (!exc) return '';
       if (exc.type === 'Double Collision') return arCollisionPanel(rec, res, exc);
       if (exc.type === 'Short-Pay') return arShortPayPanel(rec, res, exc);
+      if (exc.type === 'Multiple Invoice Match') return arMultiInvoiceMatchPanel(rec, res, exc);
       return AR_EXC_MATCHABLE.includes(exc.type) ? arMatchPanel(rec, res, exc) : arResolveNotePanel(rec, exc);
     }
     // Short-Pay exceptions — the invoice and linked payment(s) are deterministically known by the
@@ -2525,6 +2532,47 @@
         <textarea id="ar-match-note" class="field h-16 resize-none mb-1" placeholder="Why these should be linked — or, if resolving without a match, what was done (e.g. mapped to suspense, written off)"></textarea>
         <div class="text-[11px] text-faint mb-4">No invoice fits? Add a note and resolve without matching instead — e.g. map unidentified cash to a suspense account.</div>
         <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-resolve-unmatched" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-ghost">${icon('check', 'w-4 h-4')}Resolve without matching</button><button data-act="ar-save-manual-match" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Save changes</button></div>
+        </div>
+      </div>`;
+    }
+    // Multiple Invoice Match — customer and payment are both already known; the only ambiguity is
+    // which of that customer's own open invoices (tied on exact amount) it settles. Radio-select
+    // among the tied invoices, oldest-due pre-selected as the FIFO fallback convention, with an
+    // escape hatch to any of the customer's other open invoices in case the true answer isn't
+    // among the amount-tied set at all (data entry error, coincidental tie, etc.).
+    function arMultiInvoiceMatchPanel(rec, res, exc) {
+      const pay = (res.payments || []).find(p => p.paymentId === exc.relatedId);
+      if (!pay) return arResolveNotePanel(rec, exc);
+      const custId = pay.customerId;
+      const custName = ((res.customers || []).find(c => c.customerId === custId) || {}).companyName || 'Unknown';
+      const tiedIds = new Set(exc.ambiguousInvoiceIds || []);
+      const byDueDate = (a, b) => a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0;
+      const tied = res.invoices.filter(i => tiedIds.has(i.invoiceId)).slice().sort(byDueDate);
+      const others = res.invoices.filter(i => i.customerId === custId && i.status !== 'Paid' && !tiedIds.has(i.invoiceId)).slice().sort(byDueDate);
+      const daysOverdue = due => { const d = Math.floor((new Date(todayISO()) - new Date(due)) / 86400000); return d > 0 ? `${d}d overdue` : 'Not yet due'; };
+      const optionRow = (inv, isDefault) => `<label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
+        <input type="radio" name="ar-multiinv-radio" data-ar-multiinv value="${esc(inv.invoiceId)}" ${isDefault ? 'checked' : ''}>
+        <div class="flex-1"><div class="font-medium text-[13px]">${esc(inv.invoiceNumber)}</div><div class="text-[11.5px] text-muted">Due ${fmtDate(inv.dueDate)} · ${daysOverdue(inv.dueDate)}</div></div>
+        <div class="text-right mono text-[13px] font-semibold">${fmtMoney(inv.effectiveBalance)}</div></label>`;
+      const tiedBlock = tied.map((inv, i) => optionRow(inv, i === 0)).join('');
+      const othersBlock = others.map(inv => optionRow(inv, false)).join('');
+      return `<div class="card overflow-hidden">
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve multiple invoice match</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        <div class="text-[11.5px] text-muted mb-3">${esc(custName)}'s payment ${esc(pay.paymentId)} (${fmtMoney(pay.totalReceived)}) exactly matches more than one open invoice — pick which one it settles. The oldest-due invoice is pre-selected as a FIFO suggestion; confirm it or pick a different one.</div>
+        <div class="space-y-2 mb-4">${tiedBlock || `<div class="text-center text-muted py-6">No tied invoices remain open.</div>`}</div>
+        <div class="border border-line rounded-lg bg-surface mb-4">
+          <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-multiinv-other" ${DB.ui && DB.ui.arMultiInvShowOther ? 'aria-expanded="true"' : ''}>
+            <span>Not one of these — choose a different open invoice</span>
+            <span class="text-muted transition-transform ${DB.ui && DB.ui.arMultiInvShowOther ? 'rotate-180' : ''}">▼</span>
+          </button>
+          ${DB.ui && DB.ui.arMultiInvShowOther ? `<div class="border-t border-line p-4 space-y-2">
+            ${others.length ? othersBlock : `<div class="text-[12px] text-muted py-4 text-center">No other open invoices for ${esc(custName)}.</div>`}
+          </div>` : ''}
+        </div>
+        <label class="lbl block mb-1.5">Note</label>
+        <textarea id="ar-multiinv-note" class="field h-16 resize-none mb-4" placeholder="How this was confirmed (e.g. remittance advice, customer confirmed, applied FIFO pending confirmation)"></textarea>
+        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-resolve-multi-invoice" data-id="${rec.id}" data-key="${esc(exc.key)}" data-pay="${esc(exc.relatedId)}" class="btn btn-primary" ${(tied.length || others.length) ? '' : 'disabled'}>${icon('check', 'w-4 h-4')}Confirm invoice</button></div>
         </div>
       </div>`;
     }
@@ -4822,6 +4870,25 @@
         logAudit('Resolved double collision', `${paymentId} → ${chosen.value} · ${invoiceId}`);
         DB.ui.arActiveException = null; render(); toast('Customer confirmed');
       },
+      // Multiple Invoice Match resolved by picking exactly one of the customer's own open invoices
+      // (usually amount-tied, or a different one via the escape hatch) — same manual-match
+      // persistence as Double Collision, just no customer dimension since identity was never ambiguous.
+      'ar-resolve-multi-invoice': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const chosen = document.querySelector('input[data-ar-multiinv]:checked');
+        if (!chosen) { toast('Pick an invoice', 'bad'); return; }
+        const invoiceId = chosen.value, paymentId = d.pay;
+        const note = ($('#ar-multiinv-note') && $('#ar-multiinv-note').value) || '';
+        const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+        rec.arManualMatches = (rec.arManualMatches || [])
+          .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invoiceId), paymentIds: g.paymentIds.filter(id => id !== paymentId) }))
+          .filter(g => g.invoiceIds.length && g.paymentIds.length);
+        rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at });
+        rec.arResolved = rec.arResolved || {};
+        rec.arResolved[d.key] = { note, at };
+        logAudit('Resolved multiple invoice match', `${paymentId} → ${invoiceId}`);
+        DB.ui.arActiveException = null; render(); toast('Invoice confirmed');
+      },
       // async is safe here — the click dispatcher below calls ACT[act](...) without awaiting, same
       // shape as the existing 'map-ai' async handler; save/render/openModal still run in order once
       // the digest resolves, just deferred a tick past the click itself.
@@ -5001,12 +5068,21 @@
         const toggleKey = toggleEl.dataset.toggle;
         const uiKey = {
           'ar-shortpay-extra': 'arShortPayShowExtra',
-          'ar-shortpay-reassign': 'arShortPayShowReassign'
+          'ar-shortpay-reassign': 'arShortPayShowReassign',
+          'ar-multiinv-other': 'arMultiInvShowOther'
         }[toggleKey];
         if (uiKey) {
+          // render() replaces #app's innerHTML wholesale, which resets scroll to top by default —
+          // save/restore the page's own scroll container (a direct child of <main>, distinct from
+          // the small nested "max-h-56 overflow-y-auto" table pickers inside exception panels) so
+          // expanding a collapsible section like this doesn't visually yank the page back to the top.
+          const scrollEl = document.querySelector('main > .overflow-y-auto');
+          const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
           DB.ui = DB.ui || {};
           DB.ui[uiKey] = !DB.ui[uiKey];
           render();
+          const newScrollEl = document.querySelector('main > .overflow-y-auto');
+          if (newScrollEl) newScrollEl.scrollTop = scrollTop;
           return;
         }
       }
