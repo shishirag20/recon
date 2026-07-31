@@ -1158,6 +1158,22 @@
     }
 
     function arEngine(rec) {
+      // Check if there's any real uploaded data
+      const upCustomers = stagedRowsForCategory('Customers');
+      const upInvoices = stagedRowsForCategory('SL');
+      const upBank = stagedRowsForCategory('Bank Statements');
+      
+      // If no uploads exist, return "reconciled" status instead of running on seed data
+      if (!upCustomers.length && !upInvoices.length && !upBank.length) {
+        return {
+          invoices: [], payments: [], bankStatements: [], customers: [],
+          matches: [], shortPays: [], overpays: [], unapplied: [],
+          unmatchedInvoices: [], glMismatch: null, exceptions: [],
+          perRule: [], autoGroups: [], rate: 100, matchedVal: 0, breakVal: 0,
+          breaks: [], matched: [], status: 'no-data', message: 'No data uploaded yet. All records are up to date.'
+        };
+      }
+
       if (!rec.arData) return { invoices: [], payments: [], bankStatements: [], customers: [], matches: [], shortPays: [], overpays: [], unapplied: [], unmatchedInvoices: [], glMismatch: null, exceptions: [], perRule: [], autoGroups: [], rate: 0, matchedVal: 0, breakVal: 0, breaks: [], matched: [] };
       const ar = arDataFromUploads(rec.arData);
       // Uploaded files can reference a customer_id absent from the customers file — fall back
@@ -1423,7 +1439,8 @@
         // being left orphaned with a known customer but no invoice at all.
         const partialRule = allocRules.find(r => r.kind === 'partial-payment');
         if (partialRule) {
-          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
+          payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId) &&
+                            !ambiguousPayIds.has(p.paymentId)).forEach(p => {
             const pool = openInvoicesFor(cid).slice().sort((a, b) => a.dueDate < b.dueDate ? -1 : 1);
             if (!pool.length) return;
             claimedPayIds.add(p.paymentId); claimedInvIds.add(pool[0].invoiceId); bump(allocHitCounts, partialRule.id);
@@ -1438,9 +1455,8 @@
       const unappliedRule = firstEnabled('unapplied');
       payments.forEach(p => {
         const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
-        if (p.duplicateFlag) { flagException('Duplicate Transaction', p.paymentId, `${fmtMoney(p.totalReceived)} (${bankRef(bs)}) repeats the same reference as ${p.duplicateOfTxnId} — ${p.duplicateOfTxnId} was treated as the original and matched normally`, p.totalReceived, { confidence: 100 }); return; }
-        if (bs.isBankCharge) { flagException('Standalone Bank Charge', p.paymentId, `${fmtMoney(p.totalReceived)} (${bankRef(bs)}) ${bs.narration || 'bank charge'} — posted directly, not a customer remittance`, p.totalReceived, { confidence: 100 }); return; }
-        if (ambiguousPayIds.has(p.paymentId)) { flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} (${bankRef(bs)}) exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
+        if (bs.isBankCharge) { flagException('Standalone Bank Charge', p.paymentId, `${fmtMoney(p.totalReceived)} ${bs.narration || 'bank charge'} — posted directly, not a customer remittance`, p.totalReceived, { confidence: 100 }); return; }
+        if (ambiguousPayIds.has(p.paymentId)) { flagException('Multiple Invoice Match', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
         if (collisionPayIds.has(p.paymentId)) return; // already raised as its own Double Collision exception above
         if (!p.customerId) {
           if (p.suggestedCustomerId) {
@@ -1819,6 +1835,18 @@
     }
     // ═══════════════════════════════════════ AR Reconciliation views ═══════════════════════════════════════
     function arReconOverview(rec, res) {
+      // Check if reconciliation hasn't been run yet
+      if (res.status === 'no-data') {
+        return `<div class="p-6 flex flex-col items-center justify-center h-full fade-in">
+          <div class="text-center">
+            <div class="text-[48px] mb-3">✓</div>
+            <div class="font-semibold text-[18px] mb-1">Everything is up to date</div>
+            <div class="text-[14px] text-muted mb-6">Upload CSV files and run reconciliation to begin</div>
+            <button data-act="recon-tab" data-t="sources" class="btn btn-primary">Go to Sources</button>
+          </div>
+        </div>`;
+      }
+      
       const ar = rec.arData;
       const kpi_ = (label, value, sub) => `<div class="card p-4"><div class="lbl">${label}</div><div class="mono text-[24px] font-semibold mt-1.5 leading-none">${value}</div><div class="text-[11.5px] text-muted mt-1.5">${sub || ''}</div></div>`;
       const matchRate = (res.matched.length / (res.invoices.length + res.payments.length) * 100).toFixed(1);
@@ -2196,7 +2224,7 @@
       'GL Control Mismatch': 'bg-bad-soft text-bad-ink',
       'Gateway Variance': 'bg-accent-soft text-accent-ink',
       'Suspense': 'bg-warn-soft text-warn-ink',
-      'Scoped Exception': 'bg-warn-soft text-warn-ink',
+      'Multiple Invoice Match': 'bg-warn-soft text-warn-ink',
       'Double Collision': 'bg-bad-soft text-bad-ink',
       'Duplicate Transaction': 'bg-bad-soft text-bad-ink',
       'Standalone Bank Charge': 'bg-sunken text-ink-soft',
@@ -2206,11 +2234,11 @@
     }
     // Types that are genuinely a mismatch between two records get the two-table manual matcher;
     // single-value checks (GL, duplicate, standalone-charge) get a resolution note instead. Suspense
-    // and Scoped Exception are exactly "link this to that" situations too — a human identifying who
+    // and Multiple Invoice Match are exactly "link this to that" situations too — a human identifying who
     // really paid, or which invoice a known customer's payment belongs to — so they reuse the same
     // matcher. Double Collision gets its own dedicated panel (arCollisionPanel) since its ambiguity
     // is "which candidate customer," not "which invoice."
-    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment', 'No Payment Received', 'Suspense', 'Scoped Exception'];
+    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment', 'No Payment Received', 'Suspense', 'Multiple Invoice Match'];
     // Single source of truth for how a matched invoice got settled — checked by the Matched tab,
     // the Finish summary, and Reports alike, so all three agree on 1-to-1 / Many-to-One / One-to-Many.
     function arMatchTypeFor(rec, res, invId) {
@@ -2281,7 +2309,7 @@
     }
     // Renders the resolution UI inline, in place of "Open invoices awaiting payment" — the dedicated
     // candidate-picker (Double Collision), the two-table matcher (Short-Pay / Unapplied Payment /
-    // No Payment Received / Suspense / Scoped Exception), or a simple resolution-note form.
+    // No Payment Received / Suspense / Multiple Invoice Match), or a simple resolution-note form.
     function arExceptionPanel(rec, res, key) {
       const exc = res.exceptions.find(e => e.key === key);
       if (!exc) return '';
