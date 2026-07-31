@@ -1212,6 +1212,16 @@
         customerId: null, lockedBy: null, candidatePool: [], duplicateFlag: false, duplicateOfTxnId: null,
       }));
       const payFor = bankTxnId => payments.find(p => p.bankTxnId === bankTxnId);
+      // Which bank-side identifiers to surface in an exception description — always the bank_txn_id
+      // itself (the actual row identifier from the uploaded statement), plus the payer's account
+      // number and/or reference/UTR when the bank exposed them, so every payment-based exception
+      // says exactly which bank row it's about, not just an internal payment id.
+      const bankRef = bs => {
+        const parts = [bs.bankTxnId];
+        if (bs.payerAccountNumber) parts.push(`a/c ${bs.payerAccountNumber}`);
+        if (bs.bankReferenceNumber) parts.push(`ref ${bs.bankReferenceNumber}`);
+        return parts.join(', ');
+      };
 
       bankStatements.forEach(bs => {
         if (bs.isBankCharge) return; // not a customer remittance at all — bypasses identification entirely
@@ -1316,7 +1326,8 @@
             claimedPayIds.add(p.paymentId); claimedInvIds.add(hits[0].inv.invoiceId);
           } else if (hits.length > 1) {
             collisionPayIds.add(p.paymentId);
-            flagException('Double Collision', p.paymentId, `${fmtMoney(p.totalReceived)} payment matches open invoices from ${hits.length} different candidate customers — never auto-resolved`, p.totalReceived, { customer: 'Ambiguous', confidence: 40 });
+            const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
+            flagException('Double Collision', p.paymentId, `${fmtMoney(p.totalReceived)} payment (${bankRef(bs)}) matches open invoices from ${hits.length} different candidate customers — never auto-resolved`, p.totalReceived, { customer: 'Ambiguous', confidence: 40 });
           }
         });
       }
@@ -1420,21 +1431,21 @@
       // exception rather than a silent drop or a coin-flip match. ──
       const unappliedRule = firstEnabled('unapplied');
       payments.forEach(p => {
-        if (p.duplicateFlag) { flagException('Duplicate Transaction', p.paymentId, `${fmtMoney(p.totalReceived)} repeats the same reference as ${p.duplicateOfTxnId} — ${p.duplicateOfTxnId} was treated as the original and matched normally`, p.totalReceived, { confidence: 100 }); return; }
         const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
-        if (bs.isBankCharge) { flagException('Standalone Bank Charge', p.paymentId, `${fmtMoney(p.totalReceived)} ${bs.narration || 'bank charge'} — posted directly, not a customer remittance`, p.totalReceived, { confidence: 100 }); return; }
-        if (ambiguousPayIds.has(p.paymentId)) { flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
+        if (p.duplicateFlag) { flagException('Duplicate Transaction', p.paymentId, `${fmtMoney(p.totalReceived)} (${bankRef(bs)}) repeats the same reference as ${p.duplicateOfTxnId} — ${p.duplicateOfTxnId} was treated as the original and matched normally`, p.totalReceived, { confidence: 100 }); return; }
+        if (bs.isBankCharge) { flagException('Standalone Bank Charge', p.paymentId, `${fmtMoney(p.totalReceived)} (${bankRef(bs)}) ${bs.narration || 'bank charge'} — posted directly, not a customer remittance`, p.totalReceived, { confidence: 100 }); return; }
+        if (ambiguousPayIds.has(p.paymentId)) { flagException('Scoped Exception', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} (${bankRef(bs)}) exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
         if (collisionPayIds.has(p.paymentId)) return; // already raised as its own Double Collision exception above
         if (!p.customerId) {
-          if (p.candidatePool.length) flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment (${bs.payerName}) has a candidate pool of ${p.candidatePool.length} customers but none resolved by exact amount`, p.totalReceived, { customer: bs.payerName, confidence: 30 });
-          else flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment from ${bs.payerName} could not be identified to any customer`, p.totalReceived, { customer: bs.payerName, confidence: 20 });
+          if (p.candidatePool.length) flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment (${bs.payerName}, ${bankRef(bs)}) has a candidate pool of ${p.candidatePool.length} customers but none resolved by exact amount`, p.totalReceived, { customer: bs.payerName, confidence: 30 });
+          else flagException('Suspense', p.paymentId, `${fmtMoney(p.totalReceived)} payment from ${bs.payerName} (${bankRef(bs)}) could not be identified to any customer`, p.totalReceived, { customer: bs.payerName, confidence: 20 });
           return;
         }
         // Not ambiguous (nothing to choose between) — the customer is known but no invoice claimed
         // any of this payment at all, so it's just sitting unapplied on their account. Below the
         // configured tolerance, leftover cash this small is intentionally not worth flagging.
         if (!claimedPayIds.has(p.paymentId) && p.unappliedAmount > thresholdOf(unappliedRule, p.totalReceived)) {
-          flagException('Unapplied Payment', p.paymentId, `${cust(p.customerId).companyName} identified, but ${fmtMoney(p.totalReceived)} payment ${p.paymentId} matched no open invoice`, p.unappliedAmount, { customer: cust(p.customerId).companyName, confidence: 55 });
+          flagException('Unapplied Payment', p.paymentId, `${cust(p.customerId).companyName} identified, but ${fmtMoney(p.totalReceived)} payment ${p.paymentId} (${bankRef(bs)}) matched no open invoice`, p.unappliedAmount, { customer: cust(p.customerId).companyName, confidence: 55 });
         }
       });
 
