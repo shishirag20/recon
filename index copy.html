@@ -2243,8 +2243,9 @@
     // and Multiple Invoice Match are exactly "link this to that" situations too — a human identifying who
     // really paid, or which invoice a known customer's payment belongs to — so they reuse the same
     // matcher. Double Collision gets its own dedicated panel (arCollisionPanel) since its ambiguity
-    // is "which candidate customer," not "which invoice."
-    const AR_EXC_MATCHABLE = ['Short-Pay', 'Unapplied Payment', 'No Payment Received', 'Suspense', 'Multiple Invoice Match'];
+    // is "which candidate customer," not "which invoice." Short-Pay has its own panel (arShortPayPanel)
+    // since the invoice and linked payment(s) are deterministically known by the matching engine.
+    const AR_EXC_MATCHABLE = ['Unapplied Payment', 'No Payment Received', 'Suspense', 'Multiple Invoice Match'];
     // Single source of truth for how a matched invoice got settled — checked by the Matched tab,
     // the Finish summary, and Reports alike, so all three agree on 1-to-1 / Many-to-One / One-to-Many.
     function arMatchTypeFor(rec, res, invId) {
@@ -2320,7 +2321,140 @@
       const exc = res.exceptions.find(e => e.key === key);
       if (!exc) return '';
       if (exc.type === 'Double Collision') return arCollisionPanel(rec, res, exc);
+      if (exc.type === 'Short-Pay') return arShortPayPanel(rec, res, exc);
       return AR_EXC_MATCHABLE.includes(exc.type) ? arMatchPanel(rec, res, exc) : arResolveNotePanel(rec, exc);
+    }
+    // Short-Pay exceptions — the invoice and linked payment(s) are deterministically known by the
+    // matching engine, so the panel defaults to a read-only summary instead of the full picker.
+    // Disposition options (Write off / Keep open / Dispute) plus optional note, and two escape
+    // hatches: "apply another payment" (scoped to same customer's unapplied payments) and
+    // "reassign match" (full picker, same as arMatchPanel, in case the auto-pairing is wrong).
+    function arShortPayPanel(rec, res, exc) {
+      const custName = id => ((res.customers || []).find(c => c.customerId === id) || {}).companyName || 'Unknown';
+      const inv = res.invoices.find(i => i.invoiceId === exc.relatedId);
+      const sp = res.shortPays.find(s => s.invoiceId === exc.relatedId);
+      if (!inv || !sp) return '';
+      
+      // Retrieve saved resolution (if any) — shows what was previously selected
+      const saved = (rec.arResolved || {})[exc.key] || { note: '', disposition: null };
+
+      // Phase A: Base structure with read-only summary
+      const payIds = sp.paymentId.split(', ').map(id => id.trim()).filter(Boolean);
+      const paymentRows = payIds.map(payId => {
+        const pay = res.payments.find(p => p.paymentId === payId);
+        if (!pay) return '';
+        return `<div class="flex items-center justify-between py-2 px-3 border-b border-line-soft last:border-0">
+          <div><div class="text-[12px] font-medium">${esc(pay.paymentId)}</div><div class="text-[11px] text-muted">${esc(pay.customerId ? custName(pay.customerId) : 'Unknown payer')}</div></div>
+          <div class="text-right"><div class="text-[12px] mono font-semibold">${fmtMoney(pay.totalReceived)}</div></div>
+        </div>`;
+      }).join('');
+      
+      const summaryBlock = `<div class="bg-sunken rounded-lg p-4 mb-4">
+        <div class="text-[11px] text-muted mb-2">Invoice</div>
+        <div class="flex items-center justify-between mb-4">
+          <div><div class="text-[13px] font-semibold">${esc(inv.invoiceNumber)}</div><div class="text-[11.5px] text-muted">${esc(custName(inv.customerId))}</div></div>
+          <div class="text-right mono text-[13px] font-semibold">${fmtMoney(sp.amount)}</div>
+        </div>
+        <div class="text-[11px] text-muted mb-2">Linked Payment(s)</div>
+        <div class="border border-line rounded-lg overflow-hidden mb-4 bg-surface">${paymentRows || `<div class="px-3 py-6 text-center text-muted text-[12px]">No payments</div>`}</div>
+        <div class="flex items-center justify-between p-3 bg-warn-soft/50 rounded border border-warn-soft">
+          <div class="text-[11.5px]"><div class="text-muted">Shortage</div><div class="font-semibold text-warn-ink">${fmtMoney(sp.shortage)}</div></div>
+          <div class="text-[11px] text-muted">Amount received: ${fmtMoney(sp.paid)}</div>
+        </div>
+      </div>`;
+      
+      // Phase A: Disposition controls
+      const dispositionBlock = `<div class="mb-4">
+        <label class="lbl block mb-2">Disposition</label>
+        <div class="space-y-2">
+          <label class="flex items-center gap-3 p-2 cursor-pointer hover:bg-sunken/40 rounded">
+            <input type="radio" name="ar-shortpay-disposition" value="writeoff" class="radio" ${saved.disposition === 'writeoff' ? 'checked' : ''}>
+            <span class="text-[13px]">Write off shortfall</span>
+          </label>
+          <label class="flex items-center gap-3 p-2 cursor-pointer hover:bg-sunken/40 rounded">
+            <input type="radio" name="ar-shortpay-disposition" value="keepopen" class="radio" ${saved.disposition === 'keepopen' ? 'checked' : ''}>
+            <span class="text-[13px]">Keep open / follow up</span>
+          </label>
+          <label class="flex items-center gap-3 p-2 cursor-pointer hover:bg-sunken/40 rounded">
+            <input type="radio" name="ar-shortpay-disposition" value="dispute" class="radio" ${saved.disposition === 'dispute' ? 'checked' : ''}>
+            <span class="text-[13px]">Dispute</span>
+          </label>
+        </div>
+      </div>`;
+      
+      // Phase A: Note textarea
+      const noteBlock = `<div class="mb-4">
+        <label class="lbl block mb-1.5">Note</label>
+        <textarea id="ar-shortpay-note" class="field h-16 resize-none" placeholder="Additional context (optional)">${esc(saved.note || '')}</textarea>
+      </div>`;
+      
+      // Phase B: "Apply another payment" section — scoped to same customer's unapplied payments
+      const otherPayments = res.payments.filter(p => 
+        p.customerId === inv.customerId && 
+        p.unappliedAmount > 0 && 
+        !payIds.includes(p.paymentId)
+      );
+      
+      const extraPaymentRows = otherPayments.map(p => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+        <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-shortpay-extra-pay value="${esc(p.paymentId)}"></td>
+        <td class="px-3 py-2 font-medium">${esc(p.paymentId)}</td>
+        <td class="px-3 py-2 text-muted">${esc(custName(p.customerId))}</td>
+        <td class="px-3 py-2 text-right mono">${fmtMoney(p.totalReceived)}</td>
+        <td class="px-3 py-2 text-right mono text-warn-ink">${fmtMoney(p.unappliedAmount)}</td></tr>`).join('');
+      
+      const extraPaymentBlock = `<div class="border border-line rounded-lg mb-4 bg-surface">
+        <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-shortpay-extra" ${DB.ui && DB.ui.arShortPayShowExtra ? 'aria-expanded="true"' : ''}>
+          <span>Apply another payment to cover shortfall</span>
+          <span class="text-muted transition-transform ${DB.ui && DB.ui.arShortPayShowExtra ? 'rotate-180' : ''}">▼</span>
+        </button>
+        ${DB.ui && DB.ui.arShortPayShowExtra ? `<div class="border-t border-line px-4 py-3">
+          ${otherPayments.length ? `<div class="text-[11.5px] text-muted mb-3">Check any payments below to apply them to this invoice.</div>
+          <div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Payment</th><th class="px-3 py-1.5">Payer</th><th class="px-3 py-1.5 text-right">Received</th><th class="px-3 py-1.5 text-right">Unapplied</th></tr></thead><tbody>${extraPaymentRows || `<tr><td colspan="5" class="px-3 py-6 text-center text-muted">No payments</td></tr>`}</tbody></table></div>` : `<div class="text-[12px] text-muted py-4 text-center">No other unapplied payments for this customer.</div>`}
+        </div>` : ''}
+      </div>`;
+      
+      // Phase C: "Reassign match" escape hatch — reuse arMatchPanel's row generation
+      const preInv = exc.relatedId;
+      const prePay = payIds[0] || '';
+      const invRows = res.invoices.map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+        <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-shortpay-reassign-inv value="${esc(inv.invoiceId)}" ${inv.invoiceId === preInv ? 'checked' : ''}></td>
+        <td class="px-3 py-2 font-medium">${esc(inv.invoiceNumber)}</td>
+        <td class="px-3 py-2 text-muted">${esc(custName(inv.customerId))}</td>
+        <td class="px-3 py-2 text-right mono">${fmtMoney(inv.effectiveBalance)}</td></tr>`).join('');
+      const payRowsReassign = res.payments.map(p => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+        <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-shortpay-reassign-pay value="${esc(p.paymentId)}" ${payIds.includes(p.paymentId) ? 'checked' : ''}></td>
+        <td class="px-3 py-2 font-medium">${esc(p.paymentId)}</td>
+        <td class="px-3 py-2 text-muted">${esc(p.customerId ? custName(p.customerId) : 'Unknown payer')}</td>
+        <td class="px-3 py-2 text-right mono">${fmtMoney(p.totalReceived)}</td>
+        <td class="px-3 py-2 text-right mono ${p.unappliedAmount ? 'text-warn-ink' : 'text-faint'}">${p.unappliedAmount ? fmtMoney(p.unappliedAmount) : '—'}</td></tr>`).join('');
+      
+      const reassignBlock = `<div class="border border-line rounded-lg bg-surface">
+        <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-shortpay-reassign" ${DB.ui && DB.ui.arShortPayShowReassign ? 'aria-expanded="true"' : ''}>
+          <span>Not the right match? Reassign</span>
+          <span class="text-muted transition-transform ${DB.ui && DB.ui.arShortPayShowReassign ? 'rotate-180' : ''}">▼</span>
+        </button>
+        ${DB.ui && DB.ui.arShortPayShowReassign ? `<div class="border-t border-line p-4">
+          <div class="text-[11.5px] text-muted mb-3">Check a different invoice and payment(s) to reassign this exception instead.</div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><div class="lbl mb-1.5">Invoice</div><div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Invoice</th><th class="px-3 py-1.5">Customer</th><th class="px-3 py-1.5 text-right">Amount</th></tr></thead><tbody>${invRows || `<tr><td colspan="4" class="px-3 py-6 text-center text-muted">No invoices</td></tr>`}</tbody></table></div></div>
+            <div><div class="lbl mb-1.5">Payment</div><div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Payment</th><th class="px-3 py-1.5">Payer</th><th class="px-3 py-1.5 text-right">Received</th><th class="px-3 py-1.5 text-right">Unapplied</th></tr></thead><tbody>${payRowsReassign || `<tr><td colspan="5" class="px-3 py-6 text-center text-muted">No payments</td></tr>`}</tbody></table></div></div>
+          </div>
+        </div>` : ''}
+      </div>`;
+      
+      return `<div class="card overflow-hidden" data-ar-exc-panel>
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve short-pay exception</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        ${summaryBlock}
+        ${dispositionBlock}
+        ${noteBlock}
+        <div class="border-t border-line pt-4 space-y-3">
+          ${extraPaymentBlock}
+          ${reassignBlock}
+        </div>
+        <div class="flex justify-end gap-2 mt-4"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-save-shortpay" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Save</button></div>
+        </div>
+      </div>`;
     }
     // Two-table manual matcher — for Short-Pay / Unapplied Payment exceptions, where the fix is
     // literally "link this invoice to this payment". Radio-select one row per side, then save.
@@ -4519,7 +4653,15 @@
       'ar-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.arMatchStream = d.stream; render(); },
       'rep-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.repMatchStream = d.stream; render(); },
       'open-mapping-modal': d => openMappingModal(d.file, d.source),
-      'ar-open-exception': d => { DB.ui = DB.ui || {}; DB.ui.arActiveException = DB.ui.arActiveException === d.key ? null : d.key; render(); },
+      'ar-open-exception': d => { DB.ui = DB.ui || {}; 
+      DB.ui.arActiveException = DB.ui.arActiveException === d.key ? null : d.key; 
+      render(); 
+      // Scroll to the panel after rendering
+      setTimeout(() => {
+        const panel = document.querySelector('[data-ar-exc-panel]');
+        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 0);
+      },
       'ar-close-exception': () => { DB.ui = DB.ui || {}; DB.ui.arActiveException = null; render(); },
       'ar-save-manual-match': d => {
         const rec = getRec(d.id); if (!rec) return;
@@ -4554,6 +4696,46 @@
         rec.arResolved[d.key] = { note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved AR exception without match', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
+      },
+      // Short-Pay resolution: save disposition and note; optionally apply extra payments or reassign match.
+      'ar-save-shortpay': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const disposition = document.querySelector('input[name="ar-shortpay-disposition"]:checked');
+        const note = ($('#ar-shortpay-note') && $('#ar-shortpay-note').value) || '';
+        const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+        
+        // Check if reassignment happened (user checked different boxes in the escape hatch)
+        const reassignInv = [...document.querySelectorAll('input[data-ar-shortpay-reassign-inv]:checked')].map(el => el.value);
+        const reassignPay = [...document.querySelectorAll('input[data-ar-shortpay-reassign-pay]:checked')].map(el => el.value);
+        if (reassignInv.length && reassignPay.length) {
+          // Reassignment requested via escape hatch — treat as a manual match, same as ar-save-manual-match
+          rec.arManualMatches = (rec.arManualMatches || [])
+            .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => !reassignInv.includes(id)), paymentIds: g.paymentIds.filter(id => !reassignPay.includes(id)) }))
+            .filter(g => g.invoiceIds.length && g.paymentIds.length);
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: reassignInv, paymentIds: reassignPay, note: note || 'Reassigned from short-pay', at });
+          rec.arResolved = rec.arResolved || {};
+          rec.arResolved[d.key] = { note, disposition: disposition ? disposition.value : null, at };
+          logAudit('Resolved AR exception with reassignment', `${reassignInv.join(', ')} ↔ ${reassignPay.join(', ')}`);
+        } else {
+          // Normal short-pay resolution: check for extra payments to apply
+          const extraPayIds = [...document.querySelectorAll('input[data-ar-shortpay-extra-pay]:checked')].map(el => el.value);
+          if (extraPayIds.length) {
+            // Merge extra payments into arManualMatches — find the original short-pay invoice from the exception
+            const res = getEngineResult(rec);
+            const exc = res.exceptions.find(e => e.key === d.key);
+            if (exc) {
+              const invId = exc.relatedId;
+              rec.arManualMatches = (rec.arManualMatches || [])
+                .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invId), paymentIds: g.paymentIds.filter(id => !extraPayIds.includes(id)) }))
+                .filter(g => g.invoiceIds.length && g.paymentIds.length);
+              rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: extraPayIds, note: 'Applied to cover short-pay shortfall', at });
+            }
+          }
+          rec.arResolved = rec.arResolved || {};
+          rec.arResolved[d.key] = { note, disposition: disposition ? disposition.value : null, at };
+          logAudit('Resolved AR exception', `Short-Pay${disposition ? ' · ' + disposition.value : ''}`);
+        }
+        DB.ui.arActiveException = null; render(); toast('Exception resolved');
       },
       // Double Collision resolved by picking exactly one candidate customer — same persistence as a
       // manual match (a single-invoice, single-payment group), just deriving the invoice from the
@@ -4748,6 +4930,22 @@
 
     // ═══════════════════════════════════════ listeners ═══════════════════════════════════════
     document.addEventListener('click', e => {
+      // Handle data-toggle buttons for collapsible sections (e.g. ar-shortpay-extra, ar-shortpay-reassign)
+      const toggleEl = e.target.closest('[data-toggle]');
+      if (toggleEl) {
+        const toggleKey = toggleEl.dataset.toggle;
+        const uiKey = {
+          'ar-shortpay-extra': 'arShortPayShowExtra',
+          'ar-shortpay-reassign': 'arShortPayShowReassign'
+        }[toggleKey];
+        if (uiKey) {
+          DB.ui = DB.ui || {};
+          DB.ui[uiKey] = !DB.ui[uiKey];
+          render();
+          return;
+        }
+      }
+      // Handle data-act buttons (standard action dispatch)
       const el = e.target.closest('[data-act]'); if (!el) return;
       const act = el.dataset.act; if (!ACT[act]) return;
       if (act !== 'close-modal') e.preventDefault();
