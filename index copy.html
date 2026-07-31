@@ -1318,7 +1318,10 @@
             const shortage = bal - paidAmt;
             shortPays.push({ invoiceId: inv.invoiceId, invoiceNum: inv.invoiceNumber, customer: custName, amount: bal, paid: paidAmt, shortage, paymentId: paymentLabel, ruleId: g.ruleId, ruleName: g.ruleName });
             const tolerance = thresholdOf(shortPayRule, bal);
-            if (shortage > tolerance) flagException('Short-Pay', inv.invoiceId, `${custName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage)}`, shortage, { date: inv.dueDate, customer: custName, confidence: 90 });
+            if (shortage > tolerance) {
+              const bankRefs = groupPayments.map(p => bankRef(bankStatements.find(b => b.bankTxnId === p.bankTxnId))).join('; ');
+              flagException('Short-Pay', inv.invoiceId, `${custName} short-paid ${inv.invoiceNumber} by ${fmtMoney(shortage)} (${bankRefs})`, shortage, { date: inv.dueDate, customer: custName, confidence: 90 });
+            }
           } else {
             unmatchedInvoices.push(inv);
           }
@@ -2164,13 +2167,16 @@
           if (i > 0) return `<tr class="border-b border-line-soft">${invoiceCell}</tr>`;
           const ruleName = m.ruleName || 'Manual match';
           const idMethod = arIdentificationMethodFor(res, m.paymentId);
-          const firstPayId = String(m.paymentId || '').split(',')[0].trim();
+          const payIds = String(m.paymentId || '').split(',').map(s => s.trim());
+          const firstPayId = payIds[0];
           const pay = (res.payments || []).find(p => p.paymentId === firstPayId);
+          const payTotal = payIds.reduce((s, pid) => { const py = (res.payments || []).find(p => p.paymentId === pid); return s + (py ? py.totalReceived : 0); }, 0);
           const idDetailLines = arIdentificationFieldCompareLines(res, pay);
           return `<tr class="border-b border-line-soft">
         ${invoiceCell}
         <td class="px-3 py-2.5" rowspan="${group.length}">
           <div class="mono text-[12px] text-ink-soft">${m.paymentId}</div>
+          <div class="mono text-[12.5px] font-medium mt-0.5">${fmtMoney(payTotal)}</div>
           <div class="mt-1">${statusPill('matched')}</div>
           ${m.overage ? `<div class="mono text-[11px] text-ok-ink mt-1">+${fmtMoney(m.overage)} on account</div>` : ''}
         </td>
