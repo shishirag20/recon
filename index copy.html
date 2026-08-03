@@ -325,6 +325,31 @@
         display: none !important;
       }
     }
+
+    .rc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    @media (max-width: 820px) { .rc-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .rc-grid { grid-template-columns: 1fr; } }
+
+    .rc-card {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 11px;
+      padding: 16px; cursor: pointer; transition: box-shadow .12s, transform .12s;
+      border-top: 3px solid var(--stripe, var(--line));
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .rc-card:hover { box-shadow: 0 6px 16px rgba(16, 19, 26, .08), 0 2px 4px rgba(16, 19, 26, .05); transform: translateY(-1px); }
+
+    .rc-ring {
+      width: 44px; height: 44px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      background: conic-gradient(var(--ring-color, var(--ok)) calc(var(--pct, 0) * 1%), var(--sunken) 0);
+    }
+    .rc-ring.idle { background: var(--sunken); border: 2px dashed var(--line); }
+    .rc-ring-inner { width: 32px; height: 32px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--ink); }
+    .rc-ring.idle .rc-ring-inner { color: var(--faint); font-weight: 600; background: transparent; }
+
+    .rc-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+    .rc-stats .k { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; margin-bottom: 2px; }
+    .rc-stats .v { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+    .rc-stats .v.warn { color: var(--warn-ink); }
   </style>
 </head>
 
@@ -1763,7 +1788,7 @@
 
       <div class="p-2.5 space-y-0.5 flex-1 overflow-y-auto">
         ${navItem(r.name === 'ingestion', 'goto', 'data-r="ingestion"', 'bank', 'Data hub')}
-        ${navItem(r.name === 'reconciliation', 'goto', 'data-r="reconciliation"', 'merge', 'Reconciliation')}
+        ${navItem(r.name === 'reconciliations', 'goto', 'data-r="reconciliations"', 'merge', 'Reconciliation')}
         ${navItem(r.name === 'reports', 'goto', 'data-r="reports"', 'report', 'Reports')}
       </div>
       <div class="p-2.5 border-t border-line">
@@ -1921,6 +1946,39 @@
       if (res.rate >= 90) return 'In progress';
       return 'Needs resolution';
     }
+    // Card for the "All reconciliations" grid — one per DB.recs entry. recStatus() is the single
+    // source of truth for status text (also used by My Work etc.); this only maps that text to a
+    // chip/ring/stripe color, it never re-derives status from res.rate/res.breaks independently.
+    // No red/"bad" tier: recStatus() only ever computes three real states (idle/ok/warn) — the due
+    // date rendered below is placeholder data (not a real schema field), so nothing here can
+    // legitimately compute "overdue" yet. Status is always shown as chip text, never color alone,
+    // since --warn and --bad are too close for colorblind-safe separation on hue alone.
+    function arReconCard(rc, res) {
+      const status = recStatus(rc, res);
+      const styleFor = {
+        'Not run yet': { chipCls: '', ring: 'var(--faint)', stripe: 'var(--line)', label: 'Not run' },
+        'Review ready': { chipCls: 'bg-ok-soft text-ok-ink border-ok-soft', ring: 'var(--ok)', stripe: 'var(--ok)', label: 'Ready' },
+        'In progress': { chipCls: 'bg-warn-soft text-warn-ink border-warn-soft', ring: 'var(--warn)', stripe: 'var(--warn)', label: 'In progress' },
+        'Needs resolution': { chipCls: 'bg-warn-soft text-warn-ink border-warn-soft', ring: 'var(--warn)', stripe: 'var(--warn)', label: 'Needs resolution' },
+      }[status];
+      const ring = rc.lastRun
+        ? `<div class="rc-ring" style="--pct:${res.rate}; --ring-color:${styleFor.ring};"><div class="rc-ring-inner">${Math.round(res.rate)}%</div></div>`
+        : `<div class="rc-ring idle"><div class="rc-ring-inner">—</div></div>`;
+      return `<div class="rc-card" style="--stripe:${styleFor.stripe};" data-act="open-recon" data-id="${rc.id}">
+        <div class="flex items-start gap-3">
+          ${ring}
+          <div class="flex-1"><div class="font-semibold text-[14px]">${esc(rc.name)}</div><div class="text-[11.5px] text-faint mt-0.5">${TYPE_META[rc.type].label} · Meridian India</div></div>
+          <span class="chip ${styleFor.chipCls} ml-auto">${esc(styleFor.label)}</span>
+        </div>
+        <div class="rc-stats">
+          <div><div class="k">Open exceptions</div><div class="v ${rc.lastRun && res.breaks.length ? 'warn' : ''}">${rc.lastRun ? res.breaks.length : '—'}</div></div>
+          <div><div class="k">Unreconciled</div><div class="v ${rc.lastRun && res.breaks.length ? 'warn' : ''} mono">${rc.lastRun ? fmtMoney(res.breakVal) : '—'}</div></div>
+          <div><div class="k">Owner</div><div class="v">${esc(rc.owner)}</div></div>
+          <div><div class="k">Due</div><div class="v">Jul ${20 + (rc.name.length % 5)}</div></div>
+        </div>
+        <div class="flex items-center justify-between text-[11.5px] text-muted"><span>${esc(rc.cadence)}</span><span>${rc.lastRun ? 'Last run ' + rc.lastRun.at.slice(0, 10) : 'Never run'}</span></div>
+      </div>`;
+    }
     function viewMyWork() {
       const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
       const mine = all.filter(x => x.rc.owner === DB.user.name);
@@ -1946,8 +2004,11 @@
     <div class="grid grid-cols-2 gap-5"><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting for your review</div>${all.filter(x => x.rc.lastRun && x.res.rate >= 90).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full bg-ok"></span><span class="flex-1 font-medium">${esc(x.rc.name)}</span><span class="mono text-[12px] text-muted">${x.res.rate}%</span></button>`).join('') || '<div class="text-[12px] text-faint text-center py-4">Nothing run yet</div>'}</div><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting on others</div>${all.filter(x => x.rc.owner !== DB.user.name).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full ${x.res.breaks.length ? 'bg-warn' : 'bg-ok'}"></span><span class="flex-1"><span class="block font-medium">${esc(x.rc.name)}</span><span class="block text-[11px] text-faint">${esc(x.rc.owner)}</span></span><span class="mono text-[12px] text-muted">${x.res.breaks.length} open</span></button>`).join('')}</div></div></div>`;
     }
     function viewReconciliations() {
-      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }));
-      return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="flex items-center gap-2 mb-4"><div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input class="field pl-9" placeholder="Search reconciliations"></div><button class="btn btn-ghost">${icon('filter', 'w-4 h-4')}Filters</button><button class="btn btn-ghost">Saved views</button></div><div class="card overflow-hidden"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Name</th><th class="px-3 py-2">Type / entity</th><th class="px-3 py-2">Owner · reviewer</th><th class="px-3 py-2">Status</th><th class="px-3 py-2 text-right">Match rate</th><th class="px-3 py-2 text-right">Open exceptions</th><th class="px-3 py-2 text-right">Unreconciled value</th><th class="px-4 py-2 text-right">Due</th></tr></thead><tbody>${all.map(({ rc, res }) => `<tr class="border-b border-line-soft row-hover cursor-pointer" data-act="open-recon" data-id="${rc.id}"><td class="px-4 py-3"><div class="font-semibold">${esc(rc.name)}</div><div class="text-[11px] text-faint">${rc.cadence} · ${rc.lastRun ? 'last run ' + rc.lastRun.at.slice(0, 10) : 'never run'}</div></td><td class="px-3 py-3"><div>${TYPE_META[rc.type].label}</div><div class="text-[11px] text-faint">Meridian India</div></td><td class="px-3 py-3"><div>${esc(rc.owner)}</div><div class="text-[11px] text-faint">Reviewer · Alex Rivera</div></td><td class="px-3 py-3"><span class="chip ${!rc.lastRun ? '' : res.breaks.length ? 'bg-warn-soft text-warn-ink border-warn-soft' : 'bg-ok-soft text-ok-ink border-ok-soft'}">${recStatus(rc, res)}</span></td><td class="px-3 py-3 text-right mono font-semibold ${!rc.lastRun ? 'text-faint' : res.rate >= 95 ? 'text-ok-ink' : 'text-warn-ink'}">${rc.lastRun ? res.rate + '%' : '—'}</td><td class="px-3 py-3 text-right mono ${rc.lastRun ? '' : 'text-faint'}">${rc.lastRun ? res.breaks.length : '—'}</td><td class="px-3 py-3 text-right mono ${rc.lastRun ? '' : 'text-faint'}">${rc.lastRun ? fmtMoney(res.breakVal) : '—'}</td><td class="px-4 py-3 text-right text-muted">Jul ${20 + ((rc.name.length) % 5)}</td></tr>`).join('')}</tbody></table></div></div>`;
+      // AR Reconciliation surfaced first — it's the primary, actively-developed reconciliation type;
+      // relative order of everything else is left untouched (stable sort).
+      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }))
+        .sort((a, b) => (a.rc.type === 'ar-reconciliation' ? -1 : b.rc.type === 'ar-reconciliation' ? 1 : 0));
+      return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="flex items-center gap-2 mb-4"><div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input class="field pl-9" placeholder="Search reconciliations"></div><button class="btn btn-ghost">${icon('filter', 'w-4 h-4')}Filters</button><button class="btn btn-ghost">Saved views</button></div><div class="rc-grid">${all.map(({ rc, res }) => arReconCard(rc, res)).join('')}</div></div>`;
     }
     function viewTransactions() {
       const txnStatus = (rc, r) => { const e = getEngineResult(rc); if (r.resolution) return 'resolved'; if (e.matched.some(m => m.aId === r.id || m.bId === r.id)) return 'matched'; if (e.suggested.some(m => m.aId === r.id || m.bId === r.id)) return 'suggested'; return 'break'; };
