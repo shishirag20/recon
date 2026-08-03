@@ -5126,22 +5126,15 @@
           const custName = ((res.customers || []).find(c => c.customerId === cid) || {}).companyName || cid;
           outcome = `Assigned unapplied payment to candidate customer ${custName}`;
           resolutionNote = note || outcome;
-        } else if (val.startsWith('manual-')) {
-          const invId = val.slice(7);
-          rec.arManualMatches = rec.arManualMatches || [];
-          const invNum = (res.invoices.find(i => i.invoiceId === invId) || {}).invoiceNumber || invId;
-          outcome = `Manually reassigned to invoice ${invNum}`;
-          resolutionNote = note || outcome;
         } else if (val === 'manual-select') {
           const invIds = [...document.querySelectorAll('input[data-ar-suspense-manual-inv]:checked')].map(el => el.value);
           if (!invIds.length) { toast('Select at least one invoice to match', 'bad'); return; }
-          rec.arManualMatches = rec.arManualMatches || [];
-          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: invIds, paymentIds: [exc.relatedId], note: note || 'Manually matched multiple', at });
           const invNums = invIds.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
           outcome = `Manually matched to ${invNums.join(', ')}`;
           resolutionNote = note || outcome;
-          arCarryLinkedResolutions(rec, res, [invId], resolutionNote, note, at);
-          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: [exc.relatedId], note: note || 'Manually reassigned', at });
+          rec.arManualMatches = rec.arManualMatches || [];
+          arCarryLinkedResolutions(rec, res, invIds, resolutionNote, note, at);
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: invIds, paymentIds: [exc.relatedId], note: note || 'Manually matched multiple', at });
         } else if (val === 'gl-suspense') {
           outcome = 'Mapped to Suspense GL';
           resolutionNote = note || outcome;
