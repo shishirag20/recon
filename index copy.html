@@ -470,16 +470,26 @@
     // resort) — nothing else about that row points at Acme.
     function genARData() {
       const customers = [
-        { customerId: 'CUST-001', companyName: 'Acme Corp', paymentTerms: 'Net 30', creditLimit: 5000000, currencyCode: 'USD',
-          customerCode: 'ACME01', pan: 'AAAPL1234C', gstin: '27AAAPL1234C1Z5', defaultBankAccount: '000112223301', defaultIFSC: 'HDFC0000123', upiHandle: 'acmecorp@hdfcbank', expectedUTR: '' },
-        { customerId: 'CUST-002', companyName: 'Globex Inc', paymentTerms: 'Net 15', creditLimit: 2500000, currencyCode: 'USD',
-          customerCode: 'GLBX02', pan: 'AAACG5678D', gstin: '29AAACG5678D1Z3', defaultBankAccount: '000445566702', defaultIFSC: 'ICIC0000456', upiHandle: 'globex@icici', expectedUTR: '' },
-        { customerId: 'CUST-003', companyName: 'Stark Industries', paymentTerms: 'Net 30', creditLimit: 10000000, currencyCode: 'USD',
-          customerCode: 'STRK03', pan: 'AAACS9012E', gstin: '06AAACS9012E1Z7', defaultBankAccount: '000778899003', defaultIFSC: 'SBIN0000789', upiHandle: 'stark@sbi', expectedUTR: '' },
-        { customerId: 'CUST-004', companyName: 'Apex Logistics', paymentTerms: 'Net 30', creditLimit: 3000000, currencyCode: 'USD',
-          customerCode: 'APEX04', pan: 'AAACA3456F', gstin: '33AAACA3456F1Z1', defaultBankAccount: '000112233404', defaultIFSC: 'AXIS0000321', upiHandle: 'apexlog@axis', expectedUTR: '' },
-        { customerId: 'CUST-005', companyName: 'Umbrella Corporation', paymentTerms: 'Net 45', creditLimit: 4000000, currencyCode: 'USD',
-          customerCode: 'UMBR05', pan: 'AAACU7890G', gstin: '19AAACU7890G1Z9', defaultBankAccount: '000998877505', defaultIFSC: 'KKBK0000654', upiHandle: 'umbrella@kotak', expectedUTR: 'UTR-ADV-2299' },
+        {
+          customerId: 'CUST-001', companyName: 'Acme Corp', paymentTerms: 'Net 30', creditLimit: 5000000, currencyCode: 'USD',
+          customerCode: 'ACME01', pan: 'AAAPL1234C', gstin: '27AAAPL1234C1Z5', defaultBankAccount: '000112223301', defaultIFSC: 'HDFC0000123', upiHandle: 'acmecorp@hdfcbank', expectedUTR: ''
+        },
+        {
+          customerId: 'CUST-002', companyName: 'Globex Inc', paymentTerms: 'Net 15', creditLimit: 2500000, currencyCode: 'USD',
+          customerCode: 'GLBX02', pan: 'AAACG5678D', gstin: '29AAACG5678D1Z3', defaultBankAccount: '000445566702', defaultIFSC: 'ICIC0000456', upiHandle: 'globex@icici', expectedUTR: ''
+        },
+        {
+          customerId: 'CUST-003', companyName: 'Stark Industries', paymentTerms: 'Net 30', creditLimit: 10000000, currencyCode: 'USD',
+          customerCode: 'STRK03', pan: 'AAACS9012E', gstin: '06AAACS9012E1Z7', defaultBankAccount: '000778899003', defaultIFSC: 'SBIN0000789', upiHandle: 'stark@sbi', expectedUTR: ''
+        },
+        {
+          customerId: 'CUST-004', companyName: 'Apex Logistics', paymentTerms: 'Net 30', creditLimit: 3000000, currencyCode: 'USD',
+          customerCode: 'APEX04', pan: 'AAACA3456F', gstin: '33AAACA3456F1Z1', defaultBankAccount: '000112233404', defaultIFSC: 'AXIS0000321', upiHandle: 'apexlog@axis', expectedUTR: ''
+        },
+        {
+          customerId: 'CUST-005', companyName: 'Umbrella Corporation', paymentTerms: 'Net 45', creditLimit: 4000000, currencyCode: 'USD',
+          customerCode: 'UMBR05', pan: 'AAACU7890G', gstin: '19AAACU7890G1Z9', defaultBankAccount: '000998877505', defaultIFSC: 'KKBK0000654', upiHandle: 'umbrella@kotak', expectedUTR: 'UTR-ADV-2299'
+        },
       ];
       const invoices = [
         { invoiceId: 'INV-101', customerId: 'CUST-001', invoiceNumber: 'INV-2026-001', issueDate: '2026-06-01', dueDate: '2026-07-01', totalAmount: 100000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
@@ -683,10 +693,12 @@
     const AR_RULE_KINDS = {
       'customer-lock': [
         { kind: 'dup-utr', label: 'Duplicate transaction reference check', usesCond: false, fields: 'Bank reference number (UTR) ↔ every other bank reference number in this run' },
-        { kind: 'expected-utr', label: 'Expected UTR match', usesCond: false, fieldsConfigurable: true, matchModeOptions: [
-          { value: 'exact', label: 'Exact match — reference must equal the expected UTR exactly' },
-          { value: 'contains', label: 'Contains — reference may include the expected UTR alongside other bank text' },
-        ] },
+        {
+          kind: 'expected-utr', label: 'Expected UTR match', usesCond: false, fieldsConfigurable: true, matchModeOptions: [
+            { value: 'exact', label: 'Exact match — reference must equal the expected UTR exactly' },
+            { value: 'contains', label: 'Contains — reference may include the expected UTR alongside other bank text' },
+          ]
+        },
         { kind: 'account-ifsc', label: 'Payer account + IFSC match', usesCond: false, fieldsConfigurable: true },
         { kind: 'upi', label: 'UPI handle match', usesCond: false, fieldsConfigurable: true },
         { kind: 'customer-code', label: 'Customer code in narration', usesCond: false, fieldsConfigurable: true },
@@ -1164,7 +1176,7 @@
       const upCustomers = stagedRowsForCategory('Customers');
       const upInvoices = stagedRowsForCategory('SL');
       const upBank = stagedRowsForCategory('Bank Statements');
-      
+
       // If no uploads exist, return "reconciled" status instead of running on seed data
       if (!upCustomers.length && !upInvoices.length && !upBank.length) {
         return {
@@ -1430,7 +1442,7 @@
         // residual too small to be worth chasing gets auto-closed instead of left open forever.
         const writeOffRule = allocRules.find(r => r.kind === 'write-off');
         if (writeOffRule) {
-          const tol =  (writeOffRule.cond && writeOffRule.cond.amount && writeOffRule.cond.amount.value) || 0;
+          const tol = (writeOffRule.cond && writeOffRule.cond.amount && writeOffRule.cond.amount.value) || 0;
           const writeOffSl = resolveSl(writeOffRule);
           payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId)).forEach(p => {
             const hit = openInvoicesFor(cid).find(inv => { const diff = writeOffSl(inv) - p.totalReceived; return diff > 0 && diff <= tol; });
@@ -1455,12 +1467,12 @@
         const partialRule = allocRules.find(r => r.kind === 'partial-payment');
         if (partialRule) {
           payments.filter(p => p.customerId === cid && !claimedPayIds.has(p.paymentId) &&
-                            !ambiguousPayIds.has(p.paymentId)).forEach(p => {
-            const pool = openInvoicesFor(cid).slice().sort((a, b) => a.dueDate < b.dueDate ? -1 : 1);
-            if (!pool.length) return;
-            claimedPayIds.add(p.paymentId); claimedInvIds.add(pool[0].invoiceId); bump(allocHitCounts, partialRule.id);
-            applyGroupToLedger({ invoiceIds: [pool[0].invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: partialRule.id, ruleName: partialRule.name, note: 'Partial payment applied' });
-          });
+            !ambiguousPayIds.has(p.paymentId)).forEach(p => {
+              const pool = openInvoicesFor(cid).slice().sort((a, b) => a.dueDate < b.dueDate ? -1 : 1);
+              if (!pool.length) return;
+              claimedPayIds.add(p.paymentId); claimedInvIds.add(pool[0].invoiceId); bump(allocHitCounts, partialRule.id);
+              applyGroupToLedger({ invoiceIds: [pool[0].invoiceId], paymentIds: [p.paymentId], auto: true, ruleId: partialRule.id, ruleName: partialRule.name, note: 'Partial payment applied' });
+            });
         }
       });
       manualGroups.forEach(g => applyGroupToLedger(g));
@@ -1890,7 +1902,7 @@
           </div>
         </div>`;
       }
-      
+
       const ar = rec.arData;
       const kpi_ = (label, value, sub) => `<div class="card p-4"><div class="lbl">${label}</div><div class="mono text-[24px] font-semibold mt-1.5 leading-none">${value}</div><div class="text-[11.5px] text-muted mt-1.5">${sub || ''}</div></div>`;
       const matchRate = (res.matched.length / (res.invoices.length + res.payments.length) * 100).toFixed(1);
@@ -2029,10 +2041,10 @@
             <div class="flex items-center gap-2 text-[12px]"><span class="text-faint w-[104px] shrink-0">IFSC</span>${fieldSelect('bankIfscField', AR_IFSC_FIELD_OPTIONS, rl.bankIfscField)}<span class="text-faint">↔</span>${fieldSelect('custIfscField', AR_IFSC_CUST_FIELD_OPTIONS, rl.custIfscField)}</div>
           </div>`
         : (() => {
-            const { bank } = arFieldOptionsFor(rl.kind);
-            const info = arSecondSourceInfo(rl);
-            const secondSourceOptions = Object.keys(info.sources).map(k => ({ key: k, label: info.sources[k].label }));
-            return `<div class="col-span-2">
+          const { bank } = arFieldOptionsFor(rl.kind);
+          const info = arSecondSourceInfo(rl);
+          const secondSourceOptions = Object.keys(info.sources).map(k => ({ key: k, label: info.sources[k].label }));
+          return `<div class="col-span-2">
               <label class="lbl block mb-1.5">Compares</label>
               <div class="flex items-end gap-3 flex-wrap">
                 <div class="flex flex-col gap-1"><span class="lbl">Source</span>${sourceSelect('bankSource', BANK_SOURCE_OPTIONS, 'bank')}</div>
@@ -2042,7 +2054,7 @@
                 <div class="flex flex-col gap-1"><span class="lbl">Field</span>${fieldSelect('secondField', info.options, rl.secondField)}</div>
               </div>
             </div>`;
-          })();
+        })();
 
       if (!meta.usesCond) {
         return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-2 gap-4 fade-in">
@@ -2363,7 +2375,7 @@
       if (!exc) return '';
       if (exc.type === 'Double Collision') return arCollisionPanel(rec, res, exc);
       if (exc.type === 'Short-Pay') return arShortPayPanel(rec, res, exc);
-      if (exc.type === 'Multiple Invoice Match') return arMultiInvoiceMatchPanel(rec, res, exc);
+      if (exc.type === 'Suspense') return arSuspensePanel(rec, res, exc);
       return AR_EXC_MATCHABLE.includes(exc.type) ? arMatchPanel(rec, res, exc) : arResolveNotePanel(rec, exc);
     }
     // Short-Pay exceptions — the invoice and linked payment(s) are deterministically known by the
@@ -2376,7 +2388,7 @@
       const inv = res.invoices.find(i => i.invoiceId === exc.relatedId);
       const sp = res.shortPays.find(s => s.invoiceId === exc.relatedId);
       if (!inv || !sp) return '';
-      
+
       // Retrieve saved resolution (if any) — shows what was previously selected
       const saved = (rec.arResolved || {})[exc.key] || { note: '', disposition: null };
 
@@ -2390,7 +2402,7 @@
           <div class="text-right"><div class="text-[12px] mono font-semibold">${fmtMoney(pay.totalReceived)}</div></div>
         </div>`;
       }).join('');
-      
+
       const summaryBlock = `<div class="bg-sunken rounded-lg p-4 mb-4">
         <div class="text-[11px] text-muted mb-2">Invoice</div>
         <div class="flex items-center justify-between mb-4">
@@ -2404,7 +2416,7 @@
           <div class="text-[11px] text-muted">Amount received: ${fmtMoney(sp.paid)}</div>
         </div>
       </div>`;
-      
+
       // Phase A: Disposition controls
       const dispositionBlock = `<div class="mb-4">
         <label class="lbl block mb-2">Disposition</label>
@@ -2423,27 +2435,27 @@
           </label>
         </div>
       </div>`;
-      
+
       // Phase A: Note textarea
       const noteBlock = `<div class="mb-4">
         <label class="lbl block mb-1.5">Note</label>
         <textarea id="ar-shortpay-note" class="field h-16 resize-none" placeholder="Additional context (optional)">${esc(saved.note || '')}</textarea>
       </div>`;
-      
+
       // Phase B: "Apply another payment" section — scoped to same customer's unapplied payments
-      const otherPayments = res.payments.filter(p => 
-        p.customerId === inv.customerId && 
-        p.unappliedAmount > 0 && 
+      const otherPayments = res.payments.filter(p =>
+        p.customerId === inv.customerId &&
+        p.unappliedAmount > 0 &&
         !payIds.includes(p.paymentId)
       );
-      
+
       const extraPaymentRows = otherPayments.map(p => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
         <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-shortpay-extra-pay value="${esc(p.paymentId)}"></td>
         <td class="px-3 py-2 font-medium">${esc(p.paymentId)}</td>
         <td class="px-3 py-2 text-muted">${esc(custName(p.customerId))}</td>
         <td class="px-3 py-2 text-right mono">${fmtMoney(p.totalReceived)}</td>
         <td class="px-3 py-2 text-right mono text-warn-ink">${fmtMoney(p.unappliedAmount)}</td></tr>`).join('');
-      
+
       const extraPaymentBlock = `<div class="border border-line rounded-lg mb-4 bg-surface">
         <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-shortpay-extra" ${DB.ui && DB.ui.arShortPayShowExtra ? 'aria-expanded="true"' : ''}>
           <span>Apply another payment to cover shortfall</span>
@@ -2454,7 +2466,7 @@
           <div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Payment</th><th class="px-3 py-1.5">Payer</th><th class="px-3 py-1.5 text-right">Received</th><th class="px-3 py-1.5 text-right">Unapplied</th></tr></thead><tbody>${extraPaymentRows || `<tr><td colspan="5" class="px-3 py-6 text-center text-muted">No payments</td></tr>`}</tbody></table></div>` : `<div class="text-[12px] text-muted py-4 text-center">No other unapplied payments for this customer.</div>`}
         </div>` : ''}
       </div>`;
-      
+
       // Phase C: "Reassign match" escape hatch — reuse arMatchPanel's row generation
       const preInv = exc.relatedId;
       const prePay = payIds[0] || '';
@@ -2469,7 +2481,7 @@
         <td class="px-3 py-2 text-muted">${esc(p.customerId ? custName(p.customerId) : 'Unknown payer')}</td>
         <td class="px-3 py-2 text-right mono">${fmtMoney(p.totalReceived)}</td>
         <td class="px-3 py-2 text-right mono ${p.unappliedAmount ? 'text-warn-ink' : 'text-faint'}">${p.unappliedAmount ? fmtMoney(p.unappliedAmount) : '—'}</td></tr>`).join('');
-      
+
       const reassignBlock = `<div class="border border-line rounded-lg bg-surface">
         <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-shortpay-reassign" ${DB.ui && DB.ui.arShortPayShowReassign ? 'aria-expanded="true"' : ''}>
           <span>Not the right match? Reassign</span>
@@ -2483,7 +2495,7 @@
           </div>
         </div>` : ''}
       </div>`;
-      
+
       return `<div class="card overflow-hidden" data-ar-exc-panel>
         <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve short-pay exception</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
         <div class="p-4">
@@ -2535,44 +2547,100 @@
         </div>
       </div>`;
     }
-    // Multiple Invoice Match — customer and payment are both already known; the only ambiguity is
-    // which of that customer's own open invoices (tied on exact amount) it settles. Radio-select
-    // among the tied invoices, oldest-due pre-selected as the FIFO fallback convention, with an
-    // escape hatch to any of the customer's other open invoices in case the true answer isn't
-    // among the amount-tied set at all (data entry error, coincidental tie, etc.).
-    function arMultiInvoiceMatchPanel(rec, res, exc) {
-      const pay = (res.payments || []).find(p => p.paymentId === exc.relatedId);
-      if (!pay) return arResolveNotePanel(rec, exc);
-      const custId = pay.customerId;
-      const custName = ((res.customers || []).find(c => c.customerId === custId) || {}).companyName || 'Unknown';
-      const tiedIds = new Set(exc.ambiguousInvoiceIds || []);
-      const byDueDate = (a, b) => a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0;
-      const tied = res.invoices.filter(i => tiedIds.has(i.invoiceId)).slice().sort(byDueDate);
-      const others = res.invoices.filter(i => i.customerId === custId && i.status !== 'Paid' && !tiedIds.has(i.invoiceId)).slice().sort(byDueDate);
-      const daysOverdue = due => { const d = Math.floor((new Date(todayISO()) - new Date(due)) / 86400000); return d > 0 ? `${d}d overdue` : 'Not yet due'; };
-      const optionRow = (inv, isDefault) => `<label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
-        <input type="radio" name="ar-multiinv-radio" data-ar-multiinv value="${esc(inv.invoiceId)}" ${isDefault ? 'checked' : ''}>
-        <div class="flex-1"><div class="font-medium text-[13px]">${esc(inv.invoiceNumber)}</div><div class="text-[11.5px] text-muted">Due ${fmtDate(inv.dueDate)} · ${daysOverdue(inv.dueDate)}</div></div>
-        <div class="text-right mono text-[13px] font-semibold">${fmtMoney(inv.effectiveBalance)}</div></label>`;
-      const tiedBlock = tied.map((inv, i) => optionRow(inv, i === 0)).join('');
-      const othersBlock = others.map(inv => optionRow(inv, false)).join('');
-      return `<div class="card overflow-hidden">
-        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve multiple invoice match</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
-        <div class="p-4">
-        <div class="text-[11.5px] text-muted mb-3">${esc(custName)}'s payment ${esc(pay.paymentId)} (${fmtMoney(pay.totalReceived)}) exactly matches more than one open invoice — pick which one it settles. The oldest-due invoice is pre-selected as a FIFO suggestion; confirm it or pick a different one.</div>
-        <div class="space-y-2 mb-4">${tiedBlock || `<div class="text-center text-muted py-6">No tied invoices remain open.</div>`}</div>
-        <div class="border border-line rounded-lg bg-surface mb-4">
-          <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-multiinv-other" ${DB.ui && DB.ui.arMultiInvShowOther ? 'aria-expanded="true"' : ''}>
-            <span>Not one of these — choose a different open invoice</span>
-            <span class="text-muted transition-transform ${DB.ui && DB.ui.arMultiInvShowOther ? 'rotate-180' : ''}">▼</span>
-          </button>
-          ${DB.ui && DB.ui.arMultiInvShowOther ? `<div class="border-t border-line p-4 space-y-2">
-            ${others.length ? othersBlock : `<div class="text-[12px] text-muted py-4 text-center">No other open invoices for ${esc(custName)}.</div>`}
-          </div>` : ''}
+    // Suspense — Unidentified payment resolution. Provides clear context from the bank, likely
+    // matches or candidate pools, and fallback options (manual match or GL).
+    function arSuspensePanel(rec, res, exc) {
+      const pay = res.payments.find(p => p.paymentId === exc.relatedId);
+      if (!pay) return '';
+      const bs = res.bankStatements.find(b => b.bankTxnId === pay.bankTxnId) || {};
+      const custName = id => ((res.customers || []).find(c => c.customerId === id) || {}).companyName || 'Unknown';
+
+      const suggestedInvId = exc.suggestedInvoiceId;
+      const suggestedCustId = exc.suggestedCustomerId;
+
+      // Payment details block
+      const paymentBlock = `<div class="bg-sunken rounded-lg p-4 mb-4">
+        <div class="text-[11px] text-muted mb-2">Unidentified Payment</div>
+        <div class="flex items-center justify-between mb-2">
+          <div><div class="text-[13px] font-semibold">${esc(bs.payerName || 'Unknown Payer')}</div><div class="text-[11.5px] text-muted">${esc(pay.paymentId)} · Bank Ref: ${esc(bs.bankTxnId)}</div></div>
+          <div class="text-right mono text-[13px] font-semibold text-warn-ink">${fmtMoney(pay.totalReceived)}</div>
         </div>
-        <label class="lbl block mb-1.5">Note</label>
-        <textarea id="ar-multiinv-note" class="field h-16 resize-none mb-4" placeholder="How this was confirmed (e.g. remittance advice, customer confirmed, applied FIFO pending confirmation)"></textarea>
-        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-resolve-multi-invoice" data-id="${rec.id}" data-key="${esc(exc.key)}" data-pay="${esc(exc.relatedId)}" class="btn btn-primary" ${(tied.length || others.length) ? '' : 'disabled'}>${icon('check', 'w-4 h-4')}Confirm invoice</button></div>
+        ${bs.narration ? `<div class="text-[11.5px] text-ink-soft bg-surface border border-line rounded px-3 py-2 mt-3"><span class="text-muted mr-2">Bank Narration:</span>${esc(bs.narration)}</div>` : ''}
+      </div>`;
+
+      let suggestionBlock = '';
+      if (suggestedInvId && suggestedCustId) {
+        const inv = res.invoices.find(i => i.invoiceId === suggestedInvId);
+        suggestionBlock = `<div class="mb-4">
+          <div class="lbl mb-2">Likely Match (Exact Amount)</div>
+          <div class="text-[11.5px] text-muted mb-2">An exact amount match was found, but identity wasn't independently confirmed. Review and confirm below.</div>
+          <label class="border border-line rounded-lg p-3 hover:bg-sunken/40 cursor-pointer flex items-center gap-3">
+             <input type="radio" name="ar-suspense-action" value="suggested" class="radio" checked>
+             <div class="flex-1">
+               <div class="font-medium text-[13px]">${esc(custName(suggestedCustId))}</div>
+               <div class="text-[11.5px] text-muted">Invoice ${esc(inv ? inv.invoiceNumber : suggestedInvId)}</div>
+             </div>
+             <div class="text-right mono text-[13px] font-semibold">${fmtMoney(inv ? inv.effectiveBalance : pay.totalReceived)}</div>
+          </label>
+        </div>`;
+      } else if (pay.candidatePool && pay.candidatePool.length) {
+        const poolRows = pay.candidatePool.map((cid, i) => {
+          const invs = res.invoices.filter(inv => inv.customerId === cid && inv.status !== 'Paid');
+          const totalDue = invs.reduce((sum, inv) => sum + inv.effectiveBalance, 0);
+          return `<label class="flex items-start gap-3 p-3 border-b border-line-soft last:border-0 hover:bg-sunken/40 cursor-pointer">
+             <input type="radio" name="ar-suspense-action" value="pool-${esc(cid)}" class="radio mt-0.5" ${i === 0 ? 'checked' : ''}>
+             <div class="flex-1">
+               <div class="font-medium text-[13px]">${esc(custName(cid))}</div>
+               <div class="text-[11.5px] text-muted">${invs.length} open invoices (${fmtMoney(totalDue)} total due)</div>
+             </div>
+           </label>`;
+        }).join('');
+        suggestionBlock = `<div class="mb-4">
+          <div class="lbl mb-2">Candidate Customers</div>
+          <div class="text-[11.5px] text-muted mb-2">Found ${pay.candidatePool.length} possible customers based on name similarity, but no exact invoice match. Apply payment to their account as unapplied cash.</div>
+          <div class="border border-line rounded-lg bg-surface overflow-hidden">
+            ${poolRows}
+          </div>
+        </div>`;
+      }
+
+      // We still need the manual picker as a fallback (like "Reassign" in ShortPay)
+      const invRows = res.invoices.map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+        <td class="px-3 py-2 w-8"><input type="radio" name="ar-suspense-action" class="radio" value="manual-${esc(inv.invoiceId)}"></td>
+        <td class="px-3 py-2 font-medium">${esc(inv.invoiceNumber)}</td>
+        <td class="px-3 py-2 text-muted">${esc(custName(inv.customerId))}</td>
+        <td class="px-3 py-2 text-right mono">${fmtMoney(inv.effectiveBalance)}</td></tr>`).join('');
+
+      const fallbackBlock = `<div class="border border-line rounded-lg mb-4 bg-surface">
+        <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-suspense-manual" ${DB.ui && DB.ui.arSuspenseShowManual ? 'aria-expanded="true"' : ''}>
+          <span>Match to a different invoice</span>
+          <span class="text-muted transition-transform ${DB.ui && DB.ui.arSuspenseShowManual ? 'rotate-180' : ''}">▼</span>
+        </button>
+        ${DB.ui && DB.ui.arSuspenseShowManual ? `<div class="border-t border-line p-4">
+          <div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Invoice</th><th class="px-3 py-1.5">Customer</th><th class="px-3 py-1.5 text-right">Amount</th></tr></thead><tbody>${invRows || `<tr><td colspan="4" class="px-3 py-6 text-center text-muted">No invoices</td></tr>`}</tbody></table></div>
+        </div>` : ''}
+      </div>`;
+
+      const glBlock = `<div class="mb-4">
+        <label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
+           <input type="radio" name="ar-suspense-action" value="gl-suspense" class="radio" ${!suggestedInvId && !(pay.candidatePool && pay.candidatePool.length) ? 'checked' : ''}>
+           <div class="flex-1">
+             <div class="font-medium text-[13px]">Post to Suspense / Unidentified Cash GL</div>
+             <div class="text-[11.5px] text-muted">Leave on ledger as an unapplied generic credit</div>
+           </div>
+        </label>
+      </div>`;
+
+      return `<div class="card overflow-hidden" data-ar-exc-panel>
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve Unidentified Payment</div><div class="text-[11.5px] text-muted">Suspense Exception</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        ${paymentBlock}
+        ${suggestionBlock}
+        ${fallbackBlock}
+        ${glBlock}
+        <label class="lbl block mb-1.5 mt-4">Note</label>
+        <textarea id="ar-suspense-note" class="field h-16 resize-none mb-1" placeholder="Why this was mapped here..."></textarea>
+        <div class="flex justify-end gap-2 mt-4"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-save-suspense" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Resolve</button></div>
         </div>
       </div>`;
     }
@@ -2803,7 +2871,7 @@
       const matchedVal = res.matches.reduce((s, m) => s + m.amount, 0) + res.overpays.reduce((s, m) => s + m.amount, 0);
       const gl = res.glControlBalances;
       const table = (title, headers, rows) => `<h3>${title}</h3><table border="1"><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map(c => `<td>${String(c == null ? '' : c).replace(/</g, '&lt;')}</td>`).join('')}</tr>`).join('')}</table>`;
-      const html = `<html><head><title>${esc(rec.name)} — Summary</title></head><body>
+      const html = `\u003chtml\u003e\u003chead\u003e\u003ctitle\u003e${esc(rec.name)} — Summary\u003c/title\u003e\u003c/head\u003e\u003cbody\u003e
         <h2>${esc(rec.name)} — AR Reconciliation Summary</h2>
         <p>${isSignedOff ? 'Signed off' : 'Not yet signed off'} · ${finishedAt.replace('T', ' ')} · Executed by ${esc(DB.user.name)}</p>
         ${table('Executive summary', ['Opening AR', 'Collections matched', 'Closing balance'], [[fmtMoney(openingAR), '-' + fmtMoney(matchedVal), fmtMoney(openingAR - matchedVal)]])}
@@ -2812,7 +2880,7 @@
         ${table('Resolution & exception audit register', ['Exception ID', 'Type', 'Related record', 'Resolution', 'User', 'Timestamp'], res.exceptions.filter(e => arIsResolvedStatus(e.status)).map(e => { const r = (rec.arResolved || {})[e.key] || {}; return [e.id, e.type, e.relatedId, r.note || '', DB.user.name, (r.at || '').replace('T', ' ')]; }))}
         ${table('Customer identification audit', ['Bank txn', 'Payer', 'Outcome', 'Compared fields'], res.bankStatements.map(bs => { const p = (res.payments || []).find(x => x.bankTxnId === bs.bankTxnId); const outcome = bs.isBankCharge ? 'Standalone charge' : (p && p.duplicateFlag) ? 'Duplicate' : (p && p.lockedBy) ? p.lockedBy.name : (p && p.customerId) ? 'Candidate pool' : 'Not identified'; return [bs.bankTxnId, bs.payerName, outcome, arIdentificationFieldCompareLines(res, p).join('; ')]; }))}
         <p>Audit run hash (SHA-256): ${runHash || 'Computed at sign-off'}</p>
-        </body></html>`;
+        \u003c/body\u003e\u003c/html\u003e`;
       downloadBlob(`${rec.name.replace(/[^a-zA-Z0-9]/g, '_')}-summary.xls`, 'application/vnd.ms-excel', html);
       logAudit('Exported summary', `${rec.name} · Excel workbook`);
       toast('Excel workbook exported');
@@ -3801,7 +3869,7 @@
         // category's sample rows so the flow still completes, clearly not the real file's content.
         // const sample = CATEGORY_SAMPLE_DATA[selSource] || CATEGORY_SAMPLE_DATA['Bank Statements'];
         // const headers = CATEGORY_DEFAULT_HEADERS[selSource] || CATEGORY_DEFAULT_HEADERS['GL'];
-        
+
         const categoryMap = { 'GL': 'gl', 'SL': 'invoices', 'Bank Statements': 'bankStatements', 'Customers': 'customers' };
         const dbKey = categoryMap[selSource];
         const sample = DB[dbKey] || [];
@@ -4754,14 +4822,15 @@
       'ar-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.arMatchStream = d.stream; render(); },
       'rep-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.repMatchStream = d.stream; render(); },
       'open-mapping-modal': d => openMappingModal(d.file, d.source),
-      'ar-open-exception': d => { DB.ui = DB.ui || {}; 
-      DB.ui.arActiveException = DB.ui.arActiveException === d.key ? null : d.key; 
-      render(); 
-      // Scroll to the panel after rendering
-      setTimeout(() => {
-        const panel = document.querySelector('[data-ar-exc-panel]');
-        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 0);
+      'ar-open-exception': d => {
+        DB.ui = DB.ui || {};
+        DB.ui.arActiveException = DB.ui.arActiveException === d.key ? null : d.key;
+        render();
+        // Scroll to the panel after rendering
+        setTimeout(() => {
+          const panel = document.querySelector('[data-ar-exc-panel]');
+          if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 0);
       },
       'ar-close-exception': () => { DB.ui = DB.ui || {}; DB.ui.arActiveException = null; render(); },
       'ar-save-manual-match': d => {
@@ -4788,17 +4857,39 @@
         logAudit('Resolved AR exception', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
-      'ar-reopen-exception': d => {
+      'ar-save-suspense': d => {
         const rec = getRec(d.id); if (!rec) return;
-        const existing = ((rec.arResolved || {})[d.key] || {});
+        const res = getEngineResult(rec);
+        const exc = res.exceptions.find(e => e.key === d.key);
+        if (!exc) return;
+        const action = document.querySelector('input[name="ar-suspense-action"]:checked');
+        if (!action) { toast('Pick a resolution action', 'bad'); return; }
+        const note = ($('#ar-suspense-note') && $('#ar-suspense-note').value) || '';
+        const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+
+        let resolutionNote = note;
+        const val = action.value;
+        if (val === 'suggested') {
+          if (!exc.suggestedInvoiceId) return;
+          rec.arManualMatches = rec.arManualMatches || [];
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [exc.suggestedInvoiceId], paymentIds: [exc.relatedId], note: note || 'Confirmed suggested match', at });
+          resolutionNote = note || 'Confirmed suggested match';
+        } else if (val.startsWith('pool-')) {
+          const cid = val.slice(5);
+          resolutionNote = note || 'Assigned to candidate customer ' + cid;
+        } else if (val.startsWith('manual-')) {
+          const invId = val.slice(7);
+          rec.arManualMatches = rec.arManualMatches || [];
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: [exc.relatedId], note: note || 'Manually reassigned', at });
+          resolutionNote = note || 'Manually reassigned to invoice';
+        } else if (val === 'gl-suspense') {
+          resolutionNote = note || 'Mapped to Suspense GL';
+        }
+
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = {
-          status: AR_EXCEPTION_STATUS.OPEN,
-          note: existing.note || 'Manually reopened for review',
-          at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5),
-        };
-        logAudit('Reopened AR exception', d.key);
-        DB.ui.arActiveException = null; render(); toast('Exception reopened');
+        rec.arResolved[d.key] = { note: resolutionNote, at };
+        logAudit('Resolved Suspense exception', resolutionNote);
+        DB.ui.arActiveException = null; render(); toast('Exception resolved');
       },
       // No invoice/payment fits (e.g. genuinely unidentifiable cash, or a residual not worth
       // chasing) — resolve straight from the matcher without forming a manual match group.
@@ -4816,7 +4907,7 @@
         const disposition = document.querySelector('input[name="ar-shortpay-disposition"]:checked');
         const note = ($('#ar-shortpay-note') && $('#ar-shortpay-note').value) || '';
         const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
-        
+
         // Check if reassignment happened (user checked different boxes in the escape hatch)
         const reassignInv = [...document.querySelectorAll('input[data-ar-shortpay-reassign-inv]:checked')].map(el => el.value);
         const reassignPay = [...document.querySelectorAll('input[data-ar-shortpay-reassign-pay]:checked')].map(el => el.value);
@@ -5069,7 +5160,7 @@
         const uiKey = {
           'ar-shortpay-extra': 'arShortPayShowExtra',
           'ar-shortpay-reassign': 'arShortPayShowReassign',
-          'ar-multiinv-other': 'arMultiInvShowOther'
+          'ar-suspense-manual': 'arSuspenseShowManual'
         }[toggleKey];
         if (uiKey) {
           // render() replaces #app's innerHTML wholesale, which resets scroll to top by default —
