@@ -1408,7 +1408,11 @@
       if (exactAmountRule) {
         const poolSlInfo = arSecondSourceInfo(exactAmountRule);
         const poolSlProp = arFieldOpt(poolSlInfo.options, exactAmountRule.secondField).prop;
-        payments.filter(p => !p.customerId && !p.duplicateFlag && p.candidatePool.length).forEach(p => {
+        // manualPayIds excluded here too — a payment a human already resolved (via Double Collision,
+        // Suspense confirmation, etc.) must never be re-run through identification. Without this, a
+        // stale invoice being claimed elsewhere can shrink the exact-amount hit count on a later
+        // recompute and flip an already-resolved payment into a brand-new, never-before-seen exception.
+        payments.filter(p => !p.customerId && !p.duplicateFlag && !manualPayIds.has(p.paymentId) && p.candidatePool.length).forEach(p => {
           const hits = p.candidatePool.map(cid => ({ cid, inv: openInvoicesFor(cid).find(inv => (poolSlInfo.sourceKey === 'customer' ? cust(cid)[poolSlProp] : inv[poolSlProp]) === p.totalReceived) })).filter(x => x.inv);
           if (hits.length === 1) {
             p.suggestedCustomerId = hits[0].cid;
@@ -1532,6 +1536,11 @@
         ...(rec.arBankChargePolicy || {}),
       };
       payments.forEach(p => {
+        // A manually-matched payment is already fully accounted for — its outcome (match/short-pay/
+        // overpay) was recorded above by applyGroupToLedger (manualGroups.forEach), including its own
+        // Short-Pay flag if it under-covered the invoice. Nothing below should re-derive an
+        // identification-based exception (Suspense, Double Collision, Unapplied Payment, etc.) for it.
+        if (manualPayIds.has(p.paymentId)) return;
         const bs = bankStatements.find(b => b.bankTxnId === p.bankTxnId);
         if (bs.isBankCharge) {
           const autoResolve = p.totalReceived <= bankChargePolicy.reviewThreshold;
@@ -1638,12 +1647,26 @@
         const type = key.slice(0, sep), relatedId = key.slice(sep + 1);
         const pay = payments.find(p => p.paymentId === relatedId);
         const inv = invoices.find(i => i.invoiceId === relatedId);
+        // Customer name: prefer what this exception actually said when it was flagged (captured at
+        // resolution time, e.g. "Ambiguous" for a Double Collision) — the Customer column shouldn't
+        // get silently rewritten to the now-confirmed name after the fact. Only derive it fresh as a
+        // fallback for older resolved records saved before this field existed.
+        let ghostCustomer = r.customer != null ? r.customer : null;
+        if (ghostCustomer == null) {
+          if (inv) ghostCustomer = cust(inv.customerId).companyName;
+          else if (pay && pay.customerId) ghostCustomer = cust(pay.customerId).companyName;
+          else if (pay) {
+            const grp = manualGroups.find(g => g.paymentIds.includes(pay.paymentId));
+            const linkedInv = grp && invoices.find(i => grp.invoiceIds.includes(i.invoiceId));
+            if (linkedInv) ghostCustomer = cust(linkedInv.customerId).companyName;
+          }
+        }
         exceptions.push({
           id: 'EXC-' + String(++_exN).padStart(3, '0'), key, type, relatedId,
           description: r.outcome || r.note || 'Resolved',
           amount: pay ? pay.totalReceived : (inv ? inv.effectiveBalance : 0),
           status: r.status || AR_EXCEPTION_STATUS.RESOLVED, resolutionNotes: r.note || null,
-          date: (r.at || todayISO()).split('T')[0], customer: pay && pay.customerId ? cust(pay.customerId).companyName : null,
+          date: (r.at || todayISO()).split('T')[0], customer: ghostCustomer,
           confidence: 100, suggestedInvoiceId: null, suggestedCustomerId: null, glEntry: null, ambiguousInvoiceIds: null,
         });
       });
@@ -5006,6 +5029,21 @@
       render();
       toast('ledger_statement_sample.csv loaded successfully (Ledger · 5 rows)', 'ok');
     }
+    // Carries forward the resolution of any OTHER open exception tied to the same invoice/payment
+    // IDs this action just resolved (e.g. the losing invoice's "No Payment Received" when a Double
+    // Collision or Multiple Invoice Match is confirmed) — otherwise it just silently drops out of
+    // the exceptions list next render instead of showing as completed, since nothing else ever
+    // writes a rec.arResolved entry under its own key. `resBefore` must be the engine result
+    // computed *before* the manual match mutation, so the linked exception is still Open in it.
+    function arCarryLinkedResolutions(rec, resBefore, ids, outcome, note, at) {
+      resBefore.exceptions.forEach(exc => {
+        if (exc.status !== AR_EXCEPTION_STATUS.OPEN || !ids.includes(exc.relatedId)) return;
+        // Preserve the exception's own originally-flagged customer label (e.g. "Ambiguous" for a
+        // Double Collision) rather than re-deriving the now-confirmed name — the Customer column
+        // should show what this row said when it was actually open, not get rewritten after the fact.
+        rec.arResolved[exc.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at, customer: exc.customer };
+      });
+    }
     const ACT = {
       goto: d => { DB.route = { name: d.r }; DB.ui.editRule = null; render(); },
       'rep-tab': d => { DB.route.tab = d.t; render(); },
@@ -5036,24 +5074,28 @@
         const paymentIds = [...document.querySelectorAll('input[data-ar-match-pay]:checked')].map(el => el.value);
         if (!invoiceIds.length || !paymentIds.length) { toast('Pick at least one invoice and one payment', 'bad'); return; }
         const note = ($('#ar-match-note') && $('#ar-match-note').value) || '';
+        const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+        const resBefore = getEngineResult(rec);
+        const invNums = invoiceIds.map(id => (resBefore.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
+        const outcome = `Matched ${invNums.join(', ')} ↔ ${paymentIds.join(', ')}`;
+        const thisExc = resBefore.exceptions.find(e => e.key === d.key);
+        rec.arResolved = rec.arResolved || {};
+        arCarryLinkedResolutions(rec, resBefore, [...invoiceIds, ...paymentIds], outcome, note, at);
         // Drop any invoice/payment now being reassigned from whatever group it was previously in.
         rec.arManualMatches = (rec.arManualMatches || [])
           .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => !invoiceIds.includes(id)), paymentIds: g.paymentIds.filter(id => !paymentIds.includes(id)) }))
           .filter(g => g.invoiceIds.length && g.paymentIds.length);
-        rec.arManualMatches.push({ id: uid('arm'), invoiceIds, paymentIds, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
-        rec.arResolved = rec.arResolved || {};
-        const res = getEngineResult(rec);
-        const invNums = invoiceIds.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
-        const outcome = `Matched ${invNums.join(', ')} ↔ ${paymentIds.join(', ')}`;
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arManualMatches.push({ id: uid('arm'), invoiceIds, paymentIds, note, at });
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at, customer: thisExc && thisExc.customer };
         logAudit('Manually matched AR exception', `${invoiceIds.join(', ')} ↔ ${paymentIds.join(', ')}`);
         DB.ui.arActiveException = null; render(); toast('Match saved');
       },
       'ar-save-resolution': d => {
         const rec = getRec(d.id); if (!rec) return;
         const note = ($('#ar-resolve-note') && $('#ar-resolve-note').value) || '';
+        const exc = getEngineResult(rec).exceptions.find(e => e.key === d.key);
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: 'Marked resolved', note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: 'Marked resolved', note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), customer: exc && exc.customer };
         logAudit('Resolved AR exception', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
@@ -5066,6 +5108,7 @@
         if (!action) { toast('Pick a resolution action', 'bad'); return; }
         const note = ($('#ar-suspense-note') && $('#ar-suspense-note').value) || '';
         const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+        rec.arResolved = rec.arResolved || {};
 
         let resolutionNote = note;
         let outcome = '';
@@ -5073,10 +5116,11 @@
         if (val === 'suggested') {
           if (!exc.suggestedInvoiceId) return;
           rec.arManualMatches = rec.arManualMatches || [];
-          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [exc.suggestedInvoiceId], paymentIds: [exc.relatedId], note: note || 'Confirmed suggested match', at });
           const invNum = (res.invoices.find(i => i.invoiceId === exc.suggestedInvoiceId) || {}).invoiceNumber || exc.suggestedInvoiceId;
           outcome = `Confirmed suggested match: invoice ${invNum}`;
           resolutionNote = note || outcome;
+          arCarryLinkedResolutions(rec, res, [exc.suggestedInvoiceId], resolutionNote, note, at);
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [exc.suggestedInvoiceId], paymentIds: [exc.relatedId], note: note || 'Confirmed suggested match', at });
         } else if (val.startsWith('pool-')) {
           const cid = val.slice(5);
           const custName = ((res.customers || []).find(c => c.customerId === cid) || {}).companyName || cid;
@@ -5085,7 +5129,6 @@
         } else if (val.startsWith('manual-')) {
           const invId = val.slice(7);
           rec.arManualMatches = rec.arManualMatches || [];
-          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: [exc.relatedId], note: note || 'Manually reassigned', at });
           const invNum = (res.invoices.find(i => i.invoiceId === invId) || {}).invoiceNumber || invId;
           outcome = `Manually reassigned to invoice ${invNum}`;
           resolutionNote = note || outcome;
@@ -5097,13 +5140,14 @@
           const invNums = invIds.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
           outcome = `Manually matched to ${invNums.join(', ')}`;
           resolutionNote = note || outcome;
+          arCarryLinkedResolutions(rec, res, [invId], resolutionNote, note, at);
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: [exc.relatedId], note: note || 'Manually reassigned', at });
         } else if (val === 'gl-suspense') {
           outcome = 'Mapped to Suspense GL';
           resolutionNote = note || outcome;
         }
 
-        rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note: resolutionNote, at };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note: resolutionNote, at, customer: exc.customer };
         logAudit('Resolved Suspense exception', resolutionNote);
         DB.ui.arActiveException = null; render(); toast('Exception resolved');
       },
@@ -5112,8 +5156,9 @@
       'ar-resolve-unmatched': d => {
         const rec = getRec(d.id); if (!rec) return;
         const note = ($('#ar-match-note') && $('#ar-match-note').value) || '';
+        const exc = getEngineResult(rec).exceptions.find(e => e.key === d.key);
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: 'Resolved without matching', note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: 'Resolved without matching', note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), customer: exc && exc.customer };
         logAudit('Resolved AR exception without match', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
@@ -5130,34 +5175,35 @@
         const reassignPay = [...document.querySelectorAll('input[data-ar-shortpay-reassign-pay]:checked')].map(el => el.value);
         if (reassignInv.length && reassignPay.length) {
           // Reassignment requested via escape hatch — treat as a manual match, same as ar-save-manual-match
+          const res = getEngineResult(rec);
+          const thisExc = res.exceptions.find(e => e.key === d.key);
+          const invNums = reassignInv.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
+          const outcome = `Reassigned to ${invNums.join(', ')} ↔ ${reassignPay.join(', ')}${dispositionLabel ? ` · ${dispositionLabel}` : ''}`;
+          rec.arResolved = rec.arResolved || {};
+          arCarryLinkedResolutions(rec, res, [...reassignInv, ...reassignPay], outcome, note, at);
           rec.arManualMatches = (rec.arManualMatches || [])
             .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => !reassignInv.includes(id)), paymentIds: g.paymentIds.filter(id => !reassignPay.includes(id)) }))
             .filter(g => g.invoiceIds.length && g.paymentIds.length);
           rec.arManualMatches.push({ id: uid('arm'), invoiceIds: reassignInv, paymentIds: reassignPay, note: note || 'Reassigned from short-pay', at });
-          rec.arResolved = rec.arResolved || {};
-          const res = getEngineResult(rec);
-          const invNums = reassignInv.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
-          const outcome = `Reassigned to ${invNums.join(', ')} ↔ ${reassignPay.join(', ')}${dispositionLabel ? ` · ${dispositionLabel}` : ''}`;
-          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, disposition: disposition ? disposition.value : null, at };
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, disposition: disposition ? disposition.value : null, at, customer: thisExc && thisExc.customer };
           logAudit('Resolved AR exception with reassignment', `${reassignInv.join(', ')} ↔ ${reassignPay.join(', ')}`);
         } else {
           // Normal short-pay resolution: check for extra payments to apply
           const extraPayIds = [...document.querySelectorAll('input[data-ar-shortpay-extra-pay]:checked')].map(el => el.value);
-          if (extraPayIds.length) {
-            // Merge extra payments into arManualMatches — find the original short-pay invoice from the exception
-            const res = getEngineResult(rec);
-            const exc = res.exceptions.find(e => e.key === d.key);
-            if (exc) {
-              const invId = exc.relatedId;
-              rec.arManualMatches = (rec.arManualMatches || [])
-                .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invId), paymentIds: g.paymentIds.filter(id => !extraPayIds.includes(id)) }))
-                .filter(g => g.invoiceIds.length && g.paymentIds.length);
-              rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: extraPayIds, note: 'Applied to cover short-pay shortfall', at });
-            }
-          }
-          rec.arResolved = rec.arResolved || {};
           const outcome = (dispositionLabel || 'Resolved') + (extraPayIds.length ? ` · applied ${extraPayIds.join(', ')} to cover shortfall` : '');
-          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, disposition: disposition ? disposition.value : null, at };
+          const res = getEngineResult(rec);
+          const thisExc = res.exceptions.find(e => e.key === d.key);
+          rec.arResolved = rec.arResolved || {};
+          if (extraPayIds.length && thisExc) {
+            // Merge extra payments into arManualMatches — find the original short-pay invoice from the exception
+            const invId = thisExc.relatedId;
+            arCarryLinkedResolutions(rec, res, extraPayIds, outcome, note, at);
+            rec.arManualMatches = (rec.arManualMatches || [])
+              .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invId), paymentIds: g.paymentIds.filter(id => !extraPayIds.includes(id)) }))
+              .filter(g => g.invoiceIds.length && g.paymentIds.length);
+            rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: extraPayIds, note: 'Applied to cover short-pay shortfall', at });
+          }
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, disposition: disposition ? disposition.value : null, at, customer: thisExc && thisExc.customer };
           logAudit('Resolved AR exception', `Short-Pay${disposition ? ' · ' + disposition.value : ''}`);
         }
         DB.ui.arActiveException = null; render(); toast('Exception resolved');
@@ -5173,16 +5219,19 @@
         if (!invField) return;
         const invoiceId = invField.value, paymentId = d.pay;
         const note = ($('#ar-collision-note') && $('#ar-collision-note').value) || '';
-        rec.arManualMatches = (rec.arManualMatches || [])
-          .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invoiceId), paymentIds: g.paymentIds.filter(id => id !== paymentId) }))
-          .filter(g => g.invoiceIds.length && g.paymentIds.length);
-        rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
-        rec.arResolved = rec.arResolved || {};
+        const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
         const res = getEngineResult(rec);
+        const thisExc = res.exceptions.find(e => e.key === d.key);
         const custName = ((res.customers || []).find(c => c.customerId === chosen.value) || {}).companyName || chosen.value;
         const invNum = (res.invoices.find(i => i.invoiceId === invoiceId) || {}).invoiceNumber || invoiceId;
         const outcome = `Confirmed customer: ${custName} → invoice ${invNum}`;
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved = rec.arResolved || {};
+        arCarryLinkedResolutions(rec, res, [invoiceId], outcome, note, at);
+        rec.arManualMatches = (rec.arManualMatches || [])
+          .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invoiceId), paymentIds: g.paymentIds.filter(id => id !== paymentId) }))
+          .filter(g => g.invoiceIds.length && g.paymentIds.length);
+        rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at });
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at, customer: thisExc && thisExc.customer };
         logAudit('Resolved double collision', `${paymentId} → ${chosen.value} · ${invoiceId}`);
         DB.ui.arActiveException = null; render(); toast('Customer confirmed');
       },
@@ -5196,15 +5245,17 @@
         const invoiceId = chosen.value, paymentId = d.pay;
         const note = ($('#ar-multiinv-note') && $('#ar-multiinv-note').value) || '';
         const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+        const res = getEngineResult(rec);
+        const thisExc = res.exceptions.find(e => e.key === d.key);
+        const invNum = (res.invoices.find(i => i.invoiceId === invoiceId) || {}).invoiceNumber || invoiceId;
+        const outcome = `Matched to invoice ${invNum}`;
+        rec.arResolved = rec.arResolved || {};
+        arCarryLinkedResolutions(rec, res, [invoiceId], outcome, note, at);
         rec.arManualMatches = (rec.arManualMatches || [])
           .map(g => ({ ...g, invoiceIds: g.invoiceIds.filter(id => id !== invoiceId), paymentIds: g.paymentIds.filter(id => id !== paymentId) }))
           .filter(g => g.invoiceIds.length && g.paymentIds.length);
         rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at });
-        rec.arResolved = rec.arResolved || {};
-        const res = getEngineResult(rec);
-        const invNum = (res.invoices.find(i => i.invoiceId === invoiceId) || {}).invoiceNumber || invoiceId;
-        const outcome = `Matched to invoice ${invNum}`;
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at, customer: thisExc && thisExc.customer };
         logAudit('Resolved multiple invoice match', `${paymentId} → ${invoiceId}`);
         DB.ui.arActiveException = null; render(); toast('Invoice confirmed');
       },
