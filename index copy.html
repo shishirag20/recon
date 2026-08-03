@@ -1512,7 +1512,7 @@
           });
           return;
         }
-        if (ambiguousPayIds.has(p.paymentId)) { flagException('Multiple Invoice Match', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50 }); return; }
+        if (ambiguousPayIds.has(p.paymentId)) { flagException('Multiple Invoice Match', p.paymentId, `${cust(p.customerId).companyName} payment ${p.paymentId} (${bankRef(bs)}) exactly matches more than one open invoice — never auto-resolved`, p.totalReceived, { customer: cust(p.customerId).companyName, confidence: 50, ambiguousInvoiceIds: p.ambiguousInvoiceIds }); return; }
         if (collisionPayIds.has(p.paymentId)) return; // already raised as its own Double Collision exception above
         if (!p.customerId) {
           if (p.suggestedCustomerId) {
@@ -1577,6 +1577,30 @@
       // the moment they exist (matches how the Payment Gateway Settlements tab is already built).
       (ar.gatewaySettlements || []).forEach(g => {
         if (!g.matched) flagException('Gateway Variance', g.settlementId, `${g.gateway} settlement ${g.transactionId} (${fmtMoney(g.netAmount)} net) has no matching invoice line item`, g.netAmount, { date: g.settlementDate, customer: g.customer, confidence: 75 });
+      });
+
+      // Some exception types (Multiple Invoice Match, Double Collision) detect their condition
+      // inside the same per-customer allocation pass that gets skipped entirely for a payment once
+      // it's part of a manual match — so once resolved, the trigger never re-fires and the
+      // exception would otherwise vanish from the list instead of persisting as "Resolved," breaking
+      // the audit register, Finish Summary, and Reports feed. Re-synthesize a minimal resolved entry
+      // for any saved resolution that isn't represented in this run's exceptions.
+      const flaggedKeys = new Set(exceptions.map(e => e.key));
+      Object.keys(resolvedMap).forEach(key => {
+        if (flaggedKeys.has(key)) return;
+        const r = resolvedMap[key];
+        const sep = key.indexOf(':');
+        const type = key.slice(0, sep), relatedId = key.slice(sep + 1);
+        const pay = payments.find(p => p.paymentId === relatedId);
+        const inv = invoices.find(i => i.invoiceId === relatedId);
+        exceptions.push({
+          id: 'EXC-' + String(++_exN).padStart(3, '0'), key, type, relatedId,
+          description: r.outcome || r.note || 'Resolved',
+          amount: pay ? pay.totalReceived : (inv ? inv.effectiveBalance : 0),
+          status: r.status || AR_EXCEPTION_STATUS.RESOLVED, resolutionNotes: r.note || null,
+          date: (r.at || todayISO()).split('T')[0], customer: pay && pay.customerId ? cust(pay.customerId).companyName : null,
+          confidence: 100, suggestedInvoiceId: null, suggestedCustomerId: null, glEntry: null, ambiguousInvoiceIds: null,
+        });
       });
 
       // ── Metrics ──
@@ -2775,6 +2799,10 @@
         <td class="px-3 py-2 text-right mono">${conf == null ? '—' : conf + '%'}</td></tr>`;
       }).join('');
 
+      // "Resolution action taken" shows what concretely happened (outcome — which invoice/payment
+      // got linked, which disposition was chosen) as the primary line, with the reviewer's free-text
+      // note as supporting context underneath — not just the note alone, which may not even mention
+      // the actual invoice/customer/disposition if the reviewer typed something vague.
       const auditRows = resolvedExc.map(e => {
         const r = (rec.arResolved || {})[e.key] || {};
         const at = r.at ? r.at.split('T') : null;
@@ -2782,7 +2810,10 @@
         <td class="px-3 py-2 mono text-[12px]">${esc(e.id)}</td>
         <td class="px-3 py-2">${arExcTypeBadge(e.type)}</td>
         <td class="px-3 py-2 mono text-[12px] text-muted">${esc(e.relatedId)}</td>
-        <td class="px-3 py-2 text-ink-soft">${esc(r.note || '—')}</td>
+        <td class="px-3 py-2 text-ink-soft">
+          ${r.outcome ? `<div class="font-medium">${esc(r.outcome)}</div>` : ''}
+          ${r.note ? `<div class="text-[11.5px] text-muted mt-0.5">${esc(r.note)}</div>` : (r.outcome ? '' : '—')}
+        </td>
         <td class="px-3 py-2 text-muted">${esc(DB.user.name)}</td>
         <td class="px-3 py-2 mono text-[12px] text-muted">${at ? fmtDate(at[0]) + ', ' + at[1] : '—'}</td></tr>`;
       }).join('');
@@ -2877,7 +2908,7 @@
         ${table('Executive summary', ['Opening AR', 'Collections matched', 'Closing balance'], [[fmtMoney(openingAR), '-' + fmtMoney(matchedVal), fmtMoney(openingAR - matchedVal)]])}
         ${table('Sub-ledger vs GL control proof', ['AR sub-ledger', 'GL control', 'Variance'], [[fmtMoney(gl ? gl.subledgerBalance : 0), fmtMoney(gl ? gl.glBalance : 0), gl ? fmtMoney(gl.variance) : '0.00']])}
         ${table('Final matched pairs', ['Invoice', 'Customer', 'Amount', 'Payment ref(s)', 'Rule'], [...res.matches, ...res.overpays].map(m => [m.invoiceNum, m.customer, fmtMoney(m.amount), m.paymentId, m.ruleName || 'Manual']))}
-        ${table('Resolution & exception audit register', ['Exception ID', 'Type', 'Related record', 'Resolution', 'User', 'Timestamp'], res.exceptions.filter(e => arIsResolvedStatus(e.status)).map(e => { const r = (rec.arResolved || {})[e.key] || {}; return [e.id, e.type, e.relatedId, r.note || '', DB.user.name, (r.at || '').replace('T', ' ')]; }))}
+        ${table('Resolution & exception audit register', ['Exception ID', 'Type', 'Related record', 'Resolution action taken', 'Note', 'User', 'Timestamp'], res.exceptions.filter(e => arIsResolvedStatus(e.status)).map(e => { const r = (rec.arResolved || {})[e.key] || {}; return [e.id, e.type, e.relatedId, r.outcome || '', r.note || '', DB.user.name, (r.at || '').replace('T', ' ')]; }))}
         ${table('Customer identification audit', ['Bank txn', 'Payer', 'Outcome', 'Compared fields'], res.bankStatements.map(bs => { const p = (res.payments || []).find(x => x.bankTxnId === bs.bankTxnId); const outcome = bs.isBankCharge ? 'Standalone charge' : (p && p.duplicateFlag) ? 'Duplicate' : (p && p.lockedBy) ? p.lockedBy.name : (p && p.customerId) ? 'Candidate pool' : 'Not identified'; return [bs.bankTxnId, bs.payerName, outcome, arIdentificationFieldCompareLines(res, p).join('; ')]; }))}
         <p>Audit run hash (SHA-256): ${runHash || 'Computed at sign-off'}</p>
         \u003c/body\u003e\u003c/html\u003e`;
@@ -4356,7 +4387,7 @@
         if (isAR) {
           res.exceptions.forEach(e => {
             const r = (rc.arResolved || {})[e.key];
-            out.push({ id: e.id + '-' + rc.id, runId, date: e.date, type: e.type, customer: e.customer || '—', reference: e.relatedId, amount: e.amount, reasonCode: (r && r.note) || '—', status: e.status, resolver: r ? rc.owner : null });
+            out.push({ id: e.id + '-' + rc.id, runId, date: e.date, type: e.type, customer: e.customer || '—', reference: e.relatedId, amount: e.amount, reasonCode: (r && (r.outcome || r.note)) || '—', status: e.status, resolver: r ? rc.owner : null });
           });
         } else {
           res.breaks.forEach(r => out.push({ id: r.id, runId, date: r.date, type: 'Unmatched', customer: r.counterparty || '—', reference: r.reference || '—', amount: Math.abs(r.amount), reasonCode: '—', status: 'Open', resolver: null }));
@@ -4845,7 +4876,10 @@
           .filter(g => g.invoiceIds.length && g.paymentIds.length);
         rec.arManualMatches.push({ id: uid('arm'), invoiceIds, paymentIds, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        const res = getEngineResult(rec);
+        const invNums = invoiceIds.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
+        const outcome = `Matched ${invNums.join(', ')} ↔ ${paymentIds.join(', ')}`;
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Manually matched AR exception', `${invoiceIds.join(', ')} ↔ ${paymentIds.join(', ')}`);
         DB.ui.arActiveException = null; render(); toast('Match saved');
       },
@@ -4853,7 +4887,7 @@
         const rec = getRec(d.id); if (!rec) return;
         const note = ($('#ar-resolve-note') && $('#ar-resolve-note').value) || '';
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: 'Marked resolved', note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved AR exception', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
@@ -4897,7 +4931,7 @@
         const rec = getRec(d.id); if (!rec) return;
         const note = ($('#ar-match-note') && $('#ar-match-note').value) || '';
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: 'Resolved without matching', note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved AR exception without match', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
       },
@@ -4905,6 +4939,7 @@
       'ar-save-shortpay': d => {
         const rec = getRec(d.id); if (!rec) return;
         const disposition = document.querySelector('input[name="ar-shortpay-disposition"]:checked');
+        const dispositionLabel = { writeoff: 'Write off shortfall', keepopen: 'Keep open / follow up', dispute: 'Dispute' }[disposition && disposition.value] || null;
         const note = ($('#ar-shortpay-note') && $('#ar-shortpay-note').value) || '';
         const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
 
@@ -4918,7 +4953,10 @@
             .filter(g => g.invoiceIds.length && g.paymentIds.length);
           rec.arManualMatches.push({ id: uid('arm'), invoiceIds: reassignInv, paymentIds: reassignPay, note: note || 'Reassigned from short-pay', at });
           rec.arResolved = rec.arResolved || {};
-          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, disposition: disposition ? disposition.value : null, at };
+          const res = getEngineResult(rec);
+          const invNums = reassignInv.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
+          const outcome = `Reassigned to ${invNums.join(', ')} ↔ ${reassignPay.join(', ')}${dispositionLabel ? ` · ${dispositionLabel}` : ''}`;
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, disposition: disposition ? disposition.value : null, at };
           logAudit('Resolved AR exception with reassignment', `${reassignInv.join(', ')} ↔ ${reassignPay.join(', ')}`);
         } else {
           // Normal short-pay resolution: check for extra payments to apply
@@ -4936,7 +4974,8 @@
             }
           }
           rec.arResolved = rec.arResolved || {};
-          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, disposition: disposition ? disposition.value : null, at };
+          const outcome = (dispositionLabel || 'Resolved') + (extraPayIds.length ? ` · applied ${extraPayIds.join(', ')} to cover shortfall` : '');
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, disposition: disposition ? disposition.value : null, at };
           logAudit('Resolved AR exception', `Short-Pay${disposition ? ' · ' + disposition.value : ''}`);
         }
         DB.ui.arActiveException = null; render(); toast('Exception resolved');
@@ -4957,7 +4996,11 @@
           .filter(g => g.invoiceIds.length && g.paymentIds.length);
         rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) });
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
+        const res = getEngineResult(rec);
+        const custName = ((res.customers || []).find(c => c.customerId === chosen.value) || {}).companyName || chosen.value;
+        const invNum = (res.invoices.find(i => i.invoiceId === invoiceId) || {}).invoiceNumber || invoiceId;
+        const outcome = `Confirmed customer: ${custName} → invoice ${invNum}`;
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5) };
         logAudit('Resolved double collision', `${paymentId} → ${chosen.value} · ${invoiceId}`);
         DB.ui.arActiveException = null; render(); toast('Customer confirmed');
       },
@@ -4976,7 +5019,10 @@
           .filter(g => g.invoiceIds.length && g.paymentIds.length);
         rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invoiceId], paymentIds: [paymentId], note, at });
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { note, at };
+        const res = getEngineResult(rec);
+        const invNum = (res.invoices.find(i => i.invoiceId === invoiceId) || {}).invoiceNumber || invoiceId;
+        const outcome = `Matched to invoice ${invNum}`;
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note, at };
         logAudit('Resolved multiple invoice match', `${paymentId} → ${invoiceId}`);
         DB.ui.arActiveException = null; render(); toast('Invoice confirmed');
       },
