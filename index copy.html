@@ -582,11 +582,16 @@
         upiHandle: r.upi_handle || '', expectedUTR: r.expected_utr || '',
       })).filter(c => c.customerId);
     }
+    // A fresh upload is always unreconciled — any status/clearing_status column present in the
+    // uploaded file is ignored on purpose. Reconciliation state is something this app determines
+    // by running its own engine, never something carried in from a source export (which could be
+    // stale from a prior period, or simply wrong), so every new ingestion resets to the true
+    // starting point of the lifecycle: Open for invoices, Pending for bank rows.
     function mapStagedInvoices(rows) {
       return rows.map(r => ({
         invoiceId: r.invoice_id || '', customerId: r.customer_id || '', invoiceNumber: r.invoice_number || r.invoice_id || '',
         issueDate: normARDate(r.issue_date), dueDate: normARDate(r.due_date),
-        totalAmount: parseMoneyToCents(r.total_amount), status: r.status || 'Open',
+        totalAmount: parseMoneyToCents(r.total_amount), status: 'Open',
         creditNotes: parseMoneyToCents(r.credit_notes), debitNotes: parseMoneyToCents(r.debit_notes),
         tdsAllowedPct: parseFloat(r.tds_allowed_pct) || 0,
       })).filter(i => i.invoiceId);
@@ -596,7 +601,7 @@
         bankTxnId: r.bank_txn_id || '', transactionDate: normARDate(r.transaction_date),
         bankReferenceNumber: r.bank_reference || r.bank_reference_number || '', payerName: r.payer_name || 'Unknown',
         payerAccountNumber: r.payer_account_number || '', payerIFSC: r.payer_ifsc || '', narration: r.narration || '',
-        amount: parseMoneyToCents(r.amount), clearingStatus: r.clearing_status || 'Pending',
+        amount: parseMoneyToCents(r.amount), clearingStatus: 'Pending',
         explicitFee: parseMoneyToCents(r.explicit_fee),
         isBankCharge: ['true', '1', 'yes'].includes(String(r.is_bank_charge || '').trim().toLowerCase()),
       })).filter(b => b.bankTxnId);
@@ -626,6 +631,42 @@
       // against real sub-ledger figures.
       const glControlBalances = upGL.length ? mapStagedGL(upGL) : null;
       return { customers, invoices, bankStatements, glControlBalances, gatewaySettlements: seed.gatewaySettlements };
+    }
+    // Persists reconciliation outcomes back to stored AR datasets so status is not only computed
+    // for the current render, but also retained as record state for invoices and bank rows.
+    function persistARStatuses(rec, res) {
+      if (!rec || rec.type !== 'ar-reconciliation' || !res) return;
+      const invoiceStatusById = new Map((res.invoices || []).map(i => [i.invoiceId, i.status || 'Open']));
+      const bankStatusByTxnId = new Map((res.bankStatements || []).map(b => [b.bankTxnId, b.clearingStatus || 'Pending']));
+
+      if (rec.arData && Array.isArray(rec.arData.invoices)) {
+        rec.arData.invoices.forEach(inv => {
+          if (invoiceStatusById.has(inv.invoiceId)) inv.status = invoiceStatusById.get(inv.invoiceId);
+        });
+      }
+      if (rec.arData && Array.isArray(rec.arData.bankStatements)) {
+        rec.arData.bankStatements.forEach(bs => {
+          if (bankStatusByTxnId.has(bs.bankTxnId)) bs.clearingStatus = bankStatusByTxnId.get(bs.bankTxnId);
+        });
+      }
+
+      const slJob = latestRealJobForCategory('SL');
+      if (slJob) {
+        (DB.staging || []).forEach(row => {
+          if (row.category !== 'SL' || row.jobId !== slJob.id || !row.rowData) return;
+          const id = row.rowData.invoice_id;
+          if (id && invoiceStatusById.has(id)) row.rowData.status = invoiceStatusById.get(id);
+        });
+      }
+
+      const bankJob = latestRealJobForCategory('Bank Statements');
+      if (bankJob) {
+        (DB.staging || []).forEach(row => {
+          if (row.category !== 'Bank Statements' || row.jobId !== bankJob.id || !row.rowData) return;
+          const id = row.rowData.bank_txn_id;
+          if (id && bankStatusByTxnId.has(id)) row.rowData.clearing_status = bankStatusByTxnId.get(id);
+        });
+      }
     }
 
     function genRecords(recId, type) {
@@ -1953,9 +1994,9 @@
           <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s, i) => s + i.effectiveBalance, 0))}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
           <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
         </tbody></table></div>
-        <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Phase 2a · bank_statements.clearing_status</div></div>
-        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
-        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${bs.clearingStatus === 'Reconciled' ? statusPill('matched') : bs.clearingStatus === 'Bank Charge' ? statusPill('writeoff') : statusPill('break')}</td></tr>`).join('')}
+        <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Reconciliation lifecycle status · Open / In Progress / Reconciled / Exception</div></div>
+        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Lifecycle status</th></tr></thead><tbody>
+        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${arLifecyclePill(arLifecycleStatus(rec, res, 'bank', bs))}</td></tr>`).join('')}
         </tbody></table></div>
         <div class="card overflow-hidden">
           <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr', 'w-3.5 h-3.5')}</button></div>
@@ -2245,7 +2286,9 @@
           <div class="text-[11.5px] text-muted">${esc(m.customer)} · ${fmtMoney(m.amount)}</div>
           <span class="chip mt-1 inline-block">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span>
         </td>`;
-          if (i > 0) return `<tr class="border-b border-line-soft">${invoiceCell}</tr>`;
+          const invoiceObj = (res.invoices || []).find(inv => inv.invoiceId === m.invoiceId);
+          const lifecycleCell = `<td class="px-3 py-2.5">${arLifecyclePill(invoiceObj ? arLifecycleStatus(rec, res, 'invoice', invoiceObj) : 'Open')}</td>`;
+          if (i > 0) return `<tr class="border-b border-line-soft">${invoiceCell}${lifecycleCell}</tr>`;
           const ruleName = m.ruleName || 'Manual match';
           const idMethod = arIdentificationMethodFor(res, m.paymentId);
           const payIds = String(m.paymentId || '').split(',').map(s => s.trim());
@@ -2255,6 +2298,7 @@
           const idDetailLines = arIdentificationFieldCompareLines(res, pay);
           return `<tr class="border-b border-line-soft">
         ${invoiceCell}
+        ${lifecycleCell}
         <td class="px-3 py-2.5" rowspan="${group.length}">
           <div class="mono text-[12px] text-ink-soft">${m.paymentId}</div>
           <div class="mono text-[12.5px] font-medium mt-0.5">${fmtMoney(payTotal)}</div>
@@ -2269,8 +2313,8 @@
         }).join('');
       }).join('');
       return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${all.length})</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2">Resolved via</th></tr></thead><tbody>
-      ${rowsHtml || `<tr><td colspan="3" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Lifecycle</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2">Resolved via</th></tr></thead><tbody>
+      ${rowsHtml || `<tr><td colspan="4" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
       </tbody></table></div>`;
     }
     function arGatewaySection(rec) {
@@ -2343,6 +2387,56 @@
         if (auto.paymentIds.length > 1) return 'Many-to-One';
       }
       return '1-to-1';
+    }
+    // Single unified reconciliation-lifecycle status — one shared 4-state vocabulary used for both
+    // invoices and bank statement rows, everywhere it's shown (Data Explorer, Overview, etc.):
+    //   Open        — never been through a reconciliation run yet (the state a fresh upload starts at)
+    //                 OR a run happened but the item has a manual-review exception (Suspense, Multiple
+    //                 Invoice Match, etc.) that hasn't been opened for review yet (status === OPEN)
+    //   In Progress — a run has happened and either (1) no manual exception pending, batch just hasn't
+    //                 been signed off yet, OR (2) the item has a manual exception and someone has
+    //                 opened it for review (exception.status !== OPEN)
+    //   Reconciled  — the batch is finished/signed off AND this record closed clean, with no
+    //                 exception ever raised against it
+    //   Exception   — the batch is finished/signed off, but this record needed an exception to be
+    //                 raised and worked (short-pay, no payment, unapplied, duplicate, etc.) — kept as
+    //                 a distinct terminal state (rather than leaving it in "In Progress" forever) so
+    //                 aged/problem items stay visible for audit instead of quietly blending in with
+    //                 items that are simply still being processed.
+    // Purely derived from rec/res state — nothing new is persisted for it, same pattern as the rest
+    // of this app's computed-on-render values.
+    function arLifecycleStatus(rec, res, kind, item) {
+      if (!rec || !rec.lastRun) return 'Open';
+      
+      // Check for manual-review exceptions (Suspense, Multiple Invoice Match) that haven't been touched yet
+      const manualReviewTypes = ['Suspense', 'Multiple Invoice Match'];
+      let itemExc = null;
+      if (kind === 'invoice') {
+        itemExc = (res.exceptions || []).find(e => e.relatedId === item.invoiceId && manualReviewTypes.includes(e.type));
+      } else if (kind === 'bank') {
+        itemExc = (res.exceptions || []).find(e => e.relatedId === item.bankTxnId && manualReviewTypes.includes(e.type));
+      }
+      // If this item has an untouched manual-review exception, keep it Open
+      if (itemExc && itemExc.status === AR_EXCEPTION_STATUS.OPEN) {
+        return 'Open';
+      }
+      
+      if (!rec.arFinished) return 'In Progress';
+      if (kind === 'invoice') {
+        const hasExc = (res.exceptions || []).some(e => e.relatedId === item.invoiceId);
+        return hasExc ? 'Exception' : 'Reconciled';
+      }
+      // bank statement row
+      if (item.clearingStatus === 'Reconciled') return 'Reconciled';
+      if (item.clearingStatus === 'Bank Charge') {
+        const exc = (res.exceptions || []).find(e => e.type === 'Standalone Bank Charge' && e.relatedId === 'PAY-' + item.bankTxnId);
+        return (exc && exc.status === AR_EXCEPTION_STATUS.AUTO_RESOLVED) ? 'Reconciled' : 'Exception';
+      }
+      return 'Exception'; // clearingStatus === 'Exception' (unidentified payer, duplicate, unclaimed)
+    }
+    function arLifecyclePill(s) {
+      const cls = s === 'Reconciled' ? 'bg-ok-soft text-ok-ink' : s === 'Exception' ? 'bg-bad-soft text-bad-ink' : s === 'In Progress' ? 'bg-accent-soft text-accent-ink' : 'bg-sunken text-muted';
+      return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold whitespace-nowrap ${cls}">${esc(s)}</span>`;
     }
     function arReconExceptions(rec, res) {
       const f = (DB.ui && DB.ui.arExcFilter) || { q: '', type: 'all', sort: 'amount-desc' };
@@ -4076,6 +4170,11 @@
       const jobFilter = DB.filters.stgJobId || 'all';
       const sort = DB.filters.stgSort || { field: 'txnId', dir: 'asc' };
       const staging = DB.staging || [];
+      // Resolved once per render so every SL/Bank Statements row below can show its real
+      // reconciliation-lifecycle status (Open/In Progress/Reconciled/Exception), not just a raw
+      // "row parsed OK" pill — see arLifecycleStatus().
+      const arRec = DB.recs.find(rc => rc.type === 'ar-reconciliation');
+      const arRes = arRec ? getEngineResult(arRec) : null;
       const seenFiles = new Set();
       const files = [];
       staging.forEach(r => {
@@ -4199,7 +4298,19 @@
         return `<tr class="border-b border-line-soft row-hover">
           ${targetFields.map((f, idx) => {
           let val = rd[f] !== undefined ? rd[f] : (r[f] !== undefined ? r[f] : '—');
-          if (f === 'status' || f === 'clearing_status') return `<td class="px-3 py-2.5">${stpill(val)}</td>`;
+          if (f === 'status' || f === 'clearing_status') {
+            // The unified reconciliation lifecycle only exists for SL (invoice) and Bank Statements
+            // rows — anything else (GL, Customers) falls back to the plain ingestion-status pill.
+            if (arRec && arRes && r.category === 'SL' && f === 'status') {
+              const inv = (arRes.invoices || []).find(i => i.invoiceId === rd.invoice_id);
+              return `<td class="px-3 py-2.5">${arLifecyclePill(inv ? arLifecycleStatus(arRec, arRes, 'invoice', inv) : 'Open')}</td>`;
+            }
+            if (arRec && arRes && r.category === 'Bank Statements' && f === 'clearing_status') {
+              const bs = (arRes.bankStatements || []).find(b => b.bankTxnId === rd.bank_txn_id);
+              return `<td class="px-3 py-2.5">${arLifecyclePill(bs ? arLifecycleStatus(arRec, arRes, 'bank', bs) : 'Open')}</td>`;
+            }
+            return `<td class="px-3 py-2.5">${stpill(val)}</td>`;
+          }
           const isId = f.includes('id') || f.includes('number');
           const isAmt = f.includes('amount') || f.includes('balance') || f.includes('variance') || f.includes('limit');
           const cls = isId ? 'mono text-[12px] font-semibold text-accent-ink' : isAmt ? 'mono text-right font-medium' : (f.includes('date') || f.includes('code')) ? 'mono text-muted' : 'font-medium';
@@ -5077,6 +5188,7 @@
         const rec = getRec(d.id); if (!rec) return;
         const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
         const res = getEngineResult(rec);
+        persistARStatuses(rec, res);
         const hash = await computeRunHash(rec, res, at);
         rec.arFinished = { at, by: DB.user.name, hash };
         logAudit('Finished reconciliation', rec.name);
@@ -5099,6 +5211,7 @@
       'close-modal': (d, el, e) => { if (el.dataset.backdrop && e.target !== el) return; closeModal(); },
       'run-recon': d => {
         const rec = getRec(d.id); const res = getEngineResult(rec); const prev = rec.lastRun ? rec.lastRun.history : seedTrend(res.rate);
+        persistARStatuses(rec, res);
         rec.lastRun = { at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), rate: res.rate, matched: res.matched.length, breaks: res.breaks.length, history: [...prev.slice(-11), res.rate] };
         rec.arFinished = null;
         logAudit('Ran reconciliation', `${rec.name} · ${res.rate.toFixed(1)}% matched, ${res.breaks.length} breaks`);
