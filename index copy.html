@@ -2594,7 +2594,7 @@
       // Phase C: "Reassign match" escape hatch — reuse arMatchPanel's row generation
       const preInv = exc.relatedId;
       const prePay = payIds[0] || '';
-      const invRows = res.invoices.map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+      const invRows = res.invoices.filter(inv => inv.status !== 'Paid' || inv.invoiceId === preInv).map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
         <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-shortpay-reassign-inv value="${esc(inv.invoiceId)}" ${inv.invoiceId === preInv ? 'checked' : ''}></td>
         <td class="px-3 py-2 font-medium">${esc(inv.invoiceNumber)}</td>
         <td class="px-3 py-2 text-muted">${esc(custName(inv.customerId))}</td>
@@ -2645,7 +2645,7 @@
       const prePay = exc.type === 'Unapplied Payment' ? exc.relatedId : (exc.suggestedInvoiceId ? exc.relatedId : '');
       // Checkboxes, not radios — many-to-many: one payment can settle several invoices, or several
       // payments can jointly cover one invoice. Pick any number on each side, then Save changes.
-      const invRows = res.invoices.map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+      const invRows = res.invoices.filter(inv => inv.status !== 'Paid' || inv.invoiceId === preInv).map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
         <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-match-inv value="${esc(inv.invoiceId)}" ${inv.invoiceId === preInv ? 'checked' : ''}></td>
         <td class="px-3 py-2 font-medium">${esc(inv.invoiceNumber)}</td>
         <td class="px-3 py-2 text-muted">${esc(custName(inv.customerId))}</td>
@@ -2729,8 +2729,8 @@
       }
 
       // We still need the manual picker as a fallback (like "Reassign" in ShortPay)
-      const invRows = res.invoices.map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
-        <td class="px-3 py-2 w-8"><input type="radio" name="ar-suspense-action" class="radio" value="manual-${esc(inv.invoiceId)}"></td>
+      const invRows = res.invoices.filter(inv => inv.status !== 'Paid' || inv.invoiceId === suggestedInvId).map(inv => `<tr class="border-b border-line-soft last:border-0 hover:bg-sunken/40">
+        <td class="px-3 py-2 w-8"><input type="checkbox" data-ar-suspense-manual-inv value="${esc(inv.invoiceId)}" class="checkbox"></td>
         <td class="px-3 py-2 font-medium">${esc(inv.invoiceNumber)}</td>
         <td class="px-3 py-2 text-muted">${esc(custName(inv.customerId))}</td>
         <td class="px-3 py-2 text-right mono">${fmtMoney(inv.effectiveBalance)}</td></tr>`).join('');
@@ -2743,6 +2743,16 @@
         ${DB.ui && DB.ui.arSuspenseShowManual ? `<div class="border-t border-line p-4">
           <div class="border border-line rounded-lg max-h-56 overflow-y-auto"><table class="w-full text-[12.5px]"><thead class="sticky top-0 bg-surface"><tr class="lbl text-left border-b border-line"><th class="px-3 py-1.5 w-8"></th><th class="px-3 py-1.5">Invoice</th><th class="px-3 py-1.5">Customer</th><th class="px-3 py-1.5 text-right">Amount</th></tr></thead><tbody>${invRows || `<tr><td colspan="4" class="px-3 py-6 text-center text-muted">No invoices</td></tr>`}</tbody></table></div>
         </div>` : ''}
+      </div>`;
+
+      const manualSelectBlock = `<div class="mb-4">
+        <label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
+           <input type="radio" name="ar-suspense-action" value="manual-select" class="radio">
+           <div class="flex-1">
+             <div class="font-medium text-[13px]">Match to selected invoices manually</div>
+             <div class="text-[11.5px] text-muted">Select one or more invoices in the list below</div>
+           </div>
+        </label>
       </div>`;
 
       const glBlock = `<div class="mb-4">
@@ -2761,6 +2771,7 @@
         ${paymentBlock}
         ${suggestionBlock}
         ${fallbackBlock}
+        ${manualSelectBlock}
         ${glBlock}
         <label class="lbl block mb-1.5 mt-4">Note</label>
         <textarea id="ar-suspense-note" class="field h-16 resize-none mb-1" placeholder="Why this was mapped here..."></textarea>
@@ -5057,26 +5068,42 @@
         const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
 
         let resolutionNote = note;
+        let outcome = '';
         const val = action.value;
         if (val === 'suggested') {
           if (!exc.suggestedInvoiceId) return;
           rec.arManualMatches = rec.arManualMatches || [];
           rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [exc.suggestedInvoiceId], paymentIds: [exc.relatedId], note: note || 'Confirmed suggested match', at });
-          resolutionNote = note || 'Confirmed suggested match';
+          const invNum = (res.invoices.find(i => i.invoiceId === exc.suggestedInvoiceId) || {}).invoiceNumber || exc.suggestedInvoiceId;
+          outcome = `Confirmed suggested match: invoice ${invNum}`;
+          resolutionNote = note || outcome;
         } else if (val.startsWith('pool-')) {
           const cid = val.slice(5);
-          resolutionNote = note || 'Assigned to candidate customer ' + cid;
+          const custName = ((res.customers || []).find(c => c.customerId === cid) || {}).companyName || cid;
+          outcome = `Assigned unapplied payment to candidate customer ${custName}`;
+          resolutionNote = note || outcome;
         } else if (val.startsWith('manual-')) {
           const invId = val.slice(7);
           rec.arManualMatches = rec.arManualMatches || [];
           rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds: [exc.relatedId], note: note || 'Manually reassigned', at });
-          resolutionNote = note || 'Manually reassigned to invoice';
+          const invNum = (res.invoices.find(i => i.invoiceId === invId) || {}).invoiceNumber || invId;
+          outcome = `Manually reassigned to invoice ${invNum}`;
+          resolutionNote = note || outcome;
+        } else if (val === 'manual-select') {
+          const invIds = [...document.querySelectorAll('input[data-ar-suspense-manual-inv]:checked')].map(el => el.value);
+          if (!invIds.length) { toast('Select at least one invoice to match', 'bad'); return; }
+          rec.arManualMatches = rec.arManualMatches || [];
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: invIds, paymentIds: [exc.relatedId], note: note || 'Manually matched multiple', at });
+          const invNums = invIds.map(id => (res.invoices.find(i => i.invoiceId === id) || {}).invoiceNumber || id);
+          outcome = `Manually matched to ${invNums.join(', ')}`;
+          resolutionNote = note || outcome;
         } else if (val === 'gl-suspense') {
-          resolutionNote = note || 'Mapped to Suspense GL';
+          outcome = 'Mapped to Suspense GL';
+          resolutionNote = note || outcome;
         }
 
         rec.arResolved = rec.arResolved || {};
-        rec.arResolved[d.key] = { note: resolutionNote, at };
+        rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome, note: resolutionNote, at };
         logAudit('Resolved Suspense exception', resolutionNote);
         DB.ui.arActiveException = null; render(); toast('Exception resolved');
       },
@@ -5401,6 +5428,10 @@
     });
     document.addEventListener('change', e => {
       const t = e.target;
+      if (t.matches && t.matches('input[data-ar-suspense-manual-inv]')) {
+        const radio = document.querySelector('input[name="ar-suspense-action"][value="manual-select"]');
+        if (radio) radio.checked = true;
+      }
       if (t.hasAttribute && t.hasAttribute('data-rep-sel')) { DB.ui.rep = DB.ui.rep || defaultRepFilters(); DB.ui.rep[t.dataset.repSel] = t.value; render(); return; }
       if (t.hasAttribute && t.hasAttribute('data-job-source')) { DB.ui = DB.ui || {}; DB.ui.jobSource = t.value; save(); render(); return; }
       if (t.matches && t.matches('input[data-importupload]')) { ingestFile(t.files[0], t.dataset.importSide); t.value = ''; return; }
