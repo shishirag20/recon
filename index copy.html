@@ -267,6 +267,34 @@
       border: 1px solid var(--line);
     }
 
+    /* ── AR Rules Studio: vertical timeline + accordion (replaces the old flat stacked-phase list) ── */
+    .tl-wrap { position: relative; }
+    .tl-wrap::before { content: ''; position: absolute; left: 15px; top: 16px; bottom: 16px; width: 2px; background: var(--line); z-index: 0; }
+    .tl-row { display: flex; gap: 14px; margin-bottom: 10px; position: relative; z-index: 1; }
+    .tl-rail { width: 30px; flex: none; display: flex; justify-content: center; }
+    .tl-node {
+      width: 30px; height: 30px; border-radius: 50%; background: var(--surface); flex: none;
+      border: 2px solid var(--node-color, var(--line)); margin-top: 13px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: var(--node-color, var(--faint));
+    }
+    .tl-card { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; transition: border-color .12s; }
+    .tl-card.open { border-color: var(--node-color, var(--line)); }
+    .tl-header { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 15px; background: none; border: none; cursor: pointer; font: inherit; text-align: left; }
+    .tl-header:hover { background: var(--sunken); }
+    .tl-head-main { flex: 1; min-width: 0; }
+    .tl-title { font-size: 13px; font-weight: 700; }
+    .tl-branch { font-size: 10.5px; color: var(--faint); font-style: italic; margin-top: 1px; }
+    .tl-hint { font-size: 11px; color: var(--faint); margin-top: 2px; line-height: 1.4; }
+    .tl-summary { flex: none; display: flex; align-items: center; gap: 7px; }
+    .tl-count { font-size: 13px; font-weight: 600; color: var(--ink); }
+    .tl-count .of { color: var(--faint); font-weight: 500; }
+    .tl-tag { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--tag-bg, var(--sunken)); color: var(--tag-color, var(--muted)); white-space: nowrap; }
+    .tl-chev { flex: none; color: var(--faint); transition: transform .18s; }
+    .tl-card.open .tl-chev { transform: rotate(180deg); }
+    .tl-body { padding: 12px 15px 15px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
+    .tl-body[hidden] { display: none; }
+
     .fade-in {
       animation: fi .25s ease;
     }
@@ -336,7 +364,7 @@
       border-top: 3px solid var(--stripe, var(--line));
       display: flex; flex-direction: column; gap: 14px;
     }
-    .rc-card:hover { box-shadow: 0 6px 16px rgba(16, 19, 26, .08), 0 2px 4px rgba(16, 19, 26, .05); transform: translateY(-1px); }
+    .rc-card:hover { box-shadow: 0 4px 12px rgba(16, 19, 26, .07), 0 1px 3px rgba(16, 19, 26, .05); }
 
     .rc-ring {
       width: 44px; height: 44px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
@@ -751,7 +779,7 @@
     // rules can never be deleted, only added, reordered, edited, and enabled/disabled.
     const AR_PHASES = [
       { key: 'customer-lock', priority: 1, label: 'Customer Identification', hint: 'Locks the paying customer before any invoice is looked at — first rule to succeed wins' },
-      { key: 'candidate-pool', priority: 2, label: 'Candidate Pool', hint: 'Only runs if Customer Identification fails outright — narrows to a short list instead of guessing' },
+      { key: 'candidate-pool', priority: 2, label: 'Candidate Pool', hint: 'Only runs if Customer Identification fails outright — narrows to a short list instead of guessing', branchNote: 'only runs for rows Customer Identification couldn\'t lock' },
       { key: 'allocation', priority: 3, label: 'Scoped Invoice Allocation', hint: 'Matches the locked (or pooled) customer\'s own invoices only — never searches globally' },
       { key: 'short-pay', priority: 4, label: 'Invoice settlement / short-pay', hint: 'Amount tolerance below which a shortfall is not flagged as a dispute' },
       { key: 'unapplied', priority: 5, label: 'Unapplied cash', hint: 'Amount tolerance below which leftover cash is not flagged' },
@@ -1962,8 +1990,8 @@
         'Needs resolution': { chipCls: 'bg-warn-soft text-warn-ink border-warn-soft', ring: 'var(--warn)', stripe: 'var(--warn)', label: 'Needs resolution' },
       }[status];
       const ring = rc.lastRun
-        ? `<div class="rc-ring" style="--pct:${res.rate}; --ring-color:${styleFor.ring};"><div class="rc-ring-inner">${Math.round(res.rate)}%</div></div>`
-        : `<div class="rc-ring idle"><div class="rc-ring-inner">—</div></div>`;
+        ? `<div class="rc-ring" style="--pct:${res.rate}; --ring-color:${styleFor.ring};"><div class="rc-ring-inner mono">${Math.round(res.rate)}%</div></div>`
+        : `<div class="rc-ring idle"><div class="rc-ring-inner mono">—</div></div>`;
       return `<div class="rc-card" style="--stripe:${styleFor.stripe};" data-act="open-recon" data-id="${rc.id}">
         <div class="flex items-start gap-3">
           ${ring}
@@ -1971,7 +1999,7 @@
           <span class="chip ${styleFor.chipCls} ml-auto">${esc(styleFor.label)}</span>
         </div>
         <div class="rc-stats">
-          <div><div class="k">Open exceptions</div><div class="v ${rc.lastRun && res.breaks.length ? 'warn' : ''}">${rc.lastRun ? res.breaks.length : '—'}</div></div>
+          <div><div class="k">Open exceptions</div><div class="v ${rc.lastRun && res.breaks.length ? 'warn' : ''} mono">${rc.lastRun ? res.breaks.length : '—'}</div></div>
           <div><div class="k">Unreconciled</div><div class="v ${rc.lastRun && res.breaks.length ? 'warn' : ''} mono">${rc.lastRun ? fmtMoney(res.breakVal) : '—'}</div></div>
           <div><div class="k">Owner</div><div class="v">${esc(rc.owner)}</div></div>
           <div><div class="k">Due</div><div class="v">Jul ${20 + (rc.name.length % 5)}</div></div>
@@ -2008,7 +2036,7 @@
       // relative order of everything else is left untouched (stable sort).
       const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }))
         .sort((a, b) => (a.rc.type === 'ar-reconciliation' ? -1 : b.rc.type === 'ar-reconciliation' ? 1 : 0));
-      return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="flex items-center gap-2 mb-4"><div class="relative flex-1 max-w-sm"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span><input class="field pl-9" placeholder="Search reconciliations"></div><button class="btn btn-ghost">${icon('filter', 'w-4 h-4')}Filters</button><button class="btn btn-ghost">Saved views</button></div><div class="rc-grid">${all.map(({ rc, res }) => arReconCard(rc, res)).join('')}</div></div>`;
+      return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="rc-grid">${all.map(({ rc, res }) => arReconCard(rc, res)).join('')}</div></div>`;
     }
     function viewTransactions() {
       const txnStatus = (rc, r) => { const e = getEngineResult(rc); if (r.resolution) return 'resolved'; if (e.matched.some(m => m.aId === r.id || m.bId === r.id)) return 'matched'; if (e.suggested.some(m => m.aId === r.id || m.bId === r.id)) return 'suggested'; return 'break'; };
@@ -2248,23 +2276,91 @@
         <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>
     </div></div>`;
     }
-    function arReconRules(rec, res) {
+    // Live per-phase funnel summary for the Rules Studio timeline — every number is a real,
+    // already-computed engine result (the same counts already driving each rule card's own
+    // "N matched" badge, just aggregated to phase level or read from res.exceptions/shortPays/
+    // unapplied/glMismatch directly), never a placeholder. tone is derived from these same real
+    // numbers, never re-guessed independently.
+    const AR_PHASE_TONE = {
+      ok: { c: 'var(--ok)', tagBg: 'var(--ok-soft)', tagColor: 'var(--ok-ink)' },
+      warn: { c: 'var(--warn)', tagBg: 'var(--warn-soft)', tagColor: 'var(--warn-ink)' },
+      bad: { c: 'var(--bad)', tagBg: 'var(--bad-soft)', tagColor: 'var(--bad-ink)' },
+      idle: { c: 'var(--line)', tagBg: 'var(--sunken)', tagColor: 'var(--faint)' },
+    };
+    function arPhaseSummary(ph, res) {
       const countOf = id => (res.perRule.find(p => p.rule.id === id) || {}).count || 0;
+      const phaseRules = res.perRule.filter(p => p.rule.phase === ph.key).map(p => p.rule);
+      const phaseCount = phaseRules.reduce((s, rl) => s + countOf(rl.id), 0);
+      const bcIds = new Set((res.bankStatements || []).filter(b => b.isBankCharge).map(b => b.bankTxnId));
+      if (ph.key === 'customer-lock') {
+        const of = (res.payments || []).length;
+        const count = (res.payments || []).filter(p => p.lockedBy).length;
+        return { of, count, tag: `${count} locked`, tone: of === 0 ? 'idle' : count === of ? 'ok' : 'warn' };
+      }
+      if (ph.key === 'candidate-pool') {
+        const eligible = (res.payments || []).filter(p => !p.customerId && !p.duplicateFlag && !bcIds.has(p.bankTxnId));
+        const of = eligible.length;
+        const count = eligible.filter(p => p.candidatePool && p.candidatePool.length).length;
+        const stillUnidentified = of - count;
+        return { of, count, tag: `${stillUnidentified} unidentified`, tone: of === 0 ? 'idle' : stillUnidentified === 0 ? 'ok' : 'warn' };
+      }
+      if (ph.key === 'allocation') {
+        const of = (res.payments || []).filter(p => p.customerId || (p.candidatePool && p.candidatePool.length)).length;
+        const ambiguous = (res.exceptions || []).filter(e => e.type === 'Double Collision' || e.type === 'Multiple Invoice Match').length;
+        return { of, count: phaseCount, tag: ambiguous ? `${ambiguous} ambiguous` : 'clean', tone: of === 0 ? 'idle' : ambiguous ? 'warn' : 'ok' };
+      }
+      if (ph.key === 'short-pay') {
+        const of = (res.shortPays || []).length;
+        const count = (res.exceptions || []).filter(e => e.type === 'Short-Pay').length;
+        return { of, count, tag: count ? `${count} flagged` : 'none flagged', tone: of === 0 ? 'idle' : count ? 'bad' : 'ok' };
+      }
+      if (ph.key === 'unapplied') {
+        const count = (res.unapplied || []).length;
+        return { of: count, count, tag: count ? `${count} flagged` : 'none flagged', tone: count === 0 ? 'idle' : 'bad' };
+      }
+      // gl-check
+      if (!res.glControlBalances) return { of: 0, count: 0, tag: 'no GL data', tone: 'idle' };
+      return { of: 1, count: res.glMismatch ? 1 : 0, tag: res.glMismatch ? 'variance found' : 'in balance', tone: res.glMismatch ? 'bad' : 'ok' };
+    }
+    function arTimelineRow(rec, res, ph, i) {
+      const rules = (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority);
+      const countOf = id => (res.perRule.find(p => p.rule.id === id) || {}).count || 0;
+      const s = arPhaseSummary(ph, res);
+      const t = AR_PHASE_TONE[s.tone];
+      const isOpen = !!DB.ui.arPhaseOpen[ph.key];
+      return `<div class="tl-row">
+        <div class="tl-rail"><div class="tl-node" style="--node-color:${t.c}">${ph.priority}</div></div>
+        <div class="tl-card ${isOpen ? 'open' : ''}">
+          <button class="tl-header" data-toggle="ar-phase" data-phase="${ph.key}" aria-expanded="${isOpen}">
+            <div class="tl-head-main">
+              <div class="tl-title">${esc(ph.label)}</div>
+              ${ph.branchNote ? `<div class="tl-branch">↳ ${esc(ph.branchNote)}</div>` : ''}
+              <div class="tl-hint">${esc(ph.hint)}</div>
+            </div>
+            <div class="tl-summary">
+              <span class="tl-count mono">${s.count}<span class="of">/${s.of}</span></span>
+              <span class="tl-tag" style="--tag-bg:${t.tagBg}; --tag-color:${t.tagColor}">${esc(s.tag)}</span>
+            </div>
+            <span class="tl-chev">${icon('chevD', 'w-3.5 h-3.5')}</span>
+          </button>
+          <div class="tl-body" ${isOpen ? '' : 'hidden'}>
+            ${rules.length ? rules.map((rl, j) => arRuleCard(rec, rl, j, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}
+            <div class="flex justify-end pt-2.5"><button data-act="add-ar-rule" data-id="${rec.id}" data-phase="${ph.key}" class="btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add rule</button></div>
+          </div>
+        </div>
+      </div>`;
+    }
+    function arReconRules(rec, res) {
+      // First phase open by default, on first-ever visit only — every click on any phase after
+      // that writes an explicit true/false here, so this default never overrides a real user choice.
+      DB.ui = DB.ui || {};
+      DB.ui.arPhaseOpen = DB.ui.arPhaseOpen || { [AR_PHASES[0].key]: true };
       return `<div class="p-6 fade-in">
         <div class="flex items-center mb-4">
           <div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Each phase runs its own cascading rule list, first match wins — add, edit, reorder, or enable/disable rules to see matching change live. Rules can never be deleted. This is what the reconciliation runs against.</div></div>
           <button data-act="reset-ar-rules" data-id="${rec.id}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Reset to defaults</button>
         </div>
-        <div class="space-y-6">${AR_PHASES.map(ph => {
-        const rules = (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority);
-        return `<div>
-            <div class="flex items-center mb-2.5">
-              <div><div class="font-semibold text-[13px]">${ph.priority}. ${esc(ph.label)}</div><div class="text-[11.5px] text-faint">${esc(ph.hint)}</div></div>
-              <button data-act="add-ar-rule" data-id="${rec.id}" data-phase="${ph.key}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add rule</button>
-            </div>
-            <div class="space-y-2.5">${rules.length ? rules.map((rl, i) => arRuleCard(rec, rl, i, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}</div>
-          </div>`;
-      }).join('')}</div>
+        <div class="tl-wrap">${AR_PHASES.map((ph, i) => arTimelineRow(rec, res, ph, i)).join('')}</div>
       </div>`;
     }
     function arReconSources(rec) {
@@ -5506,7 +5602,11 @@
         const rec = getRec(d.id); const inPhase = (rec.arRules || []).filter(r => r.phase === d.phase); const maxP = Math.max(0, ...inPhase.map(r => r.priority));
         const kind = d.kind || AR_DEFAULT_KIND_FOR_PHASE[d.phase] || 'threshold';
         const rl = arRuleC(d.phase, kind, 'New rule', maxP + 1, 'off', { mode: 'exact', value: 0 }, { days: 2 }, 85);
-        rec.arRules = rec.arRules || []; rec.arRules.push(rl); DB.ui.editRule = rl.id; render();
+        rec.arRules = rec.arRules || []; rec.arRules.push(rl); DB.ui.editRule = rl.id;
+        // Keep the new rule's own phase accordion open — otherwise it'd be created into a
+        // collapsed .tl-body and immediately disappear from view.
+        DB.ui.arPhaseOpen = DB.ui.arPhaseOpen || {}; DB.ui.arPhaseOpen[d.phase] = true;
+        render();
       },
       'ar-rule-up': d => moveARRule(d.id, d.rule, -1), 'ar-rule-down': d => moveARRule(d.id, d.rule, 1),
       'reset-ar-rules': d => { const rec = getRec(d.id); rec.arRules = buildARRules(); DB.ui.editRule = null; render(); toast('AR rules reset to defaults', 'ok'); },
@@ -5635,6 +5735,20 @@
           'ar-suspense-manual': 'arSuspenseShowManual',
           'ar-multiinv-other': 'arMultiInvShowOther'
         }[toggleKey];
+        // ar-phase: Rules Studio's timeline accordion — each phase toggles independently (multiple
+        // can stay open at once), keyed by phase key rather than a single fixed DB.ui property.
+        if (toggleKey === 'ar-phase') {
+          const scrollEl = document.querySelector('main > .overflow-y-auto');
+          const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+          DB.ui = DB.ui || {};
+          DB.ui.arPhaseOpen = DB.ui.arPhaseOpen || {};
+          const pk = toggleEl.dataset.phase;
+          DB.ui.arPhaseOpen[pk] = !DB.ui.arPhaseOpen[pk];
+          render();
+          const newScrollEl = document.querySelector('main > .overflow-y-auto');
+          if (newScrollEl) newScrollEl.scrollTop = scrollTop;
+          return;
+        }
         if (uiKey) {
           // render() replaces #app's innerHTML wholesale, which resets scroll to top by default —
           // save/restore the page's own scroll container (a direct child of <main>, distinct from
