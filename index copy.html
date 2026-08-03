@@ -2316,13 +2316,13 @@
       return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold whitespace-nowrap ${AR_EXC_TYPE_STYLE[t] || 'bg-sunken text-muted'}">${esc(t)}</span>`;
     }
     // Types that are genuinely a mismatch between two records get the two-table manual matcher;
-    // single-value checks (GL, duplicate, standalone-charge) get a resolution note instead. Suspense
-    // and Multiple Invoice Match are exactly "link this to that" situations too — a human identifying who
-    // really paid, or which invoice a known customer's payment belongs to — so they reuse the same
-    // matcher. Double Collision gets its own dedicated panel (arCollisionPanel) since its ambiguity
-    // is "which candidate customer," not "which invoice." Short-Pay has its own panel (arShortPayPanel)
-    // since the invoice and linked payment(s) are deterministically known by the matching engine.
-    const AR_EXC_MATCHABLE = ['Unapplied Payment', 'No Payment Received', 'Suspense', 'Multiple Invoice Match'];
+    // single-value checks (GL, duplicate, standalone-charge) get a resolution note instead. Double
+    // Collision gets its own dedicated panel (arCollisionPanel) since its ambiguity is "which
+    // candidate customer," not "which invoice." Short-Pay (arShortPayPanel) and Suspense
+    // (arSuspensePanel) have their own panels too. Multiple Invoice Match also gets its own panel
+    // (arMultiInvoiceMatchPanel) — the customer is already confirmed, so the picker is scoped to just
+    // that customer's own invoices (tied amount-matches first), not the full cross-customer grid.
+    const AR_EXC_MATCHABLE = ['Unapplied Payment', 'No Payment Received', 'Suspense'];
     // Single source of truth for how a matched invoice got settled — checked by the Matched tab,
     // the Finish summary, and Reports alike, so all three agree on 1-to-1 / Many-to-One / One-to-Many.
     function arMatchTypeFor(rec, res, invId) {
@@ -2392,14 +2392,16 @@
       </div>`;
     }
     // Renders the resolution UI inline, in place of "Open invoices awaiting payment" — the dedicated
-    // candidate-picker (Double Collision), the two-table matcher (Short-Pay / Unapplied Payment /
-    // No Payment Received / Suspense / Multiple Invoice Match), or a simple resolution-note form.
+    // candidate-picker (Double Collision), the customer-scoped invoice picker (Multiple Invoice
+    // Match), the two-table matcher (Unapplied Payment / No Payment Received), or a simple
+    // resolution-note form.
     function arExceptionPanel(rec, res, key) {
       const exc = res.exceptions.find(e => e.key === key);
       if (!exc) return '';
       if (exc.type === 'Double Collision') return arCollisionPanel(rec, res, exc);
       if (exc.type === 'Short-Pay') return arShortPayPanel(rec, res, exc);
       if (exc.type === 'Suspense') return arSuspensePanel(rec, res, exc);
+      if (exc.type === 'Multiple Invoice Match') return arMultiInvoiceMatchPanel(rec, res, exc);
       return AR_EXC_MATCHABLE.includes(exc.type) ? arMatchPanel(rec, res, exc) : arResolveNotePanel(rec, exc);
     }
     // Short-Pay exceptions — the invoice and linked payment(s) are deterministically known by the
@@ -2689,6 +2691,44 @@
         <label class="lbl block mb-1.5">Note</label>
         <textarea id="ar-collision-note" class="field h-16 resize-none mb-4" placeholder="How this was confirmed (e.g. called customer, checked remittance advice)"></textarea>
         <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-resolve-collision" data-id="${rec.id}" data-key="${esc(exc.key)}" data-pay="${esc(exc.relatedId)}" class="btn btn-primary" ${candidates.length ? '' : 'disabled'}>${icon('check', 'w-4 h-4')}Confirm customer</button></div>
+        </div>
+      </div>`;
+    }
+    // Multiple Invoice Match — the customer is already confirmed (unlike Double Collision); the
+    // payment's amount exactly matches more than one of *that same* customer's open invoices. Tied
+    // (amount-matching) invoices are shown first, oldest due date pre-selected (FIFO) — a human
+    // confirms which one, since the engine never guesses. A collapsible escape hatch below exposes
+    // the customer's other open invoices too, in case neither tied invoice is actually the right one
+    // (e.g. the real invoice happens to share the exact amount coincidentally with a third invoice).
+    function arMultiInvoiceMatchPanel(rec, res, exc) {
+      const pay = (res.payments || []).find(p => p.paymentId === exc.relatedId);
+      if (!pay) return '';
+      const custName = id => ((res.customers || []).find(c => c.customerId === id) || {}).companyName || 'Unknown';
+      const tiedIds = exc.ambiguousInvoiceIds || pay.ambiguousInvoiceIds || [];
+      const byDueDate = (a, b) => a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0;
+      const tied = res.invoices.filter(i => tiedIds.includes(i.invoiceId)).sort(byDueDate);
+      const others = res.invoices.filter(i => i.customerId === pay.customerId && i.status !== 'Paid' && !tiedIds.includes(i.invoiceId)).sort(byDueDate);
+      const radioRow = (inv, checked) => `<label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
+        <input type="radio" name="ar-multiinv-radio" data-ar-multiinv value="${esc(inv.invoiceId)}" ${checked ? 'checked' : ''}>
+        <div class="flex-1"><div class="font-medium text-[13px]">${esc(inv.invoiceNumber)}</div><div class="text-[11.5px] text-muted">Due ${fmtDate(inv.dueDate)}</div></div>
+        <div class="text-right mono text-[13px] font-semibold">${fmtMoney(inv.effectiveBalance)}</div></label>`;
+      return `<div class="card overflow-hidden" data-ar-exc-panel>
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Resolve multiple invoice match</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        <div class="text-[11.5px] text-muted mb-3">${esc(custName(pay.customerId))}'s payment of ${fmtMoney(pay.totalReceived)} exactly matches more than one of their own open invoices — pick the correct one instead of guessing. Oldest due date is pre-selected.</div>
+        <div class="space-y-2 mb-3">${tied.length ? tied.map((inv, i) => radioRow(inv, i === 0)).join('') : `<div class="text-center text-muted py-6">Tied invoices are no longer open — pick from the customer's other open invoices below.</div>`}</div>
+        <div class="border border-line rounded-lg mb-4 bg-surface">
+          <button type="button" class="w-full text-left px-4 py-3 flex items-center justify-between font-medium text-[13px] hover:bg-sunken/40" data-toggle="ar-multiinv-other" ${DB.ui && DB.ui.arMultiInvShowOther ? 'aria-expanded="true"' : ''}>
+            <span>Choose from ${esc(custName(pay.customerId))}'s other open invoices</span>
+            <span class="text-muted transition-transform ${DB.ui && DB.ui.arMultiInvShowOther ? 'rotate-180' : ''}">▼</span>
+          </button>
+          ${DB.ui && DB.ui.arMultiInvShowOther ? `<div class="border-t border-line p-4 space-y-2">
+            ${others.length ? others.map(inv => radioRow(inv, false)).join('') : `<div class="text-center text-muted py-4">No other open invoices for this customer.</div>`}
+          </div>` : ''}
+        </div>
+        <label class="lbl block mb-1.5">Note</label>
+        <textarea id="ar-multiinv-note" class="field h-16 resize-none mb-4" placeholder="How this was confirmed (e.g. called customer, checked remittance advice)"></textarea>
+        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-resolve-multi-invoice" data-id="${rec.id}" data-key="${esc(exc.key)}" data-pay="${esc(exc.relatedId)}" class="btn btn-primary" ${tied.length || others.length ? '' : 'disabled'}>${icon('check', 'w-4 h-4')}Confirm invoice</button></div>
         </div>
       </div>`;
     }
@@ -5206,7 +5246,8 @@
         const uiKey = {
           'ar-shortpay-extra': 'arShortPayShowExtra',
           'ar-shortpay-reassign': 'arShortPayShowReassign',
-          'ar-suspense-manual': 'arSuspenseShowManual'
+          'ar-suspense-manual': 'arSuspenseShowManual',
+          'ar-multiinv-other': 'arMultiInvShowOther'
         }[toggleKey];
         if (uiKey) {
           // render() replaces #app's innerHTML wholesale, which resets scroll to top by default —
