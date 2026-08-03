@@ -353,8 +353,9 @@
     };
     const pct = (n) => { return (n >= 0 ? '' : '') + n.toFixed(1) + '%'; };
     let _uid = 0; const uid = p => `${p}_${(++_uid).toString(36)}${Date.now().toString(36).slice(-3)}`;
-    const AR_EXCEPTION_STATUS = { OPEN: 'Open', RESOLVED: 'Resolved', AUTO_RESOLVED: 'Auto-resolved' };
+    const AR_EXCEPTION_STATUS = { OPEN: 'Open', RESOLVED: 'Resolved', AUTO_RESOLVED: 'Auto-resolved', DEFERRED: 'Deferred' };
     const arIsResolvedStatus = s => s === AR_EXCEPTION_STATUS.RESOLVED || s === AR_EXCEPTION_STATUS.AUTO_RESOLVED;
+    const arIsHandledStatus = s => arIsResolvedStatus(s) || s === AR_EXCEPTION_STATUS.DEFERRED;
 
     // ═══════════════════════════════════════ icons ═══════════════════════════════════════
     const IC = {
@@ -1704,7 +1705,7 @@
 
     // ═══════════════════════════════════════ small components ═══════════════════════════════════════
     function statusPill(k) {
-      const m = { matched: ['ok', 'Matched'], suggested: ['warn', 'Suggested'], break: ['bad', 'Break'], resolved: ['ok', 'Resolved'], autoresolved: ['accent', 'Auto-resolved'], completed: ['ok', 'Completed'], writeoff: ['muted', 'Written off'], investigate: ['warn', 'Investigating'], journal: ['ok', 'Journal entry'] };
+      const m = { matched: ['ok', 'Matched'], suggested: ['warn', 'Suggested'], break: ['bad', 'Break'], resolved: ['ok', 'Resolved'], autoresolved: ['accent', 'Auto-resolved'], completed: ['ok', 'Completed'], writeoff: ['muted', 'Written off'], investigate: ['warn', 'Investigating'], deferred: ['warn', 'Deferred'], journal: ['ok', 'Journal entry'] };
       const [t, l] = m[k] || ['muted', k];
       const bg = t === 'ok' ? 'bg-ok-soft text-ok-ink' : t === 'warn' ? 'bg-warn-soft text-warn-ink' : t === 'bad' ? 'bg-bad-soft text-bad-ink' : t === 'accent' ? 'bg-accent-soft text-accent-ink' : 'bg-sunken text-muted';
       return `<span class="inline-flex items-center gap-1 h-[20px] px-2 rounded text-[11px] font-semibold ${bg}">${l}</span>`;
@@ -2019,7 +2020,7 @@
         </tbody></table></div>
         <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Reconciliation lifecycle status · Open / In Progress / Reconciled / Exception</div></div>
         <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Lifecycle status</th></tr></thead><tbody>
-        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${arLifecyclePill(arLifecycleStatus(rec, res, 'bank', bs))}</td></tr>`).join('')}
+        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${arLifecycleCell(rec, res, 'bank', bs)}</td></tr>`).join('')}
         </tbody></table></div>
         <div class="card overflow-hidden">
           <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr', 'w-3.5 h-3.5')}</button></div>
@@ -2310,7 +2311,7 @@
           <span class="chip mt-1 inline-block">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span>
         </td>`;
           const invoiceObj = (res.invoices || []).find(inv => inv.invoiceId === m.invoiceId);
-          const lifecycleCell = `<td class="px-3 py-2.5">${arLifecyclePill(invoiceObj ? arLifecycleStatus(rec, res, 'invoice', invoiceObj) : 'Open')}</td>`;
+          const lifecycleCell = `<td class="px-3 py-2.5">${arLifecycleCell(rec, res, 'invoice', invoiceObj)}</td>`;
           if (i > 0) return `<tr class="border-b border-line-soft">${invoiceCell}${lifecycleCell}</tr>`;
           const ruleName = m.ruleName || 'Manual match';
           const idMethod = arIdentificationMethodFor(res, m.paymentId);
@@ -2419,34 +2420,38 @@
     //   In Progress — a run has happened and either (1) no manual exception pending, batch just hasn't
     //                 been signed off yet, OR (2) the item has a manual exception and someone has
     //                 opened it for review (exception.status !== OPEN)
-    //   Reconciled  — the batch is finished/signed off AND this record closed clean, with no
-    //                 exception ever raised against it
-    //   Exception   — the batch is finished/signed off, but this record needed an exception to be
-    //                 raised and worked (short-pay, no payment, unapplied, duplicate, etc.) — kept as
-    //                 a distinct terminal state (rather than leaving it in "In Progress" forever) so
-    //                 aged/problem items stay visible for audit instead of quietly blending in with
-    //                 items that are simply still being processed.
+    //   Reconciled  — the batch is finished/signed off AND this record either closed clean or all of
+    //                 its exceptions were explicitly handled (resolved/auto-resolved/deferred)
+    //   Exception   — the batch is finished/signed off, but this record still has unresolved
+    //                 exception(s).
     // Purely derived from rec/res state — nothing new is persisted for it, same pattern as the rest
     // of this app's computed-on-render values.
+    function arLifecycleRelatedIds(kind, item) {
+      if (kind === 'invoice') return [item.invoiceId];
+      if (kind === 'bank') return [item.bankTxnId, 'PAY-' + item.bankTxnId];
+      return [];
+    }
+    function arLifecycleExceptionsFor(res, kind, item) {
+      const relatedIds = arLifecycleRelatedIds(kind, item);
+      return (res.exceptions || []).filter(e => relatedIds.includes(e.relatedId));
+    }
     function arLifecycleStatus(rec, res, kind, item) {
       if (!rec || !rec.lastRun) return 'Open';
-      
-      // Check for manual-review exceptions (Suspense, Multiple Invoice Match) that haven't been touched yet
-      const manualReviewTypes = ['Suspense', 'Multiple Invoice Match'];
-      let itemExc = null;
-      if (kind === 'invoice') {
-        itemExc = (res.exceptions || []).find(e => e.relatedId === item.invoiceId && manualReviewTypes.includes(e.type));
-      } else if (kind === 'bank') {
-        itemExc = (res.exceptions || []).find(e => e.relatedId === item.bankTxnId && manualReviewTypes.includes(e.type));
-      }
-      // If this item has an untouched manual-review exception, keep it Open
-      if (itemExc && itemExc.status === AR_EXCEPTION_STATUS.OPEN) {
-        return 'Open';
-      }
-      
+
+      // Items requiring human handling remain Open until explicitly acted on.
+      const keepOpenTypes = ['Suspense', 'Multiple Invoice Match', 'No Payment Received'];
+      const itemExceptions = arLifecycleExceptionsFor(res, kind, item);
+
+      const hasUntouchedManual = itemExceptions.some(e =>
+        keepOpenTypes.includes(e.type) &&
+        e.status === AR_EXCEPTION_STATUS.OPEN
+      );
+      if (hasUntouchedManual) return 'Open';
+
       if (!rec.arFinished) return 'In Progress';
+      if (itemExceptions.length && itemExceptions.every(e => arIsHandledStatus(e.status))) return 'Reconciled';
       if (kind === 'invoice') {
-        const hasExc = (res.exceptions || []).some(e => e.relatedId === item.invoiceId);
+        const hasExc = itemExceptions.length > 0;
         return hasExc ? 'Exception' : 'Reconciled';
       }
       // bank statement row
@@ -2460,6 +2465,37 @@
     function arLifecyclePill(s) {
       const cls = s === 'Reconciled' ? 'bg-ok-soft text-ok-ink' : s === 'Exception' ? 'bg-bad-soft text-bad-ink' : s === 'In Progress' ? 'bg-accent-soft text-accent-ink' : 'bg-sunken text-muted';
       return `<span class="inline-flex items-center h-[20px] px-2 rounded text-[11px] font-semibold whitespace-nowrap ${cls}">${esc(s)}</span>`;
+    }
+    function arLifecycleNote(rec, res, kind, item) {
+      if (!rec || !res || !rec.arResolved || !item) return '';
+      const itemExceptions = arLifecycleExceptionsFor(res, kind, item);
+      const resolutions = itemExceptions
+        .map(e => ({ exc: e, resolution: rec.arResolved[e.key] }))
+        .filter(x => x.resolution);
+      if (!resolutions.length) return '';
+
+      // Prefer the latest human action for this row when multiple linked exceptions exist.
+      const latest = resolutions.slice().sort((a, b) => String(b.resolution.at || '').localeCompare(String(a.resolution.at || '')))[0];
+      const status = latest.resolution.status;
+      const outcome = (latest.resolution.outcome || '').trim();
+      const note = (latest.resolution.note || '').trim();
+
+      if (status === AR_EXCEPTION_STATUS.DEFERRED) {
+        return outcome ? `Manually deferred: ${outcome}` : 'Manually deferred to next cycle';
+      }
+      if (status === AR_EXCEPTION_STATUS.RESOLVED) {
+        const detail = `${outcome} ${note}`.toLowerCase();
+        if (/(attach|match|matched|invoice|payment)/.test(detail)) {
+          return outcome ? `Manually attached: ${outcome}` : 'Manually attached';
+        }
+        return outcome ? `Manually resolved: ${outcome}` : 'Manually resolved';
+      }
+      return '';
+    }
+    function arLifecycleCell(rec, res, kind, item) {
+      const lifecycle = item ? arLifecycleStatus(rec, res, kind, item) : 'Open';
+      const note = item ? arLifecycleNote(rec, res, kind, item) : '';
+      return `${arLifecyclePill(lifecycle)}${note ? `<div class="text-[10.5px] text-muted mt-1">${esc(note)}</div>` : ''}`;
     }
     function arReconExceptions(rec, res) {
       const f = (DB.ui && DB.ui.arExcFilter) || { q: '', type: 'all', sort: 'amount-desc' };
@@ -2505,7 +2541,7 @@
           <td class="px-3 py-2.5 text-muted mono text-[12px]">${fmtDate(e.date)}</td>
           <td class="px-3 py-2.5 text-right mono">${e.confidence}%</td>
           <td class="px-3 py-2.5 text-right mono font-semibold text-bad-ink">${fmtMoney(e.amount)}</td>
-          <td class="px-4 py-2.5 text-right">${e.status === AR_EXCEPTION_STATUS.AUTO_RESOLVED ? statusPill('autoresolved') : arIsResolvedStatus(e.status) ? statusPill('completed') : statusPill('break')}</td></tr>`).join('')
+          <td class="px-4 py-2.5 text-right">${e.status === AR_EXCEPTION_STATUS.AUTO_RESOLVED ? statusPill('autoresolved') : e.status === AR_EXCEPTION_STATUS.DEFERRED ? statusPill('deferred') : arIsResolvedStatus(e.status) ? statusPill('completed') : statusPill('break')}</td></tr>`).join('')
           : `<tr><td colspan="7" class="px-4 py-10 text-center text-muted">${res.exceptions.length ? 'No exceptions match your filters.' : 'No open exceptions — everything reconciled.'}</td></tr>`}
         </tbody></table>
       </div>
@@ -2521,9 +2557,67 @@
       if (!exc) return '';
       if (exc.type === 'Double Collision') return arCollisionPanel(rec, res, exc);
       if (exc.type === 'Short-Pay') return arShortPayPanel(rec, res, exc);
+      if (exc.type === 'No Payment Received') return arNoPaymentPanel(rec, res, exc);
       if (exc.type === 'Suspense') return arSuspensePanel(rec, res, exc);
       if (exc.type === 'Multiple Invoice Match') return arMultiInvoiceMatchPanel(rec, res, exc);
       return AR_EXC_MATCHABLE.includes(exc.type) ? arMatchPanel(rec, res, exc) : arResolveNotePanel(rec, exc);
+    }
+    // No Payment Received — Invoice awaiting payment. Shows the single invoice from the exception as
+    // a read-only header, then every open/unapplied payment (no customer filter) as multi-select
+    // checkboxes — one payment can be split across several such invoices over time, or several
+    // payments together might cover this one invoice, so multi-select on the payment side too.
+    function arNoPaymentPanel(rec, res, exc) {
+      const inv = res.invoices.find(i => i.invoiceId === exc.relatedId);
+      if (!inv) return '';
+      const custName = id => ((res.customers || []).find(c => c.customerId === id) || {}).companyName || 'Unknown';
+      // Only offer payments still in "Open" status — a payment with an untouched Suspense
+      // exception (unidentified, awaiting manual review), or one that hasn't been through a run
+      // yet at all. Payments that have already progressed to In Progress (or further) are excluded,
+      // since they're either already accounted for elsewhere or actively being worked some other way.
+      const isPaymentOpen = p => {
+        if (!rec.lastRun) return true;
+        const suspenseExc = (res.exceptions || []).find(e => e.relatedId === p.paymentId && e.type === 'Suspense');
+        return !!(suspenseExc && suspenseExc.status === AR_EXCEPTION_STATUS.OPEN);
+      };
+      const availablePayments = (res.payments || []).filter(p => (!p.matched || p.unappliedAmount > 0) && isPaymentOpen(p));
+      const payRows = availablePayments.map(p => `<label class="flex items-center gap-3 p-3 border-b border-line-soft last:border-0 hover:bg-sunken/40 cursor-pointer">
+        <input type="checkbox" data-ar-nopay-pay value="${esc(p.paymentId)}">
+        <div class="flex-1"><div class="text-[12px] font-medium">${esc(p.paymentId)}</div><div class="text-[11.5px] text-muted">${esc(p.customerId ? custName(p.customerId) : 'Unknown payer')}</div></div>
+        <div class="text-right mono text-[12px] font-semibold">${fmtMoney(p.totalReceived)}${p.unappliedAmount ? ` (${fmtMoney(p.unappliedAmount)} unapplied)` : ''}</div></label>`).join('');
+      return `<div class="card overflow-hidden" data-ar-exc-panel>
+        <div class="px-4 h-11 flex items-center border-b border-line gap-3"><div class="flex-1"><div class="font-semibold text-[13px]">Match available payment</div><div class="text-[11.5px] text-muted">${esc(exc.description)}</div></div>${arExcTypeBadge(exc.type)}<button data-act="ar-close-exception" class="text-faint hover:text-ink p-1">${icon('x', 'w-4 h-4')}</button></div>
+        <div class="p-4">
+        <div class="bg-sunken rounded-lg p-4 mb-4">
+          <div class="text-[11px] text-muted mb-2">Invoice Awaiting Payment</div>
+          <div class="flex items-center justify-between mb-2">
+            <div><div class="text-[13px] font-semibold">${esc(inv.invoiceNumber)}</div><div class="text-[11.5px] text-muted">${esc(custName(inv.customerId))}</div></div>
+            <div class="text-right mono text-[13px] font-semibold">${fmtMoney(inv.effectiveBalance)}</div>
+          </div>
+          <div class="text-[11.5px] text-ink-soft"><div class="flex justify-between mb-1"><span>Due Date:</span><span>${fmtDate(inv.dueDate)}</span></div><div class="flex justify-between"><span>Days Open:</span><span>${Math.ceil((new Date() - new Date(inv.issueDate)) / (1000 * 60 * 60 * 24))} days</span></div></div>
+        </div>
+        <div class="mb-4">
+          <div class="lbl mb-2">Open Payments (select any number)</div>
+          <div class="text-[11.5px] text-muted mb-2">${availablePayments.length} open/unapplied payment${availablePayments.length === 1 ? '' : 's'} available to match against this invoice.</div>
+          <div class="border border-line rounded-lg bg-surface max-h-56 overflow-y-auto">
+            ${availablePayments.length ? `<div>${payRows}</div>` : `<div class="px-4 py-6 text-center text-muted text-[12px]">No open payments available</div>`}
+          </div>
+        </div>
+        <label class="lbl block mb-1.5">Resolution</label>
+        <div class="space-y-2 mb-4">
+          <label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
+            <input type="radio" name="ar-nopay-action" value="match" class="radio" ${availablePayments.length ? 'checked' : 'disabled'}>
+            <div class="flex-1"><div class="font-medium text-[12px]">Match selected payment(s) above</div><div class="text-[11px] text-muted">Link invoice to one or more available payments</div></div>
+          </label>
+          <label class="flex items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:bg-sunken/40">
+            <input type="radio" name="ar-nopay-action" value="defer" class="radio" ${!availablePayments.length ? 'checked' : ''}>
+            <div class="flex-1"><div class="font-medium text-[12px]">Defer to next cycle</div><div class="text-[11px] text-muted">No matching payment available yet — await next payment arrival</div></div>
+          </label>
+        </div>
+        <label class="lbl block mb-1.5">Note (optional)</label>
+        <textarea id="ar-nopay-note" class="field h-16 resize-none mb-4" placeholder="Why this payment was chosen (or why deferred)..."></textarea>
+        <div class="flex justify-end gap-2"><button data-act="ar-close-exception" class="btn btn-ghost">Cancel</button><button data-act="ar-save-nopay-decision" data-id="${rec.id}" data-key="${esc(exc.key)}" class="btn btn-primary">${icon('check', 'w-4 h-4')}Save decision</button></div>
+        </div>
+      </div>`;
     }
     // Short-Pay exceptions — the invoice and linked payment(s) are deterministically known by the
     // matching engine, so the panel defaults to a read-only summary instead of the full picker.
@@ -4337,11 +4431,11 @@
             // rows — anything else (GL, Customers) falls back to the plain ingestion-status pill.
             if (arRec && arRes && r.category === 'SL' && f === 'status') {
               const inv = (arRes.invoices || []).find(i => i.invoiceId === rd.invoice_id);
-              return `<td class="px-3 py-2.5">${arLifecyclePill(inv ? arLifecycleStatus(arRec, arRes, 'invoice', inv) : 'Open')}</td>`;
+              return `<td class="px-3 py-2.5">${arLifecycleCell(arRec, arRes, 'invoice', inv)}</td>`;
             }
             if (arRec && arRes && r.category === 'Bank Statements' && f === 'clearing_status') {
               const bs = (arRes.bankStatements || []).find(b => b.bankTxnId === rd.bank_txn_id);
-              return `<td class="px-3 py-2.5">${arLifecyclePill(bs ? arLifecycleStatus(arRec, arRes, 'bank', bs) : 'Open')}</td>`;
+              return `<td class="px-3 py-2.5">${arLifecycleCell(arRec, arRes, 'bank', bs)}</td>`;
             }
             return `<td class="px-3 py-2.5">${stpill(val)}</td>`;
           }
@@ -5154,6 +5248,49 @@
         rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: 'Resolved without matching', note, at: todayISO() + 'T' + new Date().toTimeString().slice(0, 5), customer: exc && exc.customer };
         logAudit('Resolved AR exception without match', d.key);
         DB.ui.arActiveException = null; render(); toast('Marked resolved');
+      },
+      // No Payment Received — reviewer either matches the invoice to one or more selected open
+      // payments, or defers it to the next cycle (recorded with its own Deferred status so it's
+      // visibly distinct from both "still open" and "resolved" in the exception inbox).
+      'ar-save-nopay-decision': d => {
+        const rec = getRec(d.id); if (!rec) return;
+        const res = getEngineResult(rec);
+        const exc = res.exceptions.find(e => e.key === d.key);
+        if (!exc) return;
+        const action = document.querySelector('input[name="ar-nopay-action"]:checked');
+        const note = ($('#ar-nopay-note') && $('#ar-nopay-note').value) || '';
+        const at = todayISO() + 'T' + new Date().toTimeString().slice(0, 5);
+        if (!action) { toast('Choose to match or defer', 'bad'); return; }
+
+        if (action.value === 'match') {
+          const paymentIds = [...document.querySelectorAll('input[data-ar-nopay-pay]:checked')].map(el => el.value);
+          if (!paymentIds.length) { toast('Select at least one payment to match', 'bad'); return; }
+
+          const invId = exc.relatedId;
+          rec.arManualMatches = rec.arManualMatches || [];
+          rec.arManualMatches.push({ id: uid('arm'), invoiceIds: [invId], paymentIds, note: note || 'Manually matched from No Payment Received', at });
+
+          rec.arResolved = rec.arResolved || {};
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: `Matched to ${paymentIds.join(', ')}`, note, at, customer: exc.customer };
+
+          // Also resolve any linked Suspense exception(s) for the same payment(s)
+          paymentIds.forEach(payId => {
+            const suspenseExc = res.exceptions.find(e => e.type === 'Suspense' && e.relatedId === payId);
+            if (suspenseExc) {
+              rec.arResolved[suspenseExc.key] = { status: AR_EXCEPTION_STATUS.RESOLVED, outcome: `Matched to Invoice ${(res.invoices.find(i => i.invoiceId === invId) || {}).invoiceNumber || invId}`, note: note || 'Automatically resolved via matched No Payment Received', at, customer: suspenseExc.customer };
+              logAudit('Auto-resolved Suspense exception', `Payment ${payId} matched to Invoice ${invId}`);
+            }
+          });
+
+          logAudit('Manually matched No Payment Received exception', `${invId} ↔ ${paymentIds.join(', ')}`);
+          toast('Payment(s) matched successfully');
+        } else if (action.value === 'defer') {
+          rec.arResolved = rec.arResolved || {};
+          rec.arResolved[d.key] = { status: AR_EXCEPTION_STATUS.DEFERRED, outcome: 'Deferred to next cycle', note: note || 'Awaiting payment in next reconciliation cycle', at, customer: exc.customer };
+          logAudit('Deferred No Payment Received exception', `Invoice ${exc.relatedId} will await payment in next cycle; note: ${note || '(none)'}`);
+          toast('Deferred to next reconciliation cycle');
+        }
+        DB.ui.arActiveException = null; render();
       },
       // Short-Pay resolution: save disposition and note; optionally apply extra payments or reassign match.
       'ar-save-shortpay': d => {
