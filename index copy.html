@@ -620,7 +620,11 @@
       const customers = upCustomers.length ? mapStagedCustomers(upCustomers) : seed.customers;
       const invoices = upInvoices.length ? mapStagedInvoices(upInvoices) : seed.invoices;
       const bankStatements = upBank.length ? mapStagedBankStatements(upBank) : seed.bankStatements;
-      const glControlBalances = upGL.length ? mapStagedGL(upGL) : seed.glControlBalances;
+      // No seed fallback for GL — unlike the other three categories (which the caller never even
+      // reaches without real uploads, see arEngine's own no-data gate), a genuinely absent GL upload
+      // must mean "no GL data available," not the seed's fake ₹1,700.00 control balance compared
+      // against real sub-ledger figures.
+      const glControlBalances = upGL.length ? mapStagedGL(upGL) : null;
       return { customers, invoices, bankStatements, glControlBalances, gatewaySettlements: seed.gatewaySettlements };
     }
 
@@ -1560,7 +1564,7 @@
       // carries its full remaining balance on the sub-ledger until the dispute is resolved.
       const glRule = firstEnabled('gl-check');
       let glMismatch = null, glControlBalances = null;
-      if (glRule) {
+      if (glRule && ar.glControlBalances) {
         const subledgerBalance = invoices.filter(i => i.status !== 'Paid').reduce((s, inv) => s + inv.effectiveBalance, 0);
         const glBalance = ar.glControlBalances.glBalance;
         const variance = glBalance - subledgerBalance;
