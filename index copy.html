@@ -2306,9 +2306,11 @@
         const isGroup = group.length > 1;
         return group.map((m, i) => {
           const invoiceCell = `<td class="px-4 py-2.5 ${isGroup ? 'border-l-2 border-accent' : ''}">
-          <div class="font-medium">${m.invoiceNum}</div>
+          <div class="flex items-center gap-2 mb-0.5">
+            <div class="font-medium">${m.invoiceNum}</div>
+            <span class="chip bg-sunken text-ink-soft border-0 !py-0.5">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span>
+          </div>
           <div class="text-[11.5px] text-muted">${esc(m.customer)} · ${fmtMoney(m.amount)}</div>
-          <span class="chip mt-1 inline-block">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span>
         </td>`;
           const invoiceObj = (res.invoices || []).find(inv => inv.invoiceId === m.invoiceId);
           const lifecycleCell = `<td class="px-3 py-2.5">${arLifecycleCell(rec, res, 'invoice', invoiceObj)}</td>`;
@@ -2322,22 +2324,22 @@
           const idDetailLines = arIdentificationFieldCompareLines(res, pay);
           return `<tr class="border-b border-line-soft">
         ${invoiceCell}
-        ${lifecycleCell}
         <td class="px-3 py-2.5" rowspan="${group.length}">
           <div class="mono text-[12px] text-ink-soft">${m.paymentId}</div>
           <div class="mono text-[12.5px] font-medium mt-0.5">${fmtMoney(payTotal)}</div>
-          <div class="mt-1">${statusPill('matched')}</div>
           ${m.overage ? `<div class="mono text-[11px] text-ok-ink mt-1">+${fmtMoney(m.overage)} on account</div>` : ''}
         </td>
         <td class="px-4 py-2.5 text-[12px]" rowspan="${group.length}">
           <div class="font-medium text-ink-soft">${esc(ruleName)}</div>
           <div class="text-[11px] text-faint">${esc(idMethod)}</div>
           ${idDetailLines.map(l => `<div class="text-[10.5px] text-faint mono mt-0.5">${esc(l)}</div>`).join('')}
-        </td></tr>`;
+        </td>
+        ${lifecycleCell}
+        </tr>`;
         }).join('');
       }).join('');
       return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${all.length})</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Lifecycle</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2">Resolved via</th></tr></thead><tbody>
+      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2">Resolved via</th><th class="px-3 py-2">Lifecycle</th></tr></thead><tbody>
       ${rowsHtml || `<tr><td colspan="4" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
       </tbody></table></div>`;
     }
@@ -2400,17 +2402,17 @@
     function arMatchTypeFor(rec, res, invId) {
       const manual = (rec.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
       if (manual) {
-        if (manual.invoiceIds.length > 1 && manual.paymentIds.length > 1) return 'Many-to-Many (Manual)';
-        if (manual.invoiceIds.length > 1) return 'One-to-Many (Manual)';
-        if (manual.paymentIds.length > 1) return 'Many-to-One (Manual)';
-        return '1-to-1 (Manual)';
+        if (manual.invoiceIds.length > 1 && manual.paymentIds.length > 1) return 'Complex match (Manual)';
+        if (manual.invoiceIds.length > 1) return 'Batched invoice (Manual)';
+        if (manual.paymentIds.length > 1) return 'Split payment (Manual)';
+        return 'Direct match (Manual)';
       }
       const auto = (res.autoGroups || []).find(g => g.invoiceIds.includes(invId));
       if (auto) {
-        if (auto.invoiceIds.length > 1) return 'One-to-Many';
-        if (auto.paymentIds.length > 1) return 'Many-to-One';
+        if (auto.invoiceIds.length > 1) return 'Batched invoice';
+        if (auto.paymentIds.length > 1) return 'Split payment';
       }
-      return '1-to-1';
+      return 'Direct match';
     }
     // Single unified reconciliation-lifecycle status — one shared 4-state vocabulary used for both
     // invoices and bank statement rows, everywhere it's shown (Data Explorer, Overview, etc.):
@@ -4401,17 +4403,18 @@
     </div>
     -->
 
-    <div class="flex items-center gap-2 mb-3">
-      <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
-        <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ || '')}" placeholder="Search"></div>
-      <select data-stg-job class="field w-[260px]">
-        <option value="all">All files (${staging.length})</option>
-        ${files.map(f => {
+    <div class="flex overflow-x-auto hide-scrollbar border-b border-line mb-4" style="scrollbar-width: none; -ms-overflow-style: none;">
+      <button onclick="DB.filters.stgJobId='all'; DB.filters.stgPage=1; render()" class="h-10 px-4 text-[13px] font-medium whitespace-nowrap flex-none transition border-b-2 -mb-px ${jobFilter === 'all' ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">All files (${staging.length})</button>
+      ${files.map(f => {
         const jObj = (DB.jobs || []).find(j => j.id === f.id);
         const jTime = jObj ? ` · ${jObj.at.slice(11, 16)}` : '';
-        return `<option value="${f.id}" ${jobFilter === f.id ? 'selected' : ''}>${esc(f.label)} (${f.id}${jTime})</option>`;
+        const active = jobFilter === f.id;
+        return `<button onclick="DB.filters.stgJobId='${f.id}'; DB.filters.stgPage=1; render()" class="h-10 px-4 text-[13px] font-medium whitespace-nowrap flex-none transition border-b-2 -mb-px ${active ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${esc(f.label)} <span class="opacity-60 font-normal text-[11.5px]">(${f.id}${jTime})</span></button>`;
       }).join('')}
-      </select>
+    </div>
+    <div class="flex items-center gap-3 mb-3">
+      <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
+        <input data-stg-search class="field pl-9 w-full" value="${esc(DB.filters.stgQ || '')}" placeholder="Search"></div>
       <button data-act="stg-insert" class="btn btn-primary btn-sm ml-auto">${icon('plus', 'w-3.5 h-3.5')}Insert row</button>
     </div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
