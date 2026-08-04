@@ -268,42 +268,177 @@
     }
 
     /* ── AR Rules Studio: vertical timeline + accordion (replaces the old flat stacked-phase list) ── */
-    .tl-wrap { position: relative; }
-    .tl-wrap::before { content: ''; position: absolute; left: 15px; top: 16px; bottom: 16px; width: 2px; background: var(--line); z-index: 0; }
-    .tl-row { display: flex; gap: 14px; margin-bottom: 10px; position: relative; z-index: 1; }
-    .tl-rail { width: 30px; flex: none; display: flex; justify-content: center; }
+    .tl-wrap {
+      position: relative;
+    }
+
+    .tl-wrap::before {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 16px;
+      bottom: 16px;
+      width: 2px;
+      background: var(--line);
+      z-index: 0;
+    }
+
+    .tl-row {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .tl-rail {
+      width: 30px;
+      flex: none;
+      display: flex;
+      justify-content: center;
+    }
+
     .tl-node {
-      width: 30px; height: 30px; border-radius: 50%; background: var(--surface); flex: none;
-      border: 2px solid var(--line); margin-top: 13px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 700; color: var(--faint);
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--surface);
+      flex: none;
+      border: 2px solid var(--line);
+      margin-top: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--faint);
     }
-    .tl-card { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; transition: border-color .12s; }
-    .tl-card.open { border-color: var(--accent); }
-    .tl-header-wrap { width: 100%; display: flex; align-items: center; gap: 10px; padding: 13px 15px; cursor: pointer; }
-    .tl-header-wrap:hover { background: var(--sunken); }
-    .tl-head-main { flex: 1; min-width: 0; }
-    .tl-title { font-size: 13px; font-weight: 700; }
-    .tl-branch { font-size: 10.5px; color: var(--faint); font-style: italic; margin-top: 1px; }
-    .tl-hint { font-size: 11px; color: var(--faint); margin-top: 2px; line-height: 1.4; }
+
+    .tl-card {
+      flex: 1;
+      min-width: 0;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color .12s;
+    }
+
+    .tl-card.open {
+      border-color: var(--accent);
+    }
+
+    .tl-header-wrap {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 15px;
+      cursor: pointer;
+    }
+
+    .tl-header-wrap:hover {
+      background: var(--sunken);
+    }
+
+    .tl-head-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .tl-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .tl-branch {
+      font-size: 10.5px;
+      color: var(--faint);
+      font-style: italic;
+      margin-top: 1px;
+    }
+
+    .tl-hint {
+      font-size: 11px;
+      color: var(--faint);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
     .tl-info-btn {
-      flex: none; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-      color: var(--faint); background: none; border: none; cursor: pointer; transition: background .12s, color .12s;
+      flex: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--faint);
+      background: none;
+      border: none;
+      cursor: pointer;
+      transition: background .12s, color .12s;
     }
-    .tl-info-btn:hover, .tl-info-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-ink); }
-    .tl-chev { flex: none; color: var(--faint); transition: transform .18s; }
-    .tl-card.open .tl-chev { transform: rotate(180deg); }
+
+    .tl-info-btn:hover,
+    .tl-info-btn[aria-expanded="true"] {
+      background: var(--accent-soft);
+      color: var(--accent-ink);
+    }
+
+    .tl-chev {
+      flex: none;
+      color: var(--faint);
+      transition: transform .18s;
+    }
+
+    .tl-card.open .tl-chev {
+      transform: rotate(180deg);
+    }
+
     .tl-info-pop {
-      margin: 0 15px 13px; padding: 10px 12px; background: var(--accent-soft); border: 1px solid var(--accent-soft);
-      border-radius: 8px; font-size: 11.5px; line-height: 1.5; color: var(--accent-ink);
+      margin: 0 15px 13px;
+      padding: 10px 12px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-soft);
+      border-radius: 8px;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--accent-ink);
     }
-    .tl-body { padding: 4px 15px 15px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
-    .tl-body[hidden] { display: none; }
-    .tl-subphase { padding: 12px 0; }
-    .tl-subphase:first-child { padding-top: 8px; }
-    .tl-subhead { margin-bottom: 8px; }
-    .tl-subtitle { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
-    .tl-subdivider { border-top: 1px dashed var(--line); margin: 0 -15px; }
+
+    .tl-body {
+      padding: 4px 15px 15px;
+      border-top: 1px solid var(--line-soft);
+      background: var(--canvas);
+    }
+
+    .tl-body[hidden] {
+      display: none;
+    }
+
+    .tl-subphase {
+      padding: 12px 0;
+    }
+
+    .tl-subphase:first-child {
+      padding-top: 8px;
+    }
+
+    .tl-subhead {
+      margin-bottom: 8px;
+    }
+
+    .tl-subtitle {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-soft);
+    }
+
+    .tl-subdivider {
+      border-top: 1px dashed var(--line);
+      margin: 0 -15px;
+    }
 
     .fade-in {
       animation: fi .25s ease;
@@ -364,30 +499,102 @@
       }
     }
 
-    .rc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-    @media (max-width: 820px) { .rc-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 560px) { .rc-grid { grid-template-columns: 1fr; } }
+    .rc-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    @media (max-width: 820px) {
+      .rc-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 560px) {
+      .rc-grid {
+        grid-template-columns: 1fr;
+      }
+    }
 
     .rc-card {
-      background: var(--surface); border: 1px solid var(--line); border-radius: 11px;
-      padding: 16px; cursor: pointer; transition: box-shadow .12s, transform .12s;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 16px;
+      cursor: pointer;
+      transition: box-shadow .12s, transform .12s;
       border-top: 3px solid var(--stripe, var(--line));
-      display: flex; flex-direction: column; gap: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
     }
-    .rc-card:hover { box-shadow: 0 4px 12px rgba(16, 19, 26, .07), 0 1px 3px rgba(16, 19, 26, .05); }
+
+    .rc-card:hover {
+      box-shadow: 0 4px 12px rgba(16, 19, 26, .07), 0 1px 3px rgba(16, 19, 26, .05);
+    }
 
     .rc-ring {
-      width: 44px; height: 44px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       background: conic-gradient(var(--ring-color, var(--ok)) calc(var(--pct, 0) * 1%), var(--sunken) 0);
     }
-    .rc-ring.idle { background: var(--sunken); border: 2px dashed var(--line); }
-    .rc-ring-inner { width: 32px; height: 32px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--ink); }
-    .rc-ring.idle .rc-ring-inner { color: var(--faint); font-weight: 600; background: transparent; }
 
-    .rc-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
-    .rc-stats .k { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; margin-bottom: 2px; }
-    .rc-stats .v { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
-    .rc-stats .v.warn { color: var(--warn-ink); }
+    .rc-ring.idle {
+      background: var(--sunken);
+      border: 2px dashed var(--line);
+    }
+
+    .rc-ring-inner {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .rc-ring.idle .rc-ring-inner {
+      color: var(--faint);
+      font-weight: 600;
+      background: transparent;
+    }
+
+    .rc-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line-soft);
+    }
+
+    .rc-stats .k {
+      font-size: 10px;
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .rc-stats .v {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-soft);
+    }
+
+    .rc-stats .v.warn {
+      color: var(--warn-ink);
+    }
   </style>
 </head>
 
@@ -2451,12 +2658,17 @@
     // Three named matching streams shown as a segmented control within the Matched tab, plus an
     // "All" view that keeps today's single combined list — nothing is removed, just organized.
     const AR_MATCH_STREAMS = [
-      ['bank-cash', 'Bank & Invoice'],
-      ['gateway', 'Payment gateway settlement'],
+      ['bank-cash', 'Invoice vs Bank Payments'],
+      ['gateway', 'Invoice vs Gateway Payments'],
       ['gl', 'Sub legder vs GL control'],
     ];
-    function arMatchSegControl(stream) {
-      return `<div class="inline-flex items-center gap-1 p-1 bg-sunken rounded-lg mb-4">${AR_MATCH_STREAMS.map(([k, l]) => `<button data-act="ar-match-stream" data-stream="${k}" class="px-3 py-1.5 rounded-md text-[12.5px] font-semibold transition ${stream === k ? 'bg-surface shadow-sm text-ink' : 'text-muted hover:text-ink'}">${l}</button>`).join('')}</div>`;
+    function arMatchSegControl(stream, rec, res) {
+      const counts = {
+        'bank-cash': (res.matches || []).length + (res.overpays || []).length,
+        'gateway': (rec.arData && rec.arData.gatewaySettlements) ? rec.arData.gatewaySettlements.length : 0,
+        'gl': 0
+      };
+      return `<div class="inline-flex items-center gap-1 p-1 bg-sunken rounded-lg mb-4">${AR_MATCH_STREAMS.map(([k, l]) => `<button data-act="ar-match-stream" data-stream="${k}" class="px-3 py-1.5 rounded-md text-[12.5px] font-semibold transition ${stream === k ? 'bg-surface shadow-sm text-ink' : 'text-muted hover:text-ink'}">${l}${counts[k] ? ` <span class="mono ml-1 text-faint ${stream === k ? 'text-ink-soft' : ''}">(${counts[k]})</span>` : ''}</button>`).join('')}</div>`;
     }
     // Title names what's being compared on each side, not just "matched" — mirrors the topbar's
     // "A ↔ B" convention used across every other reconciliation type.
@@ -2513,35 +2725,55 @@
         const invIds = group.map(x => x.invoiceId).join(',');
         const isGroup = group.length > 1;
         const rows = group.map((m, i) => {
-          const chkCell = `<td class="px-4 py-2.5 border-r border-line-soft unrecon-chk hidden w-10" rowspan="${group.length}">
-            <input type="checkbox" class="w-4 h-4 rounded border-line cursor-pointer" data-pay="${m.paymentId || ''}" data-invs="${invIds}">
+          const chkCell = `<td class="px-4 py-3 border-r border-line-soft unrecon-chk hidden w-10 align-top" rowspan="${group.length}">
+            <input type="checkbox" class="w-4 h-4 rounded border-line cursor-pointer mt-1" data-pay="${m.paymentId || ''}" data-invs="${invIds}">
           </td>`;
-          const invoiceCell = `<td class="px-4 py-2.5 ${isGroup ? 'border-l-[3px] border-accent' : ''}">
-          <div class="font-medium">${m.invoiceNum}</div>
-          <div class="text-[10.5px] text-faint mb-1">Invoice number</div>
-          <div class="text-[11.5px] text-muted">${esc(m.customer)} · ${fmtMoney(m.amount)}</div>
+          const invoiceCell = `<td class="px-4 py-3 align-top ${isGroup ? 'border-l-[3px] border-accent' : ''}">
+          <div class="grid grid-cols-2 gap-3 text-center">
+            <div class="font-medium text-[13px] text-ink">${m.invoiceNum}</div>
+            <div class="font-medium text-[13px] text-ink">${fmtMoney(m.amount)}</div>
+          </div>
         </td>`;
           const isLast = (i === group.length - 1);
           const trClass = isLast ? '' : 'border-b border-line-soft';
           if (i > 0) return `<tr class="${trClass}">${invoiceCell}</tr>`;
-          
+
           const ruleName = m.ruleName || 'Manual match';
+          const rl = (rec.arRules || []).find(r => r.id === m.ruleId);
+          const ruleNumStr = rl ? `Rule ${rl.priority}` : 'Manual';
+          const amountRuleHtml = `<button data-act="goto-rule" data-rule="${m.ruleId || ''}" class="text-[12.5px] text-left hover:underline text-ink block">
+            <span class="font-medium">${esc(ruleNumStr)}</span> : <span class="text-ink-soft">${esc(ruleName)}</span>
+          </button>`;
+
           const payIds = String(m.paymentId || '').split(',').map(s => s.trim());
           const firstPayId = payIds[0];
           const pay = (res.payments || []).find(p => p.paymentId === firstPayId);
           const payTotal = payIds.reduce((s, pid) => { const py = (res.payments || []).find(p => p.paymentId === pid); return s + (py ? py.totalReceived : 0); }, 0);
-          
+
+          let idRuleHtml = '';
+          if (pay && pay.lockedBy) {
+            const idRl = pay.lockedBy;
+            const idRuleNumStr = idRl.priority ? `Rule ${idRl.priority}` : 'Manual';
+            idRuleHtml = `<button data-act="goto-rule" data-rule="${idRl.id}" class="text-[12.5px] text-left hover:underline text-ink block mb-2">
+              <span class="font-medium">${esc(idRuleNumStr)}</span> : <span class="text-ink-soft">${esc(idRl.name)}</span>
+            </button>`;
+          }
+
           return `<tr class="${trClass}">
         ${chkCell}
         ${invoiceCell}
-        <td class="px-3 py-2.5" rowspan="${group.length}">
-          <div class="mono text-[12px] text-ink-soft">${m.paymentId}</div>
-          <div class="text-[10.5px] text-faint mb-1">Bank transaction number</div>
-          <div class="mono text-[12.5px] font-medium mt-0.5">${fmtMoney(payTotal)}</div>
-          ${m.overage ? `<div class="mono text-[11px] text-ok-ink mt-1">+${fmtMoney(m.overage)} on account</div>` : ''}
+        <td class="px-4 py-3 align-top border-x border-line-soft" rowspan="${group.length}">
+          <div class="grid grid-cols-2 gap-3 text-center">
+            <div class="mono text-[12px] font-medium text-ink">${m.paymentId}</div>
+            <div>
+              <div class="mono text-[12px] font-medium text-ink">${fmtMoney(payTotal)}</div>
+              ${m.overage ? `<div class="mono text-[11px] text-ok-ink mt-1">+${fmtMoney(m.overage)} on account</div>` : ''}
+            </div>
+          </div>
         </td>
-        <td class="px-4 py-2.5 text-[12px]" rowspan="${group.length}">
-          <div class="font-medium text-ink-soft">${esc(ruleName)}</div>
+        <td class="px-4 py-3 align-top" rowspan="${group.length}">
+          ${idRuleHtml}
+          ${amountRuleHtml}
         </td>
         </tr>`;
         }).join('');
@@ -2549,22 +2781,28 @@
         return `<tbody class="${tbodyClass}">${rows}</tbody>`;
       }).join('');
       return `<div class="card overflow-hidden" id="ar-matched-container">
-        <div class="px-4 h-11 flex items-center border-b border-line">
-          <div class="font-semibold text-[13px]">${esc(title)} (<span id="ar-matched-count">${all.length}</span>)</div>
-          <div class="unrecon-msg hidden ml-3 text-[12px] text-muted">Select the records to be unreconciled</div>
-          <button data-act="start-unrecon" class="ml-auto btn btn-ghost btn-sm text-bad-ink hover:bg-bad-soft unrecon-btn">Unreconcile</button>
-          <div class="ml-auto flex items-center gap-2 unrecon-actions hidden">
-            <button data-act="cancel-unrecon" class="btn btn-ghost btn-sm">Cancel</button>
-            <button data-act="confirm-unrecon" class="btn btn-primary bg-bad-ink border-transparent hover:bg-bad-ink/90 btn-sm">Confirm Unreconcile</button>
-          </div>
-        </div>
         <table class="w-full text-[13px] border-collapse">
           <thead>
-            <tr class="lbl text-left border-b border-line">
-              <th class="w-10 px-4 py-2 unrecon-chk hidden"></th>
-              <th class="px-4 py-2">Invoice</th>
-              <th class="px-3 py-2">Payment</th>
-              <th class="px-4 py-2">Resolved via</th>
+            <tr class="lbl text-left">
+              <th class="w-10 px-4 py-2 unrecon-chk hidden" rowspan="2"></th>
+              <th class="px-4 pt-4 pb-1 text-ink text-center">Invoice</th>
+              <th class="px-4 pt-4 pb-1 text-ink text-center border-x border-line">Payment</th>
+              <th class="px-4 pt-4 pb-1 text-ink">Resolved via</th>
+            </tr>
+            <tr class="text-[10px] text-faint uppercase tracking-wide border-b border-line text-left">
+              <th class="px-4 pb-2 font-normal">
+                <div class="grid grid-cols-2 gap-3 text-center">
+                  <div>Invoice Number</div>
+                  <div>Amount</div>
+                </div>
+              </th>
+              <th class="px-4 pb-2 font-normal border-x border-line">
+                <div class="grid grid-cols-2 gap-3 text-center">
+                  <div>Bank Transaction ID</div>
+                  <div>Amount</div>
+                </div>
+              </th>
+              <th class="px-4 pb-2 font-normal"></th>
             </tr>
           </thead>
           ${rowsHtml || `<tbody><tr><td colspan="4" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr></tbody>`}
@@ -2573,7 +2811,7 @@
     }
     function arGatewaySection(rec) {
       const rows = rec.arData.gatewaySettlements || [];
-      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Gateway Settlements ↔ Invoice Line Items (${rows.length})</div></div>
+      return `<div class="card overflow-hidden">
       <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Settlement</th><th class="px-3 py-2">Gateway</th><th class="px-3 py-2">Txn ID</th><th class="px-3 py-2 text-right">Gross</th><th class="px-3 py-2 text-right">Fee</th><th class="px-3 py-2 text-right">Net</th><th class="px-4 py-2 text-right">Status</th></tr></thead><tbody>
       ${rows.length ? rows.map(g => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${g.settlementId}</td><td class="px-3 py-2.5">${esc(g.gateway)}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${g.transactionId}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(g.grossAmount)}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(g.feeAmount)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${fmtMoney(g.netAmount)}</td><td class="px-4 py-2.5 text-right">${statusPill(g.matched ? 'matched' : 'break')}</td></tr>`).join('')
           : `<tr><td colspan="7" class="px-4 py-10 text-center text-muted">No gateway settlements in this dataset — this sample's cash all arrived via bank wire/ACH. This stream is ready to reconcile once payout-batch data is available.</td></tr>`}
@@ -2582,7 +2820,7 @@
     function arGlSection(res) {
       if (!res.glControlBalances) return `<div class="card p-8 text-center text-[13px] text-muted">GL control check is disabled in Rules Studio — enable the "AR Sub-ledger ↔ GL control" rule to see this.</div>`;
       const g = res.glControlBalances;
-      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">AR Sub-Ledger ↔ GL Account ${esc(g.account)}</div></div>
+      return `<div class="card overflow-hidden">
       <div class="p-5 grid grid-cols-3 gap-4 text-center">
         <div><div class="lbl mb-1">AR sub-ledger</div><div class="text-lg font-semibold mono">${fmtMoney(g.subledgerBalance)}</div></div>
         <div><div class="lbl mb-1">GL account ${esc(g.account)}</div><div class="text-lg font-semibold mono">${fmtMoney(g.glBalance)}</div></div>
@@ -2597,7 +2835,7 @@
         : stream === 'gateway' ? arGatewaySection(rec)
           : stream === 'gl' ? arGlSection(res)
             : arMatchedTable(rec, res, 'Invoices ↔ Payments — All Matches');
-      return `<div class="p-6 fade-in">${arMatchSegControl(stream)}${body}</div>`;
+      return `<div class="p-6 fade-in">${arMatchSegControl(stream, rec, res)}${body}</div>`;
     }
     // ── Exception & Action Inbox: every unmatched item / variance across all 3 AR streams in one
     // triage queue, tagged by type, with faceted filtering — click a row to resolve it.
@@ -5394,7 +5632,7 @@
         if (!c) return;
         const checked = [...c.querySelectorAll('.unrecon-chk input:checked')];
         if (!checked.length) { toast('Select at least one record', 'bad'); return; }
-        
+
         const rec = getRec(DB.route.recId);
         if (!rec) return;
 
@@ -5405,10 +5643,10 @@
           const payId = chk.dataset.pay;
           if (!payId) return;
           const invIds = chk.dataset.invs.split(',');
-          
+
           // Remove from manual matches if it was a manual match
           rec.arManualMatches = rec.arManualMatches.filter(g => !g.paymentIds.includes(payId));
-          
+
           // Force into unreconciled state for auto-matching bypass
           rec.arUnreconciled.push({
             id: uid('exc'),
