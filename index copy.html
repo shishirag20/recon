@@ -909,45 +909,55 @@
       return rec;
     }
 
-    // The AR reconciliation's 6 fixed phases, matching the "identify the customer first, only then
-    // look at invoices, never guess" workflow: lock the customer (1A), fall back to a candidate pool
-    // if no rule locks a single customer (1B), then run the scoped invoice-allocation waterfall (2)
-    // — all three phases now made of *named* rules with fixed matching logic (`kind`), not generic
-    // Ref/Amount/Date conditions a user assembles from scratch. The trailing three phases are
-    // unchanged single-threshold checks from before. Every phase's rule list is still
-    // cascading/addable/editable/toggleable and evaluated first-match-wins in priority order —
-    // rules can never be deleted, only added, reordered, edited, and enabled/disabled.
+    // The AR reconciliation's 7 fixed phases, matching the "validate the feed, identify the
+    // customer, only then look at invoices, never guess" workflow: intake validation runs first
+    // (0), then lock the customer (1A), fall back to a candidate pool if no rule locks a single
+    // customer (1B), then run the scoped invoice-allocation waterfall (2) — all made of *named*
+    // rules with fixed matching logic (`kind`), not generic Ref/Amount/Date conditions a user
+    // assembles from scratch. The trailing three phases are unchanged single-threshold checks from
+    // before. Every phase's rule list is still cascading/addable/editable/toggleable and evaluated
+    // first-match-wins in priority order — rules can never be deleted, only added, reordered,
+    // edited, and enabled/disabled.
     const AR_PHASES = [
-      { key: 'customer-lock', priority: 1, label: 'Customer Identification', hint: 'Locks the paying customer before any invoice is looked at — first rule to succeed wins' },
-      { key: 'candidate-pool', priority: 2, label: 'Candidate Pool', hint: 'Only runs if Customer Identification fails outright — narrows to a short list instead of guessing', branchNote: 'only runs for rows Customer Identification couldn\'t lock' },
-      { key: 'allocation', priority: 3, label: 'Scoped Invoice Allocation', hint: 'Matches the locked (or pooled) customer\'s own invoices only — never searches globally' },
-      { key: 'short-pay', priority: 4, label: 'Invoice settlement / short-pay', hint: 'Amount tolerance below which a shortfall is not flagged as a dispute' },
-      { key: 'unapplied', priority: 5, label: 'Unapplied cash', hint: 'Amount tolerance below which leftover cash is not flagged' },
-      { key: 'gl-check', priority: 6, label: 'AR Sub-ledger ↔ GL control', hint: 'Amount tolerance below which a GL variance is not flagged' },
+      { key: 'intake', priority: 1, label: 'Intake Validation', hint: 'Filters duplicate or already-processed bank rows before any identification or matching runs' },
+      { key: 'customer-lock', priority: 2, label: 'Customer Identification', hint: 'Locks the paying customer before any invoice is looked at — first rule to succeed wins' },
+      { key: 'candidate-pool', priority: 3, label: 'Candidate Pool', hint: 'Only runs if Customer Identification fails outright — narrows to a short list instead of guessing', branchNote: 'only runs for rows Customer Identification couldn\'t lock' },
+      { key: 'allocation', priority: 4, label: 'Scoped Invoice Allocation', hint: 'Matches the locked (or pooled) customer\'s own invoices only — never searches globally' },
+      { key: 'short-pay', priority: 5, label: 'Invoice settlement / short-pay', hint: 'Amount tolerance below which a shortfall is not flagged as a dispute' },
+      { key: 'unapplied', priority: 6, label: 'Unapplied cash', hint: 'Amount tolerance below which leftover cash is not flagged' },
+      { key: 'gl-check', priority: 7, label: 'AR Sub-ledger ↔ GL control', hint: 'Amount tolerance below which a GL variance is not flagged' },
     ];
-    // Rules Studio groups the 6 phases above into 3 higher-level stages for display — purely a
+    // Rules Studio groups the 7 phases above into 4 higher-level stages for display — purely a
     // presentation grouping, AR_PHASES itself (and rec.arRules' own phase keys) is untouched, so
-    // nothing about how rules are stored, cascaded, or matched changes. Grouped because Candidate
-    // Pool only exists as Customer Identification's own fallback (never runs independently), and
-    // Short-Pay/Unapplied are outcome states of Invoice Allocation, not separate identification
-    // steps — each group's `description` is always visible, `example` is the (i) button's content,
-    // a concrete instance of the group in action rather than a restatement of the description.
+    // nothing about how rules are stored, cascaded, or matched changes. Grouped because Intake
+    // Validation gates the feed before anyone is identified, Candidate Pool only exists as Customer
+    // Identification's own fallback (never runs independently), and Short-Pay/Unapplied are outcome
+    // states of Invoice Allocation, not separate identification steps — each group's `description`
+    // is always visible, `example` is the (i) button's content, a concrete instance of the group in
+    // action rather than a restatement of the description. `priority` here doubles as the step
+    // number shown in the timeline rail and the "Rule N.M" prefix on every rule card.
     const AR_PHASE_GROUPS = [
       {
-        key: 'customer-id', priority: 1, label: 'Customer Identification',
-        description: 'Figures out which customer actually sent each payment, before any invoice is looked at.',
+        key: 'intake', priority: 1, label: 'Intake Validation Rules (Pre-Checks)',
+        description: 'Inspects incoming raw transaction feeds, filters out duplicates or already-processed rows, and validates data integrity before operational processing begins.',
+        example: 'Two bank rows carry the exact same reference number (UTR) — the second is flagged as a duplicate and excluded before customer identification even runs, so it can\'t be matched or counted twice.',
+        phases: ['intake'],
+      },
+      {
+        key: 'customer-id', priority: 2, label: 'Customer Identification Rules (Phase 1)',
+        description: 'Determines, isolates, or verifies who the paying entity is — from high-confidence exact identifiers down to broader fallback and candidate-pooling strategies.',
         example: 'BANK-001\'s reference exactly matches Acme Corp\'s expected UTR, so it locks to them immediately. If nothing matches outright, Candidate Pool narrows to a short list instead of guessing — a human confirms which one from there.',
         phases: ['customer-lock', 'candidate-pool'],
       },
       {
-        key: 'invoice-alloc', priority: 2, label: 'Invoice Allocation',
-        description: 'Once a customer is known, matches their payment to the right invoice(s) — and flags what\'s left over when it doesn\'t divide evenly.',
+        key: 'invoice-alloc', priority: 3, label: 'Financial Matching & Allocation Rules (Phase 2)',
+        description: 'Governs how transaction amounts, fee deductions, and financial credits are mapped, distributed, and tied against a customer\'s open invoices or account balances.',
         example: 'A ₹10,000 payment exactly matches a customer\'s open ₹10,000 invoice, so it\'s marked paid. Had they sent only ₹9,800, that ₹200 gap would become a Short-Pay exception instead of being silently absorbed; cash with no invoice to apply to at all becomes Unapplied Cash.',
         phases: ['allocation', 'short-pay', 'unapplied'],
       },
       {
-        key: 'gl-control', priority: 3, label: 'Sub-Ledger ↔ GL Control',
-        description: 'One period-level check: does the total of all open invoices agree with what the general ledger\'s AR control account holds?',
+        key: 'gl-control', priority: 4, label: 'Ledger Settlement & Audit Rules (Post-Reconciliation)',
+        description: 'Controls how finalized transactions post to sub-ledgers and general ledgers, manages timing schedules, and logs immutable compliance trails.',
         example: 'Invoices add up to ₹50,000 still outstanding, but the GL\'s AR control account shows ₹52,000 — that ₹2,000 gap gets flagged here, usually meaning a journal entry hasn\'t posted yet.',
         phases: ['gl-check'],
       },
@@ -957,43 +967,45 @@
     // tolerance controls; kinds with fixed, parameter-less logic only expose Name/Priority/Enabled
     // (and Confidence, where it doubles as a threshold rather than an informational score).
     const AR_RULE_KINDS = {
+      'intake': [
+        { kind: 'dup-utr', label: 'Duplicate UTR Check', usesCond: false, fields: 'Bank reference number (UTR) ↔ every other bank reference number in this run', description: 'Automatically detects and excludes bank rows that share an already-used UTR (unique transaction reference), preventing the same payment from being processed or matched twice.' },
+      ],
       'customer-lock': [
-        { kind: 'dup-utr', label: 'Duplicate transaction reference check', usesCond: false, fields: 'Bank reference number (UTR) ↔ every other bank reference number in this run' },
         {
-          kind: 'expected-utr', label: 'Expected UTR match', usesCond: false, fieldsConfigurable: true, matchModeOptions: [
+          kind: 'expected-utr', label: 'Pre-Advised UTR Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically matches incoming payments to customer records using the UTR details they pre-submitted in the portal.', matchModeOptions: [
             { value: 'exact', label: 'Exact match — reference must equal the expected UTR exactly' },
             { value: 'contains', label: 'Contains — reference may include the expected UTR alongside other bank text' },
           ]
         },
-        { kind: 'account-ifsc', label: 'Payer account + IFSC match', usesCond: false, fieldsConfigurable: true },
-        { kind: 'upi', label: 'UPI handle match', usesCond: false, fieldsConfigurable: true },
-        { kind: 'customer-code', label: 'Customer code in narration', usesCond: false, fieldsConfigurable: true },
-        { kind: 'gstin-pan', label: 'GSTIN / PAN extraction', usesCond: false, fieldsConfigurable: true },
-        { kind: 'fuzzy-name', label: 'Fuzzy company name match', usesCond: false, confidenceLabel: 'Match threshold %', fieldsConfigurable: true },
+        { kind: 'account-ifsc', label: 'Payer Account & IFSC Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically links incoming payments to customer accounts by verifying both their bank account number and IFSC code against saved records.' },
+        { kind: 'upi', label: 'UPI Handle Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically links incoming payments by matching the sender\'s UPI ID found in the transaction narration with the customer\'s saved UPI handle.' },
+        { kind: 'customer-code', label: 'Customer Code in Narration Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically links incoming payments by identifying and matching the customer\'s unique code embedded within the bank transaction narration.' },
+        { kind: 'gstin-pan', label: 'Tax ID & PAN Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically links incoming payments by extracting the customer\'s GSTIN or PAN from the bank transaction narration and matching it with saved records.' },
+        { kind: 'fuzzy-name', label: 'Company Name Match', usesCond: false, confidenceLabel: 'Match threshold %', fieldsConfigurable: true, description: 'Automatically links incoming payments by performing a fuzzy match between the payer\'s name on the bank statement and the customer\'s saved company name.' },
       ],
       'candidate-pool': [
-        { kind: 'account-suffix', label: 'Masked account suffix match (last 4)', usesCond: false, fieldsConfigurable: true },
-        { kind: 'narration-tokens', label: 'Token-based narration match', usesCond: false, fieldsConfigurable: true },
+        { kind: 'account-suffix', label: 'Masked Account Suffix Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically links incoming payments by comparing the last 4 digits of the payer\'s account number from the bank statement with saved customer records.' },
+        { kind: 'narration-tokens', label: 'Token-Based Narration Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically links incoming payments by breaking down the transaction narration into tokens and matching them against the customer\'s saved company name.' },
       ],
       'allocation': [
-        { kind: 'exact-invoice-num', label: 'Exact invoice number in narration', usesCond: false, fieldsConfigurable: true },
-        { kind: 'invoice-suffix', label: 'Invoice suffix / truncated number', usesCond: false, fieldsConfigurable: true },
-        { kind: 'exact-amount', label: 'Exact amount match', usesCond: false, fieldsConfigurable: true },
-        { kind: 'tds-match', label: 'TDS match', usesCond: false, fieldsConfigurable: true },
-        { kind: 'subset-sum', label: 'Subset sum (many-to-many)', usesCond: true, condLabel: 'Max combo size', condField: 'amount', unit: 'count', fieldsConfigurable: true },
-        { kind: 'bank-fee', label: 'Bank fee / minor variance', usesCond: true, condLabel: 'Variance tolerance', condField: 'amount', unit: 'money', fieldsConfigurable: true },
-        { kind: 'write-off', label: 'Small balance write-off', usesCond: true, condLabel: 'Materiality threshold', condField: 'amount', unit: 'money', fieldsConfigurable: true },
-        { kind: 'overpayment', label: 'Overpayment → On Account', usesCond: false, fieldsConfigurable: true },
-        { kind: 'partial-payment', label: 'Universal partial payment', usesCond: false },
+        { kind: 'exact-invoice-num', label: 'Exact Invoice Number Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically matches a payment to an invoice by finding that invoice\'s exact number written in the bank transaction narration.' },
+        { kind: 'invoice-suffix', label: 'Truncated Invoice Number Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically matches a payment to an invoice by finding a shortened or partial version of the invoice number in the bank narration.' },
+        { kind: 'exact-amount', label: 'Exact Amount Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically matches a payment to an open invoice when the payment amount exactly equals the invoice\'s outstanding balance.' },
+        { kind: 'tds-match', label: 'TDS-Adjusted Amount Match', usesCond: false, fieldsConfigurable: true, description: 'Automatically matches a payment to an invoice when the shortfall exactly equals the customer\'s allowed tax-deducted-at-source (TDS) amount.' },
+        { kind: 'subset-sum', label: 'Combined Invoice Match (Many-to-Many)', usesCond: true, condLabel: 'Max combo size', condField: 'amount', unit: 'count', fieldsConfigurable: true, description: 'Automatically matches a single payment against a combination of several open invoices whose amounts add up to the payment received.' },
+        { kind: 'bank-fee', label: 'Bank Fee Variance Match', usesCond: true, condLabel: 'Variance tolerance', condField: 'amount', unit: 'money', fieldsConfigurable: true, description: 'Automatically matches a payment that falls just short of an invoice\'s balance by an amount consistent with a bank-deducted transfer fee.' },
+        { kind: 'write-off', label: 'Small Balance Write-Off', usesCond: true, condLabel: 'Materiality threshold', condField: 'amount', unit: 'money', fieldsConfigurable: true, description: 'Automatically closes out a residual invoice balance that falls below the configured materiality threshold, rather than leaving it open as a disputed shortfall.' },
+        { kind: 'overpayment', label: 'Overpayment to On-Account Credit', usesCond: false, fieldsConfigurable: true, description: 'Automatically records any amount received beyond an invoice\'s balance as an on-account credit for that customer, available to apply to future invoices.' },
+        { kind: 'partial-payment', label: 'Partial Payment Allocation', usesCond: false, description: 'Automatically applies a payment that doesn\'t fully cover an invoice as a partial settlement, leaving the remaining balance open.' },
       ],
       // condLabel routes these through the single-field editor, not the legacy Ref/Amount/Date grid
       // — thresholdOf() (the only place any of these three get read) only ever looks at cond.amount,
       // so a Reference or Date window control would sit there doing nothing but implying it matters.
-      'short-pay': [{ kind: 'threshold', label: 'Shortfall tolerance', usesCond: true, condLabel: 'Shortfall tolerance', condField: 'amount', unit: 'money' }],
-      'unapplied': [{ kind: 'threshold', label: 'Unapplied cash threshold', usesCond: true, condLabel: 'Unapplied cash threshold', condField: 'amount', unit: 'money' }],
-      'gl-check': [{ kind: 'threshold', label: 'GL variance tolerance', usesCond: true, condLabel: 'GL variance tolerance', condField: 'amount', unit: 'money' }],
+      'short-pay': [{ kind: 'threshold', label: 'Shortfall Tolerance', usesCond: true, condLabel: 'Shortfall tolerance', condField: 'amount', unit: 'money', description: 'Automatically decides how large a shortfall can be before it\'s raised as a Short-Pay exception instead of settling the invoice as paid.' }],
+      'unapplied': [{ kind: 'threshold', label: 'Unapplied Cash Threshold', usesCond: true, condLabel: 'Unapplied cash threshold', condField: 'amount', unit: 'money', description: 'Automatically decides how much leftover cash can go unmatched before it\'s raised as an Unapplied Cash exception.' }],
+      'gl-check': [{ kind: 'threshold', label: 'GL Control Variance Tolerance', usesCond: true, condLabel: 'GL variance tolerance', condField: 'amount', unit: 'money', description: 'Automatically decides how large a gap between the AR sub-ledger total and the GL control account balance can be before it\'s raised as a reconciliation variance.' }],
     };
-    const AR_DEFAULT_KIND_FOR_PHASE = { 'customer-lock': 'fuzzy-name', 'candidate-pool': 'narration-tokens', 'allocation': 'exact-amount', 'short-pay': 'threshold', 'unapplied': 'threshold', 'gl-check': 'threshold' };
+    const AR_DEFAULT_KIND_FOR_PHASE = { 'intake': 'dup-utr', 'customer-lock': 'fuzzy-name', 'candidate-pool': 'narration-tokens', 'allocation': 'exact-amount', 'short-pay': 'threshold', 'unapplied': 'threshold', 'gl-check': 'threshold' };
     function arRuleKindMeta(phase, kind) { return (AR_RULE_KINDS[phase] || []).find(k => k.kind === kind) || { kind, label: kind, usesCond: true }; }
     // Reuses ruleC() from the generic engine, extended with `kind` — the fixed matcher the engine
     // dispatches on. `cond`/`confidence` stay as the tunable knobs for kinds that need one (e.g.
@@ -1004,31 +1016,32 @@
     }
     function buildARRules() {
       return [
+        // Phase 0 — Intake Validation (runs before any identification or matching).
+        arRuleC('intake', 'dup-utr', 'Duplicate UTR Check', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 100),
         // Phase 1A — Customer Identification, in waterfall priority order.
-        arRuleC('customer-lock', 'dup-utr', 'Duplicate transaction reference check', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 100),
-        Object.assign(arRuleC('customer-lock', 'expected-utr', 'Expected UTR match', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 98), { matchMode: 'exact', bankField: 'bank_reference_number', secondSource: 'customer', secondField: 'expected_utr' }),
-        Object.assign(arRuleC('customer-lock', 'account-ifsc', 'Payer account + IFSC match', 3, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 97), { bankAccountField: 'payer_account_number', custAccountField: 'default_bank_account', bankIfscField: 'payer_ifsc', custIfscField: 'default_ifsc' }),
-        Object.assign(arRuleC('customer-lock', 'upi', 'UPI handle match', 4, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 95), { bankField: 'narration', secondSource: 'customer', secondField: 'upi_handle' }),
-        Object.assign(arRuleC('customer-lock', 'customer-code', 'Customer code in narration', 5, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 90), { bankField: 'narration', secondSource: 'customer', secondField: 'customer_code' }),
-        Object.assign(arRuleC('customer-lock', 'gstin-pan', 'GSTIN / PAN extraction', 6, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 92), { bankField: 'narration', secondSource: 'customer', secondField: 'gstin' }),
-        Object.assign(arRuleC('customer-lock', 'fuzzy-name', 'Fuzzy company name match', 7, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 85), { bankField: 'payer_name', secondSource: 'customer', secondField: 'company_name' }),
+        Object.assign(arRuleC('customer-lock', 'expected-utr', 'Pre-Advised UTR Match', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 98), { matchMode: 'exact', bankField: 'bank_reference_number', secondSource: 'customer', secondField: 'expected_utr' }),
+        Object.assign(arRuleC('customer-lock', 'account-ifsc', 'Payer Account & IFSC Match', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 97), { bankAccountField: 'payer_account_number', custAccountField: 'default_bank_account', bankIfscField: 'payer_ifsc', custIfscField: 'default_ifsc' }),
+        Object.assign(arRuleC('customer-lock', 'upi', 'UPI Handle Match', 3, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 95), { bankField: 'narration', secondSource: 'customer', secondField: 'upi_handle' }),
+        Object.assign(arRuleC('customer-lock', 'customer-code', 'Customer Code in Narration Match', 4, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 90), { bankField: 'narration', secondSource: 'customer', secondField: 'customer_code' }),
+        Object.assign(arRuleC('customer-lock', 'gstin-pan', 'Tax ID & PAN Match', 5, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 92), { bankField: 'narration', secondSource: 'customer', secondField: 'gstin' }),
+        Object.assign(arRuleC('customer-lock', 'fuzzy-name', 'Company Name Match', 6, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 85), { bankField: 'payer_name', secondSource: 'customer', secondField: 'company_name' }),
         // Phase 1B — Candidate Pool (only reached if every Phase 1A rule above misses).
-        Object.assign(arRuleC('candidate-pool', 'account-suffix', 'Masked account suffix match (last 4)', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 60), { bankField: 'payer_account_number', secondSource: 'customer', secondField: 'default_bank_account' }),
-        Object.assign(arRuleC('candidate-pool', 'narration-tokens', 'Token-based narration match', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 50), { bankField: 'narration', secondSource: 'customer', secondField: 'company_name' }),
+        Object.assign(arRuleC('candidate-pool', 'account-suffix', 'Masked Account Suffix Match', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 60), { bankField: 'payer_account_number', secondSource: 'customer', secondField: 'default_bank_account' }),
+        Object.assign(arRuleC('candidate-pool', 'narration-tokens', 'Token-Based Narration Match', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 50), { bankField: 'narration', secondSource: 'customer', secondField: 'company_name' }),
         // Phase 2 — Scoped Invoice Allocation, in waterfall priority order.
-        Object.assign(arRuleC('allocation', 'exact-invoice-num', 'Exact invoice number in narration', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 98), { bankField: 'narration', secondSource: 'invoice', secondField: 'invoice_number' }),
-        Object.assign(arRuleC('allocation', 'invoice-suffix', 'Invoice suffix / truncated number', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 90), { bankField: 'narration', secondSource: 'invoice', secondField: 'invoice_number' }),
-        Object.assign(arRuleC('allocation', 'exact-amount', 'Exact amount match', 3, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 95), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
-        Object.assign(arRuleC('allocation', 'tds-match', 'TDS match (invoice − allowed TDS = payment)', 4, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 93), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
-        Object.assign(arRuleC('allocation', 'subset-sum', 'Subset sum (many-to-many)', 5, 'off', { mode: 'abs', value: 3 }, { days: 30 }, 85), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
-        Object.assign(arRuleC('allocation', 'bank-fee', 'Bank fee / minor variance', 6, 'off', { mode: 'abs', value: 100 }, { days: 30 }, 80), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
-        Object.assign(arRuleC('allocation', 'write-off', 'Small balance write-off', 7, 'off', { mode: 'abs', value: 500 }, { days: 30 }, 100), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
-        Object.assign(arRuleC('allocation', 'overpayment', 'Overpayment → On Account', 8, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 100), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
-        arRuleC('allocation', 'partial-payment', 'Universal partial payment', 9, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 100),
+        Object.assign(arRuleC('allocation', 'exact-invoice-num', 'Exact Invoice Number Match', 1, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 98), { bankField: 'narration', secondSource: 'invoice', secondField: 'invoice_number' }),
+        Object.assign(arRuleC('allocation', 'invoice-suffix', 'Truncated Invoice Number Match', 2, 'off', { mode: 'exact', value: 0 }, { days: 0 }, 90), { bankField: 'narration', secondSource: 'invoice', secondField: 'invoice_number' }),
+        Object.assign(arRuleC('allocation', 'exact-amount', 'Exact Amount Match', 3, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 95), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'tds-match', 'TDS-Adjusted Amount Match', 4, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 93), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'subset-sum', 'Combined Invoice Match (Many-to-Many)', 5, 'off', { mode: 'abs', value: 3 }, { days: 30 }, 85), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'bank-fee', 'Bank Fee Variance Match', 6, 'off', { mode: 'abs', value: 100 }, { days: 30 }, 80), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'write-off', 'Small Balance Write-Off', 7, 'off', { mode: 'abs', value: 500 }, { days: 30 }, 100), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        Object.assign(arRuleC('allocation', 'overpayment', 'Overpayment to On-Account Credit', 8, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 100), { bankField: 'amount', secondSource: 'invoice', secondField: 'effective_balance' }),
+        arRuleC('allocation', 'partial-payment', 'Partial Payment Allocation', 9, 'off', { mode: 'exact', value: 0 }, { days: 30 }, 100),
         // Phases 3–5 — unchanged single-threshold checks.
-        arRuleC('short-pay', 'threshold', 'Shortfall tolerance', 1, 'off', { mode: 'abs', value: 100 }, { days: 0 }, 100),
-        arRuleC('unapplied', 'threshold', 'Unapplied cash threshold', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
-        arRuleC('gl-check', 'threshold', 'GL variance tolerance', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
+        arRuleC('short-pay', 'threshold', 'Shortfall Tolerance', 1, 'off', { mode: 'abs', value: 100 }, { days: 0 }, 100),
+        arRuleC('unapplied', 'threshold', 'Unapplied Cash Threshold', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
+        arRuleC('gl-check', 'threshold', 'GL Control Variance Tolerance', 1, 'off', { mode: 'abs', value: 0 }, { days: 0 }, 100),
       ];
     }
 
@@ -1106,6 +1119,17 @@
     let DB = load();
     // sidebar is Data hub only — send any now-unreachable persisted route there
     if (!DB.route || !['ingestion', 'import', 'settings'].includes(DB.route.name)) DB.route = { name: 'ingestion', tab: 'jobs' };
+    // Live migration: a browser's localStorage can still carry a `dup-utr` rule filed under
+    // 'customer-lock' from before Intake Validation existed as its own phase — move it rather than
+    // leaving it in the wrong group, or forcing everyone to "Reset to defaults" and lose edits.
+    (DB.recs || []).forEach(rec => {
+      if (!rec.arRules) return;
+      const dup = rec.arRules.find(r => r.kind === 'dup-utr');
+      if (dup && dup.phase !== 'intake') {
+        dup.phase = 'intake'; dup.priority = 1;
+        rec.arRules.filter(r => r.phase === 'customer-lock').sort((a, b) => a.priority - b.priority).forEach((r, i) => { r.priority = i + 1; });
+      }
+    });
     function load() { try { const r = localStorage.getItem(STORE_KEY); if (r) { const d = JSON.parse(r); if (d && d.recs) return d; } } catch (e) { } return seed(); }
     function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) { } }
     function resetAll() { localStorage.removeItem(STORE_KEY); DB = seed(); render(); }
@@ -1518,15 +1542,19 @@
         return c.value; // abs, already in cents
       };
 
-      const lockHitCounts = {}, poolHitCounts = {}, allocHitCounts = {};
+      const intakeHitCounts = {}, lockHitCounts = {}, poolHitCounts = {}, allocHitCounts = {};
       const bump = (map, id) => { if (id) map[id] = (map[id] || 0) + 1; };
+
+      // ── Phase 0: Intake Validation — runs before any identification, filtering out rows that
+      // shouldn't be processed at all (duplicate transaction references).
+      const intakeRules = enabledRulesFor('intake');
+      const dupUTRs = intakeRules.some(r => r.kind === 'dup-utr') ? findDuplicateUTRs(bankStatements) : new Map();
 
       // ── Phase 1A: Customer Identification — locks the paying customer before any invoice is
       // looked at. Rules run in priority order per bank row; the first rule (and first customer)
       // that succeeds wins. A bank inflow *is* the payment record — payments[] is built fresh here,
       // one entry per row, since who it belongs to is now this waterfall's job, not a name match.
       const lockRules = enabledRulesFor('customer-lock');
-      const dupUTRs = lockRules.some(r => r.kind === 'dup-utr') ? findDuplicateUTRs(bankStatements) : new Map();
       const payments = bankStatements.map(bs => ({
         paymentId: 'PAY-' + bs.bankTxnId, bankTxnId: bs.bankTxnId, totalReceived: bs.amount, unappliedAmount: bs.amount,
         customerId: null, lockedBy: null, candidatePool: [], duplicateFlag: false, duplicateOfTxnId: null,
@@ -1547,9 +1575,8 @@
       bankStatements.forEach(bs => {
         if (bs.isBankCharge) return; // not a customer remittance at all — bypasses identification entirely
         const pay = payFor(bs.bankTxnId);
-        if (dupUTRs.has(bs.bankTxnId)) { pay.duplicateFlag = true; pay.duplicateOfTxnId = dupUTRs.get(bs.bankTxnId); bump(lockHitCounts, (lockRules.find(r => r.kind === 'dup-utr') || {}).id); return; }
+        if (dupUTRs.has(bs.bankTxnId)) { pay.duplicateFlag = true; pay.duplicateOfTxnId = dupUTRs.get(bs.bankTxnId); bump(intakeHitCounts, (intakeRules.find(r => r.kind === 'dup-utr') || {}).id); return; }
         for (const rule of lockRules) {
-          if (rule.kind === 'dup-utr') continue; // handled above, once, not per-customer
           const matcher = CUSTOMER_LOCK_MATCHERS[rule.kind];
           if (!matcher) continue;
           const hit = ar.customers.find(c => matcher(bs, c, rule));
@@ -1932,6 +1959,7 @@
       // Live per-rule result counts, driving both the Rules Studio cards and the Overview's
       // "Rule performance" table — reflects rec.arRules, so edits/adds/deletes show up immediately.
       const countFor = rl => {
+        if (rl.phase === 'intake') return intakeHitCounts[rl.id] || 0;
         if (rl.phase === 'customer-lock') return lockHitCounts[rl.id] || 0;
         if (rl.phase === 'candidate-pool') return poolHitCounts[rl.id] || 0;
         if (rl.phase === 'allocation') return allocHitCounts[rl.id] || 0;
@@ -2382,8 +2410,13 @@
     }
     // Same card/editor shape as the generic engine's ruleCard/ruleEditor (Ref/Amount/Date/Confidence),
     // reused via condChips() for exact visual parity — just scoped to one AR phase's rule list.
-    function arRuleCard(rec, rl, i, total, count) {
+    // groupPriority/subNumber (e.g. 2/1 → "Rule 2.1") are the group's step number and this rule's
+    // position across the whole group's flattened rule list (spanning all its sub-phases) — computed
+    // once in arGroupRow and threaded down, since reordering/adding rules changes the numbering live.
+    function arRuleCard(rec, rl, i, total, count, groupPriority, subNumber) {
       const editing = DB.ui.editRule === rl.id;
+      const meta = arRuleKindMeta(rl.phase, rl.kind);
+      const numberPrefix = groupPriority != null && subNumber != null ? `<span class="text-faint font-normal">Rule ${groupPriority}.${subNumber}:</span> ` : '';
       return `<div class="card ${rl.enabled ? '' : 'opacity-60'} ${editing ? 'ring-1 ring-accent' : ''}">
     <div class="flex items-center gap-3 px-3.5 py-3">
       <div class="flex flex-col text-faint">
@@ -2391,7 +2424,8 @@
         <button data-act="ar-rule-down" data-id="${rec.id}" data-rule="${rl.id}" class="hover:text-ink ${i === total - 1 ? 'invisible' : ''}">${icon('down', 'w-3.5 h-3.5')}</button></div>
       <div class="mono text-[12px] text-faint w-4">${rl.priority}</div>
       <div class="flex-1 min-w-0">
-        <div class="font-semibold text-[13px] flex items-center gap-2">${esc(rl.name)}${count ? `<span class="text-[11px] font-medium text-muted mono">· ${count} matched</span>` : ''}</div>
+        <div class="font-semibold text-[13px] flex items-center gap-2">${numberPrefix}${esc(rl.name)}${count ? `<span class="text-[11px] font-medium text-muted mono">· ${count} matched</span>` : ''}</div>
+        ${meta.description ? `<div class="mt-1 text-[12px] text-muted leading-snug">${esc(meta.description)}</div>` : ''}
         <div class="mt-1.5">${arCondSummary(rl)}</div></div>
       <div class="flex items-center gap-3">
         ${confBar(rl.confidence)}
@@ -2505,23 +2539,33 @@
     }
     // One sub-phase's own rule list, nested inside its group's accordion body — keeps its own
     // hint/branch-note and its own "Add rule" scoped to this exact phase key, since rules only ever
-    // cascade within a phase, never across the whole group.
-    function arSubPhaseSection(rec, res, ph) {
+    // cascade within a phase, never across the whole group. groupPriority/ruleNumbers come from
+    // arGroupRow — ruleNumbers maps rule id → its position across the whole group (all sub-phases
+    // combined), which is what "Rule N.M" numbers on each card. showHeading is false when the group
+    // has exactly one sub-phase (Intake, GL Control) — that sub-phase's own title/hint would just
+    // restate the group header directly above it, so it's dropped rather than shown twice.
+    function arSubPhaseSection(rec, res, ph, groupPriority, ruleNumbers, showHeading) {
       const rules = (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority);
       const countOf = id => (res.perRule.find(p => p.rule.id === id) || {}).count || 0;
       return `<div class="tl-subphase">
-        <div class="tl-subhead">
+        ${showHeading ? `<div class="tl-subhead">
           <div class="tl-subtitle">${esc(ph.label)}</div>
           ${ph.branchNote ? `<div class="tl-branch">↳ ${esc(ph.branchNote)}</div>` : ''}
           <div class="tl-hint">${esc(ph.hint)}</div>
-        </div>
-        <div class="space-y-2.5">${rules.length ? rules.map((rl, j) => arRuleCard(rec, rl, j, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}</div>
+        </div>` : ''}
+        <div class="space-y-2.5">${rules.length ? rules.map((rl, j) => arRuleCard(rec, rl, j, rules.length, countOf(rl.id), groupPriority, ruleNumbers[rl.id])).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}</div>
         <div class="flex justify-end pt-2.5 pb-1"><button data-act="add-ar-rule" data-id="${rec.id}" data-phase="${ph.key}" class="btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add rule</button></div>
       </div>`;
     }
     function arGroupRow(rec, res, group, i) {
       const isOpen = !!DB.ui.arGroupOpen[group.key];
       const subPhases = group.phases.map(key => AR_PHASES.find(p => p.key === key)).filter(Boolean);
+      // Flattened numbering across the whole group (sub-phase order, then priority within each) —
+      // e.g. "Rule 2.1" through "Rule 2.8" for Customer Identification, spanning both its sub-phases.
+      const ruleNumbers = {}; let n = 0;
+      subPhases.forEach(ph => {
+        (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority).forEach(r => { ruleNumbers[r.id] = ++n; });
+      });
       return `<div class="tl-row">
         <div class="tl-rail"><div class="tl-node">${group.priority}</div></div>
         <div class="tl-card ${isOpen ? 'open' : ''}">
@@ -2537,7 +2581,7 @@
             <span class="tl-chev">${icon('chevD', 'w-3.5 h-3.5')}</span>
           </div>
           <div class="tl-body" ${isOpen ? '' : 'hidden'}>
-            ${subPhases.map((ph, j) => arSubPhaseSection(rec, res, ph) + (j < subPhases.length - 1 ? '<div class="tl-subdivider"></div>' : '')).join('')}
+            ${subPhases.map((ph, j) => arSubPhaseSection(rec, res, ph, group.priority, ruleNumbers, subPhases.length > 1) + (j < subPhases.length - 1 ? '<div class="tl-subdivider"></div>' : '')).join('')}
           </div>
         </div>
       </div>`;
