@@ -2687,10 +2687,28 @@
     // Three columns, not seven: what's matching (the invoice side), what it matched to (the
     // payment side), and why (Resolved via) — each cell groups the details that used to be spread
     // across their own columns (customer/amount with the invoice; overage/status with the payment).
-    // One-to-Many auto-groups (one payment settling several invoices, e.g. subset-sum) push one
-    // match row per invoice, all carrying the same paymentId — grouped here by that id so the
-    // Payment/Resolved-via cells render once (rowspan) instead of repeating on every invoice row.
     function arMatchedTable(rec, res, title) {
+      const NEW_NAMES = {
+        'dup-utr': 'Rule 1.1: Duplicate UTR Check',
+        'expected-utr': 'Rule 2.1: Pre-Advised UTR Match',
+        'account-ifsc': 'Rule 2.2: Payer Account & IFSC Match',
+        'upi': 'Rule 2.3: UPI Handle Match',
+        'customer-code': 'Rule 2.4: Customer Code in Narration Match',
+        'gstin-pan': 'Rule 2.5: Tax ID & PAN Match',
+        'fuzzy-name': 'Rule 2.6: Company Name Match',
+        'account-suffix': 'Rule 2.7: Masked Account Suffix Match',
+        'narration-tokens': 'Rule 2.8: Token-Based Narration Match',
+        'exact-invoice-num': 'Rule 3.1: Exact invoice number in narration',
+        'invoice-suffix': 'Rule 3.2: Invoice suffix / truncated number',
+        'exact-amount': 'Rule 3.3: Exact amount match',
+        'tds-match': 'Rule 3.4: TDS match (invoice − allowed TDS = payment)',
+        'subset-sum': 'Rule 3.5: Subset sum (many-to-many)',
+        'bank-fee': 'Rule 3.6: Bank fee / minor variance',
+        'write-off': 'Rule 3.7: Small balance write-off',
+        'overpayment': 'Rule 3.8: Overpayment → On Account',
+        'partial-payment': 'Rule 3.9: Universal partial payment',
+      };
+
       const all = [...res.matches, ...res.overpays];
       const groups = [];
       const groupIndex = new Map();
@@ -2703,11 +2721,11 @@
         const invIds = group.map(x => x.invoiceId).join(',');
         const isGroup = group.length > 1;
         const rows = group.map((m, i) => {
-          const chkCell = `<td class="px-4 py-3 border-r border-line-soft unrecon-chk hidden w-10 align-top" rowspan="${group.length}">
+          const chkCell = `<td class="px-4 py-3 border-r border-line-soft unrecon-chk hidden w-10 align-middle" rowspan="${group.length}">
             <input type="checkbox" class="w-4 h-4 rounded border-line cursor-pointer mt-1" data-pay="${m.paymentId || ''}" data-invs="${invIds}">
           </td>`;
-          const invoiceCell = `<td class="px-4 py-3 align-top ${isGroup ? 'border-l-[3px] border-accent' : ''}">
-          <div class="grid grid-cols-2 gap-3 text-center">
+          const invoiceCell = `<td class="px-4 py-3 align-middle ${isGroup ? 'border-l-[3px] border-accent' : ''}">
+          <div class="grid grid-cols-2 gap-3 text-center items-center">
             <div class="font-medium text-[13px] text-ink">${m.invoiceNum}</div>
             <div class="font-medium text-[13px] text-ink">${fmtMoney(m.amount)}</div>
           </div>
@@ -2716,11 +2734,22 @@
           const trClass = isLast ? '' : 'border-b border-line-soft';
           if (i > 0) return `<tr class="${trClass}">${invoiceCell}</tr>`;
 
-          const ruleName = m.ruleName || 'Manual match';
           const rl = (rec.arRules || []).find(r => r.id === m.ruleId);
-          const ruleNumStr = rl ? `Rule ${rl.priority}` : 'Manual';
+          let ruleNumStr = 'Manual';
+          let ruleNameText = m.ruleName || 'Manual match';
+          if (rl && NEW_NAMES[rl.kind]) ruleNameText = NEW_NAMES[rl.kind];
+          
+          if (ruleNameText.startsWith('Rule ')) {
+            const p = ruleNameText.split(': ');
+            if (p.length > 1) {
+              ruleNumStr = p[0];
+              ruleNameText = p.slice(1).join(': ');
+            }
+          } else if (rl) {
+            ruleNumStr = `Rule ${rl.priority}`;
+          }
           const amountRuleHtml = `<button data-act="goto-rule" data-rule="${m.ruleId || ''}" class="text-[12.5px] text-left hover:underline text-ink block">
-            <span class="font-medium">${esc(ruleNumStr)}</span> : <span class="text-ink-soft">${esc(ruleName)}</span>
+            <span class="font-medium">${esc(ruleNumStr)}</span> : <span class="text-ink-soft">${esc(ruleNameText)}</span>
           </button>`;
 
           const payIds = String(m.paymentId || '').split(',').map(s => s.trim());
@@ -2730,18 +2759,31 @@
 
           let idRuleHtml = '';
           if (pay && pay.lockedBy) {
-            const idRl = pay.lockedBy;
-            const idRuleNumStr = idRl.priority ? `Rule ${idRl.priority}` : 'Manual';
-            idRuleHtml = `<button data-act="goto-rule" data-rule="${idRl.id}" class="text-[12.5px] text-left hover:underline text-ink block mb-2">
-              <span class="font-medium">${esc(idRuleNumStr)}</span> : <span class="text-ink-soft">${esc(idRl.name)}</span>
+            // Find the active rule by ID to get the most up-to-date name without requiring a re-run
+            const activeIdRl = (rec.arRules || []).find(r => r.id === pay.lockedBy.id) || pay.lockedBy;
+            let idRuleNumStr = 'Manual';
+            let idRuleNameText = activeIdRl.name;
+            if (activeIdRl && NEW_NAMES[activeIdRl.kind]) idRuleNameText = NEW_NAMES[activeIdRl.kind];
+
+            if (idRuleNameText.startsWith('Rule ')) {
+              const p = idRuleNameText.split(': ');
+              if (p.length > 1) {
+                idRuleNumStr = p[0];
+                idRuleNameText = p.slice(1).join(': ');
+              }
+            } else if (activeIdRl.priority) {
+              idRuleNumStr = `Rule ${activeIdRl.priority}`;
+            }
+            idRuleHtml = `<button data-act="goto-rule" data-rule="${activeIdRl.id}" class="text-[12.5px] text-left hover:underline text-ink block mb-2">
+              <span class="font-medium">${esc(idRuleNumStr)}</span> : <span class="text-ink-soft">${esc(idRuleNameText)}</span>
             </button>`;
           }
 
           return `<tr class="${trClass}">
         ${chkCell}
         ${invoiceCell}
-        <td class="px-4 py-3 align-top border-x border-line-soft" rowspan="${group.length}">
-          <div class="grid grid-cols-2 gap-3 text-center">
+        <td class="px-4 py-3 align-middle border-x border-line-soft" rowspan="${group.length}">
+          <div class="grid grid-cols-2 gap-3 text-center items-center">
             <div class="mono text-[12px] font-medium text-ink">${m.paymentId}</div>
             <div>
               <div class="mono text-[12px] font-medium text-ink">${fmtMoney(payTotal)}</div>
@@ -2749,7 +2791,7 @@
             </div>
           </div>
         </td>
-        <td class="px-4 py-3 align-top" rowspan="${group.length}">
+        <td class="px-4 py-3 align-middle" rowspan="${group.length}">
           ${idRuleHtml}
           ${amountRuleHtml}
         </td>
