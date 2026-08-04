@@ -274,26 +274,36 @@
     .tl-rail { width: 30px; flex: none; display: flex; justify-content: center; }
     .tl-node {
       width: 30px; height: 30px; border-radius: 50%; background: var(--surface); flex: none;
-      border: 2px solid var(--node-color, var(--line)); margin-top: 13px;
+      border: 2px solid var(--line); margin-top: 13px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 700; color: var(--node-color, var(--faint));
+      font-size: 11px; font-weight: 700; color: var(--faint);
     }
     .tl-card { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; transition: border-color .12s; }
-    .tl-card.open { border-color: var(--node-color, var(--line)); }
-    .tl-header { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 15px; background: none; border: none; cursor: pointer; font: inherit; text-align: left; }
-    .tl-header:hover { background: var(--sunken); }
+    .tl-card.open { border-color: var(--accent); }
+    .tl-header-wrap { width: 100%; display: flex; align-items: center; gap: 10px; padding: 13px 15px; cursor: pointer; }
+    .tl-header-wrap:hover { background: var(--sunken); }
     .tl-head-main { flex: 1; min-width: 0; }
     .tl-title { font-size: 13px; font-weight: 700; }
     .tl-branch { font-size: 10.5px; color: var(--faint); font-style: italic; margin-top: 1px; }
     .tl-hint { font-size: 11px; color: var(--faint); margin-top: 2px; line-height: 1.4; }
-    .tl-summary { flex: none; display: flex; align-items: center; gap: 7px; }
-    .tl-count { font-size: 13px; font-weight: 600; color: var(--ink); }
-    .tl-count .of { color: var(--faint); font-weight: 500; }
-    .tl-tag { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--tag-bg, var(--sunken)); color: var(--tag-color, var(--muted)); white-space: nowrap; }
+    .tl-info-btn {
+      flex: none; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      color: var(--faint); background: none; border: none; cursor: pointer; transition: background .12s, color .12s;
+    }
+    .tl-info-btn:hover, .tl-info-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-ink); }
     .tl-chev { flex: none; color: var(--faint); transition: transform .18s; }
     .tl-card.open .tl-chev { transform: rotate(180deg); }
-    .tl-body { padding: 12px 15px 15px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
+    .tl-info-pop {
+      margin: 0 15px 13px; padding: 10px 12px; background: var(--accent-soft); border: 1px solid var(--accent-soft);
+      border-radius: 8px; font-size: 11.5px; line-height: 1.5; color: var(--accent-ink);
+    }
+    .tl-body { padding: 4px 15px 15px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
     .tl-body[hidden] { display: none; }
+    .tl-subphase { padding: 12px 0; }
+    .tl-subphase:first-child { padding-top: 8px; }
+    .tl-subhead { margin-bottom: 8px; }
+    .tl-subtitle { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+    .tl-subdivider { border-top: 1px dashed var(--line); margin: 0 -15px; }
 
     .fade-in {
       animation: fi .25s ease;
@@ -430,6 +440,7 @@
       card: 'M2 8h20M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2z', bank: 'M3 21h18M4 10h16M5 21V10M19 21V10M12 3L3 8h18z', doc: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6',
       upload: 'M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12M7 8l5-5 5 5', clip: 'M21 11l-8.5 8.5a5 5 0 01-7-7L14 4a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-3-3L15 6',
       download: 'M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12M8 8l4 4 4-4', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', report: 'M8 2h6l6 6v12a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zM14 2v6h6M9 13h6M9 17h4',
+      info: 'M12 22a10 10 0 100-20 10 10 0 000 20zM12 16v-4M12 8h.01',
     };
     const icon = (k, cls = 'w-4 h-4') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${IC[k].split('M').filter(Boolean).map(p => `<path d="M${p}"/>`).join('')}</svg>`;
 
@@ -785,6 +796,33 @@
       { key: 'unapplied', priority: 5, label: 'Unapplied cash', hint: 'Amount tolerance below which leftover cash is not flagged' },
       { key: 'gl-check', priority: 6, label: 'AR Sub-ledger ↔ GL control', hint: 'Amount tolerance below which a GL variance is not flagged' },
     ];
+    // Rules Studio groups the 6 phases above into 3 higher-level stages for display — purely a
+    // presentation grouping, AR_PHASES itself (and rec.arRules' own phase keys) is untouched, so
+    // nothing about how rules are stored, cascaded, or matched changes. Grouped because Candidate
+    // Pool only exists as Customer Identification's own fallback (never runs independently), and
+    // Short-Pay/Unapplied are outcome states of Invoice Allocation, not separate identification
+    // steps — each group's `description` is always visible, `example` is the (i) button's content,
+    // a concrete instance of the group in action rather than a restatement of the description.
+    const AR_PHASE_GROUPS = [
+      {
+        key: 'customer-id', priority: 1, label: 'Customer Identification',
+        description: 'Figures out which customer actually sent each payment, before any invoice is looked at.',
+        example: 'BANK-001\'s reference exactly matches Acme Corp\'s expected UTR, so it locks to them immediately. If nothing matches outright, Candidate Pool narrows to a short list instead of guessing — a human confirms which one from there.',
+        phases: ['customer-lock', 'candidate-pool'],
+      },
+      {
+        key: 'invoice-alloc', priority: 2, label: 'Invoice Allocation',
+        description: 'Once a customer is known, matches their payment to the right invoice(s) — and flags what\'s left over when it doesn\'t divide evenly.',
+        example: 'A ₹10,000 payment exactly matches a customer\'s open ₹10,000 invoice, so it\'s marked paid. Had they sent only ₹9,800, that ₹200 gap would become a Short-Pay exception instead of being silently absorbed; cash with no invoice to apply to at all becomes Unapplied Cash.',
+        phases: ['allocation', 'short-pay', 'unapplied'],
+      },
+      {
+        key: 'gl-control', priority: 3, label: 'Sub-Ledger ↔ GL Control',
+        description: 'One period-level check: does the total of all open invoices agree with what the general ledger\'s AR control account holds?',
+        example: 'Invoices add up to ₹50,000 still outstanding, but the GL\'s AR control account shows ₹52,000 — that ₹2,000 gap gets flagged here, usually meaning a journal entry hasn\'t posted yet.',
+        phases: ['gl-check'],
+      },
+    ];
     // Every matcher kind available per phase — drives the "Add rule" kind picker and the rule-card
     // condition summary. `usesCond` marks kinds whose editor should show the classic Amount/Date
     // tolerance controls; kinds with fixed, parameter-less logic only expose Name/Priority/Enabled
@@ -819,9 +857,12 @@
         { kind: 'overpayment', label: 'Overpayment → On Account', usesCond: false, fieldsConfigurable: true },
         { kind: 'partial-payment', label: 'Universal partial payment', usesCond: false },
       ],
-      'short-pay': [{ kind: 'threshold', label: 'Shortfall tolerance', usesCond: true, condField: 'amount', unit: 'money' }],
-      'unapplied': [{ kind: 'threshold', label: 'Unapplied cash threshold', usesCond: true, condField: 'amount', unit: 'money' }],
-      'gl-check': [{ kind: 'threshold', label: 'GL variance tolerance', usesCond: true, condField: 'amount', unit: 'money' }],
+      // condLabel routes these through the single-field editor, not the legacy Ref/Amount/Date grid
+      // — thresholdOf() (the only place any of these three get read) only ever looks at cond.amount,
+      // so a Reference or Date window control would sit there doing nothing but implying it matters.
+      'short-pay': [{ kind: 'threshold', label: 'Shortfall tolerance', usesCond: true, condLabel: 'Shortfall tolerance', condField: 'amount', unit: 'money' }],
+      'unapplied': [{ kind: 'threshold', label: 'Unapplied cash threshold', usesCond: true, condLabel: 'Unapplied cash threshold', condField: 'amount', unit: 'money' }],
+      'gl-check': [{ kind: 'threshold', label: 'GL variance tolerance', usesCond: true, condLabel: 'GL variance tolerance', condField: 'amount', unit: 'money' }],
     };
     const AR_DEFAULT_KIND_FOR_PHASE = { 'customer-lock': 'fuzzy-name', 'candidate-pool': 'narration-tokens', 'allocation': 'exact-amount', 'short-pay': 'threshold', 'unapplied': 'threshold', 'gl-check': 'threshold' };
     function arRuleKindMeta(phase, kind) { return (AR_RULE_KINDS[phase] || []).find(k => k.kind === kind) || { kind, label: kind, usesCond: true }; }
@@ -1090,6 +1131,20 @@
     // (e.g. flagging an overpayment relative to the customer's own limit, not just the invoice).
     const AR_CUST_AMOUNT_FIELD_OPTIONS = [{ value: 'credit_limit', prop: 'creditLimit' }];
     function arFieldOpt(list, value) { return list.find(o => o.value === value) || list[0]; }
+    // Human-readable label for a field picker option — the raw schema name (bank_reference_number)
+    // is precise and stays visible in the collapsed card's audit chip, but asking a new user to
+    // read snake_case as the *only* text in a live dropdown assumes they already know the data
+    // model. Falls back to the raw value itself for anything not mapped, so nothing renders blank.
+    const AR_FIELD_LABELS = {
+      bank_reference_number: 'Bank reference number (UTR)', narration: 'Bank narration', payer_name: 'Payer name',
+      payer_account_number: 'Payer account number', payer_ifsc: 'Payer IFSC',
+      expected_utr: 'Expected UTR', customer_code: 'Customer code', gstin: 'GSTIN', pan: 'PAN',
+      upi_handle: 'UPI handle', company_name: 'Company name',
+      default_bank_account: 'Registered bank account', default_ifsc: 'Registered IFSC',
+      amount: 'Amount', invoice_number: 'Invoice number',
+      effective_balance: 'Outstanding balance', total_amount: 'Original invoice amount', credit_limit: 'Credit limit',
+    };
+    function arFieldLabel(value) { return AR_FIELD_LABELS[value] || value; }
     // Which entities ("sources") the second side of a comparison can pull from, and which fields
     // each source exposes — deliberately scoped to what actually exists at the rule's phase: a
     // customer-identification rule only ever sees the candidate customer (invoices aren't looked at
@@ -2191,14 +2246,14 @@
         <button data-act="edit-rule" data-rule="${rl.id}" class="btn btn-ghost btn-sm">${editing ? 'Done' : 'Edit'}</button>
         <div class="switch" data-on="${rl.enabled}" data-act="toggle-ar-rule" data-id="${rec.id}" data-rule="${rl.id}"></div></div>
     </div>
-    ${editing ? arRuleEditor(rec, rl) : ''}</div>`;
+    ${editing ? arRuleEditor(rec, rl, count) : ''}</div>`;
     }
     // Rules can be added, edited, reordered, and enabled/disabled — never deleted. What's editable
     // beyond the name/confidence depends entirely on the rule's `kind`: fixed-logic kinds (every
     // customer-lock rule, most allocation rules) have nothing to tune; a few carry one meaningful
     // number (subset-sum's combo size, bank-fee/write-off's tolerance); only the three legacy
     // threshold phases still use the full classic Ref/Amount/Date editor.
-    function arRuleEditor(rec, rl) {
+    function arRuleEditor(rec, rl, count) {
       const meta = arRuleKindMeta(rl.phase, rl.kind);
       const c = rl.cond;
       const kindOptions = AR_RULE_KINDS[rl.phase] || [];
@@ -2206,21 +2261,44 @@
       // gl-check each have exactly one fixed kind ('threshold'), so there's nothing to pick.
       const kindPicker = kindOptions.length > 1 ? `<div><label class="lbl block mb-1.5">Matcher</label><select class="field" data-arf="kind" data-rule="${rl.id}">${kindOptions.map(k => `<option value="${esc(k.kind)}" ${k.kind === rl.kind ? 'selected' : ''}>${esc(k.label)}</option>`).join('')}</select></div>` : '';
       const nameField = `<div><label class="lbl block mb-1.5">Rule name</label><input class="field" value="${esc(rl.name)}" data-arf="name" data-rule="${rl.id}"></div>`;
-      const confRow = confLabel => `<div class="col-span-2 flex items-center gap-3"><label class="lbl">${esc(confLabel)}</label>
+      // Live, not a new aggregate metric — the exact same count already shown in the collapsed
+      // header's "N matched" badge, just surfaced down here too so it's visible while you're
+      // actually looking at the form, not just above it before you started editing.
+      const matchCountLine = `<div class="col-span-2 -mt-1 text-[11.5px] text-muted">Live: <span class="mono font-semibold ${count ? 'text-ok-ink' : 'text-faint'}">${count || 0} matched</span> with these settings, in this run</div>`;
+      // "Confidence" means two different things depending on the rule and looks identical either
+      // way — spell out which one this is rather than relying on the label word alone.
+      const confCaption = meta.confidenceLabel
+        ? `<div class="col-span-2 -mt-2.5 text-[11px] text-faint">How similar two values must be to count as a match at all — not a trust score.</div>`
+        : `<div class="col-span-2 -mt-2.5 text-[11px] text-faint">How much to trust this match — at or above the auto-match threshold it applies automatically, below it's suggested for review.</div>`;
+      const confRow = confLabel => `<div class="flex items-center gap-3"><label class="lbl">${esc(confLabel)}</label>
         <input type="range" min="50" max="100" value="${rl.confidence}" data-arf="conf" data-rule="${rl.id}" class="flex-1 max-w-[220px]">
-        <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>`;
+        <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>` + confCaption;
       const matchModePicker = meta.matchModeOptions ? `<div class="col-span-2"><label class="lbl block mb-1.5">Match mode</label><select class="field" data-arf="matchMode" data-rule="${rl.id}">${meta.matchModeOptions.map(o => `<option value="${esc(o.value)}" ${(rl.matchMode || 'exact') === o.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>` : '';
-      // Every field pair shows a Source dropdown before its Field dropdown, even when a side has
-      // only one valid source today (the bank side always; the second side for identification
-      // rules) — keeps the entity-selection concept visible and consistent everywhere, ready to
-      // gain more sources later without a UI change, rather than silently hiding the control.
-      const fieldSelect = (key, options, current) => `<select class="field mono text-[12.5px] w-[195px]" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.value)}" ${arFieldOpt(options, current).value === o.value ? 'selected' : ''}>${esc(o.value)}</option>`).join('')}</select>`;
-      const sourceSelect = (key, options, current) => `<select class="field text-[12.5px] w-[175px]" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.key)}" ${o.key === current ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
-      const BANK_SOURCE_OPTIONS = [{ key: 'bank', label: 'Bank Statement' }];
+      // Field dropdowns show a human-readable label (raw schema name stays visible in the collapsed
+      // card's mono audit chip) — always real selects, even for a currently-single-option list,
+      // since the option itself is real data that may gain siblings later.
+      const fieldSelect = (key, options, current) => `<select class="field mono text-[12.5px] w-[195px]" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.value)}" ${arFieldOpt(options, current).value === o.value ? 'selected' : ''}>${esc(arFieldLabel(o.value))}</option>`).join('')}</select>`;
+      const sourceSelect = (key, options, current) => `<select class="field text-[12.5px] w-[150px]" data-arf="${key}" data-rule="${rl.id}">${options.map(o => `<option value="${esc(o.key)}" ${o.key === current ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+      // A "Source" (which entity, not which field) only ever becomes a real dropdown once there are
+      // 2+ genuine options (allocation rules choosing Invoice vs Customer) — the bank side never has
+      // more than one possible source, so it's always a plain label, not a fake single-choice select.
+      const staticSrc = label => `<span class="field mono text-[12.5px] w-[150px] inline-flex items-center bg-sunken text-muted" style="cursor:default">${esc(label)}</span>`;
+      const fieldPairRow = (rowLabel, bankOptions, bankKey, bankValue, secondSourceOptions, secondSourceKeyAttr, secondSourceValue, secondOptions, secondKeyAttr, secondValue) => {
+        const secondSrc = secondSourceOptions.length > 1 ? sourceSelect(secondSourceKeyAttr, secondSourceOptions, secondSourceValue) : staticSrc(secondSourceOptions[0].label);
+        return `<div class="flex items-center gap-2 text-[12px] flex-wrap">
+          ${rowLabel ? `<span class="text-faint w-[104px] shrink-0">${esc(rowLabel)}</span>` : ''}
+          ${staticSrc('Bank Statement')}${fieldSelect(bankKey, bankOptions, bankValue)}
+          <span class="text-faint">↔</span>
+          ${secondSrc}${fieldSelect(secondKeyAttr, secondOptions, secondValue)}
+        </div>`;
+      };
       const fieldPicker = !meta.fieldsConfigurable ? '' : rl.kind === 'account-ifsc'
-        ? `<div class="col-span-2 space-y-2">
-            <div class="flex items-center gap-2 text-[12px]"><span class="text-faint w-[104px] shrink-0">Account number</span>${fieldSelect('bankAccountField', AR_ACCOUNT_FIELD_OPTIONS, rl.bankAccountField)}<span class="text-faint">↔</span>${fieldSelect('custAccountField', AR_ACCOUNT_CUST_FIELD_OPTIONS, rl.custAccountField)}</div>
-            <div class="flex items-center gap-2 text-[12px]"><span class="text-faint w-[104px] shrink-0">IFSC</span>${fieldSelect('bankIfscField', AR_IFSC_FIELD_OPTIONS, rl.bankIfscField)}<span class="text-faint">↔</span>${fieldSelect('custIfscField', AR_IFSC_CUST_FIELD_OPTIONS, rl.custIfscField)}</div>
+        ? `<div class="col-span-2">
+            <label class="lbl block mb-1.5">Compares</label>
+            <div class="space-y-2">
+              ${fieldPairRow('Account number', AR_ACCOUNT_FIELD_OPTIONS, 'bankAccountField', rl.bankAccountField, [{ key: 'customer', label: 'Customer' }], null, 'customer', AR_ACCOUNT_CUST_FIELD_OPTIONS, 'custAccountField', rl.custAccountField)}
+              ${fieldPairRow('IFSC', AR_IFSC_FIELD_OPTIONS, 'bankIfscField', rl.bankIfscField, [{ key: 'customer', label: 'Customer' }], null, 'customer', AR_IFSC_CUST_FIELD_OPTIONS, 'custIfscField', rl.custIfscField)}
+            </div>
           </div>`
         : (() => {
           const { bank } = arFieldOptionsFor(rl.kind);
@@ -2228,18 +2306,13 @@
           const secondSourceOptions = Object.keys(info.sources).map(k => ({ key: k, label: info.sources[k].label }));
           return `<div class="col-span-2">
               <label class="lbl block mb-1.5">Compares</label>
-              <div class="flex items-end gap-3 flex-wrap">
-                <div class="flex flex-col gap-1"><span class="lbl">Source</span>${sourceSelect('bankSource', BANK_SOURCE_OPTIONS, 'bank')}</div>
-                <div class="flex flex-col gap-1"><span class="lbl">Field</span>${fieldSelect('bankField', bank, rl.bankField)}</div>
-                <span class="text-faint text-[12px] pb-2.5">↔</span>
-                <div class="flex flex-col gap-1"><span class="lbl">Source</span>${sourceSelect('secondSource', secondSourceOptions, info.sourceKey)}</div>
-                <div class="flex flex-col gap-1"><span class="lbl">Field</span>${fieldSelect('secondField', info.options, rl.secondField)}</div>
-              </div>
+              ${fieldPairRow(null, bank, 'bankField', rl.bankField, secondSourceOptions, 'secondSource', info.sourceKey, info.options, 'secondField', rl.secondField)}
             </div>`;
         })();
 
       if (!meta.usesCond) {
         return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-2 gap-4 fade-in">
+      ${matchCountLine}
       ${kindPicker}${nameField}
       ${meta.fieldsConfigurable ? '' : `<div class="col-span-2 mono text-[11.5px] text-ink-soft">${meta.fields ? esc(meta.fields) : ''}</div>`}
       ${fieldPicker}
@@ -2250,6 +2323,7 @@
       if (meta.condLabel) {
         const isCount = meta.unit === 'count';
         return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-2 gap-4 fade-in">
+      ${matchCountLine}
       ${kindPicker}${nameField}
       ${fieldPicker}
       <div><label class="lbl block mb-1.5">${esc(meta.condLabel)}</label>
@@ -2258,6 +2332,7 @@
     </div>`;
       }
       return `<div class="border-t border-line px-3.5 py-4 bg-canvas/60 grid grid-cols-4 gap-4 fade-in">
+    <div class="col-span-4 -mt-1 text-[11.5px] text-muted">Live: <span class="mono font-semibold ${count ? 'text-ok-ink' : 'text-faint'}">${count || 0} matched</span> with these settings, in this run</div>
     ${nameField}
     <div><label class="lbl block mb-1.5">Reference</label><select class="field" data-arf="ref" data-rule="${rl.id}">
       <option value="exact" ${c.ref === 'exact' ? 'selected' : ''}>Exact match</option>
@@ -2276,91 +2351,56 @@
         <span class="mono text-[13px] font-semibold w-9">${rl.confidence}</span></div>
     </div></div>`;
     }
-    // Live per-phase funnel summary for the Rules Studio timeline — every number is a real,
-    // already-computed engine result (the same counts already driving each rule card's own
-    // "N matched" badge, just aggregated to phase level or read from res.exceptions/shortPays/
-    // unapplied/glMismatch directly), never a placeholder. tone is derived from these same real
-    // numbers, never re-guessed independently.
-    const AR_PHASE_TONE = {
-      ok: { c: 'var(--ok)', tagBg: 'var(--ok-soft)', tagColor: 'var(--ok-ink)' },
-      warn: { c: 'var(--warn)', tagBg: 'var(--warn-soft)', tagColor: 'var(--warn-ink)' },
-      bad: { c: 'var(--bad)', tagBg: 'var(--bad-soft)', tagColor: 'var(--bad-ink)' },
-      idle: { c: 'var(--line)', tagBg: 'var(--sunken)', tagColor: 'var(--faint)' },
-    };
-    function arPhaseSummary(ph, res) {
-      const countOf = id => (res.perRule.find(p => p.rule.id === id) || {}).count || 0;
-      const phaseRules = res.perRule.filter(p => p.rule.phase === ph.key).map(p => p.rule);
-      const phaseCount = phaseRules.reduce((s, rl) => s + countOf(rl.id), 0);
-      const bcIds = new Set((res.bankStatements || []).filter(b => b.isBankCharge).map(b => b.bankTxnId));
-      if (ph.key === 'customer-lock') {
-        const of = (res.payments || []).length;
-        const count = (res.payments || []).filter(p => p.lockedBy).length;
-        return { of, count, tag: `${count} locked`, tone: of === 0 ? 'idle' : count === of ? 'ok' : 'warn' };
-      }
-      if (ph.key === 'candidate-pool') {
-        const eligible = (res.payments || []).filter(p => !p.customerId && !p.duplicateFlag && !bcIds.has(p.bankTxnId));
-        const of = eligible.length;
-        const count = eligible.filter(p => p.candidatePool && p.candidatePool.length).length;
-        const stillUnidentified = of - count;
-        return { of, count, tag: `${stillUnidentified} unidentified`, tone: of === 0 ? 'idle' : stillUnidentified === 0 ? 'ok' : 'warn' };
-      }
-      if (ph.key === 'allocation') {
-        const of = (res.payments || []).filter(p => p.customerId || (p.candidatePool && p.candidatePool.length)).length;
-        const ambiguous = (res.exceptions || []).filter(e => e.type === 'Double Collision' || e.type === 'Multiple Invoice Match').length;
-        return { of, count: phaseCount, tag: ambiguous ? `${ambiguous} ambiguous` : 'clean', tone: of === 0 ? 'idle' : ambiguous ? 'warn' : 'ok' };
-      }
-      if (ph.key === 'short-pay') {
-        const of = (res.shortPays || []).length;
-        const count = (res.exceptions || []).filter(e => e.type === 'Short-Pay').length;
-        return { of, count, tag: count ? `${count} flagged` : 'none flagged', tone: of === 0 ? 'idle' : count ? 'bad' : 'ok' };
-      }
-      if (ph.key === 'unapplied') {
-        const count = (res.unapplied || []).length;
-        return { of: count, count, tag: count ? `${count} flagged` : 'none flagged', tone: count === 0 ? 'idle' : 'bad' };
-      }
-      // gl-check
-      if (!res.glControlBalances) return { of: 0, count: 0, tag: 'no GL data', tone: 'idle' };
-      return { of: 1, count: res.glMismatch ? 1 : 0, tag: res.glMismatch ? 'variance found' : 'in balance', tone: res.glMismatch ? 'bad' : 'ok' };
-    }
-    function arTimelineRow(rec, res, ph, i) {
+    // One sub-phase's own rule list, nested inside its group's accordion body — keeps its own
+    // hint/branch-note and its own "Add rule" scoped to this exact phase key, since rules only ever
+    // cascade within a phase, never across the whole group.
+    function arSubPhaseSection(rec, res, ph) {
       const rules = (rec.arRules || []).filter(r => r.phase === ph.key).sort((a, b) => a.priority - b.priority);
       const countOf = id => (res.perRule.find(p => p.rule.id === id) || {}).count || 0;
-      const s = arPhaseSummary(ph, res);
-      const t = AR_PHASE_TONE[s.tone];
-      const isOpen = !!DB.ui.arPhaseOpen[ph.key];
+      return `<div class="tl-subphase">
+        <div class="tl-subhead">
+          <div class="tl-subtitle">${esc(ph.label)}</div>
+          ${ph.branchNote ? `<div class="tl-branch">↳ ${esc(ph.branchNote)}</div>` : ''}
+          <div class="tl-hint">${esc(ph.hint)}</div>
+        </div>
+        <div class="space-y-2.5">${rules.length ? rules.map((rl, j) => arRuleCard(rec, rl, j, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}</div>
+        <div class="flex justify-end pt-2.5 pb-1"><button data-act="add-ar-rule" data-id="${rec.id}" data-phase="${ph.key}" class="btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add rule</button></div>
+      </div>`;
+    }
+    function arGroupRow(rec, res, group, i) {
+      const isOpen = !!DB.ui.arGroupOpen[group.key];
+      const infoOpen = !!DB.ui.arGroupInfo[group.key];
+      const subPhases = group.phases.map(key => AR_PHASES.find(p => p.key === key)).filter(Boolean);
       return `<div class="tl-row">
-        <div class="tl-rail"><div class="tl-node" style="--node-color:${t.c}">${ph.priority}</div></div>
+        <div class="tl-rail"><div class="tl-node">${group.priority}</div></div>
         <div class="tl-card ${isOpen ? 'open' : ''}">
-          <button class="tl-header" data-toggle="ar-phase" data-phase="${ph.key}" aria-expanded="${isOpen}">
+          <div class="tl-header-wrap" data-toggle="ar-phase" data-phase="${group.key}" aria-expanded="${isOpen}">
             <div class="tl-head-main">
-              <div class="tl-title">${esc(ph.label)}</div>
-              ${ph.branchNote ? `<div class="tl-branch">↳ ${esc(ph.branchNote)}</div>` : ''}
-              <div class="tl-hint">${esc(ph.hint)}</div>
+              <div class="tl-title">${esc(group.label)}</div>
+              <div class="tl-hint">${esc(group.description)}</div>
             </div>
-            <div class="tl-summary">
-              <span class="tl-count mono">${s.count}<span class="of">/${s.of}</span></span>
-              <span class="tl-tag" style="--tag-bg:${t.tagBg}; --tag-color:${t.tagColor}">${esc(s.tag)}</span>
-            </div>
+            <button class="tl-info-btn" data-toggle="ar-group-info" data-phase="${group.key}" aria-label="Show an example" aria-expanded="${infoOpen}">${icon('info', 'w-3.5 h-3.5')}</button>
             <span class="tl-chev">${icon('chevD', 'w-3.5 h-3.5')}</span>
-          </button>
+          </div>
+          ${infoOpen ? `<div class="tl-info-pop">${esc(group.example)}</div>` : ''}
           <div class="tl-body" ${isOpen ? '' : 'hidden'}>
-            ${rules.length ? rules.map((rl, j) => arRuleCard(rec, rl, j, rules.length, countOf(rl.id))).join('') : `<div class="card p-4 text-center text-[12.5px] text-muted">No rules — this phase is off.</div>`}
-            <div class="flex justify-end pt-2.5"><button data-act="add-ar-rule" data-id="${rec.id}" data-phase="${ph.key}" class="btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Add rule</button></div>
+            ${subPhases.map((ph, j) => arSubPhaseSection(rec, res, ph) + (j < subPhases.length - 1 ? '<div class="tl-subdivider"></div>' : '')).join('')}
           </div>
         </div>
       </div>`;
     }
     function arReconRules(rec, res) {
-      // First phase open by default, on first-ever visit only — every click on any phase after
+      // First group open by default, on first-ever visit only — every click on any group after
       // that writes an explicit true/false here, so this default never overrides a real user choice.
       DB.ui = DB.ui || {};
-      DB.ui.arPhaseOpen = DB.ui.arPhaseOpen || { [AR_PHASES[0].key]: true };
+      DB.ui.arGroupOpen = DB.ui.arGroupOpen || { [AR_PHASE_GROUPS[0].key]: true };
+      DB.ui.arGroupInfo = DB.ui.arGroupInfo || {};
       return `<div class="p-6 fade-in">
         <div class="flex items-center mb-4">
           <div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Each phase runs its own cascading rule list, first match wins — add, edit, reorder, or enable/disable rules to see matching change live. Rules can never be deleted. This is what the reconciliation runs against.</div></div>
           <button data-act="reset-ar-rules" data-id="${rec.id}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Reset to defaults</button>
         </div>
-        <div class="tl-wrap">${AR_PHASES.map((ph, i) => arTimelineRow(rec, res, ph, i)).join('')}</div>
+        <div class="tl-wrap">${AR_PHASE_GROUPS.map((g, i) => arGroupRow(rec, res, g, i)).join('')}</div>
       </div>`;
     }
     function arReconSources(rec) {
@@ -5735,15 +5775,29 @@
           'ar-suspense-manual': 'arSuspenseShowManual',
           'ar-multiinv-other': 'arMultiInvShowOther'
         }[toggleKey];
-        // ar-phase: Rules Studio's timeline accordion — each phase toggles independently (multiple
-        // can stay open at once), keyed by phase key rather than a single fixed DB.ui property.
+        // ar-phase: Rules Studio's timeline accordion — each group toggles independently (multiple
+        // can stay open at once), keyed by group key rather than a single fixed DB.ui property.
         if (toggleKey === 'ar-phase') {
           const scrollEl = document.querySelector('main > .overflow-y-auto');
           const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
           DB.ui = DB.ui || {};
-          DB.ui.arPhaseOpen = DB.ui.arPhaseOpen || {};
+          DB.ui.arGroupOpen = DB.ui.arGroupOpen || {};
           const pk = toggleEl.dataset.phase;
-          DB.ui.arPhaseOpen[pk] = !DB.ui.arPhaseOpen[pk];
+          DB.ui.arGroupOpen[pk] = !DB.ui.arGroupOpen[pk];
+          render();
+          const newScrollEl = document.querySelector('main > .overflow-y-auto');
+          if (newScrollEl) newScrollEl.scrollTop = scrollTop;
+          return;
+        }
+        // ar-group-info: the (i) button's worked-example popover — independent of the accordion's
+        // own open/closed state, so you can peek at the example without expanding the rule list.
+        if (toggleKey === 'ar-group-info') {
+          const scrollEl = document.querySelector('main > .overflow-y-auto');
+          const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+          DB.ui = DB.ui || {};
+          DB.ui.arGroupInfo = DB.ui.arGroupInfo || {};
+          const pk = toggleEl.dataset.phase;
+          DB.ui.arGroupInfo[pk] = !DB.ui.arGroupInfo[pk];
           render();
           const newScrollEl = document.querySelector('main > .overflow-y-auto');
           if (newScrollEl) newScrollEl.scrollTop = scrollTop;
@@ -5867,7 +5921,6 @@
       else if (f === 'conf') rl.confidence = clamp(+v || 50, 50, 100);
       else if (f === 'matchMode') rl.matchMode = v;
       else if (f === 'bankField') rl.bankField = v;
-      else if (f === 'bankSource') { /* only one source (Bank Statement) exists today — nothing to do */ }
       else if (f === 'bankAccountField') rl.bankAccountField = v;
       else if (f === 'bankIfscField') rl.bankIfscField = v;
       else if (f === 'custAccountField') rl.custAccountField = v;
