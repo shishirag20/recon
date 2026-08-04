@@ -153,6 +153,11 @@
       white-space: nowrap;
     }
 
+    .btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
     .btn-primary {
       background: var(--accent);
       color: #fff;
@@ -313,132 +318,44 @@
       font-weight: 700;
       color: var(--faint);
     }
-
-    .tl-card {
-      flex: 1;
-      min-width: 0;
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      overflow: hidden;
-      transition: border-color .12s;
-    }
-
-    .tl-card.open {
-      border-color: var(--accent);
-    }
-
-    .tl-header-wrap {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 13px 15px;
-      cursor: pointer;
-    }
-
-    .tl-header-wrap:hover {
-      background: var(--sunken);
-    }
-
-    .tl-head-main {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .tl-title {
-      font-size: 13px;
-      font-weight: 700;
-    }
-
-    .tl-branch {
-      font-size: 10.5px;
-      color: var(--faint);
-      font-style: italic;
-      margin-top: 1px;
-    }
-
-    .tl-hint {
-      font-size: 11px;
-      color: var(--faint);
-      margin-top: 2px;
-      line-height: 1.4;
-    }
-
+    /* No overflow:hidden here — the floating example tooltip needs to escape the card's bounds
+       even when it's collapsed (hovering the (i) shouldn't require opening the accordion first).
+       Rounded corners are handled directly on the header/body instead of relying on clipping. */
+    .tl-card { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; transition: border-color .12s; }
+    .tl-card.open { border-color: var(--accent); }
+    .tl-header-wrap { width: 100%; display: flex; align-items: center; gap: 10px; padding: 13px 15px; cursor: pointer; border-radius: 9px 9px 0 0; }
+    .tl-header-wrap:hover { background: var(--sunken); }
+    .tl-head-main { flex: 1; min-width: 0; }
+    .tl-title { font-size: 13px; font-weight: 700; }
+    .tl-branch { font-size: 10.5px; color: var(--faint); font-style: italic; margin-top: 1px; }
+    .tl-hint { font-size: 11px; color: var(--faint); margin-top: 2px; line-height: 1.4; }
+    .tl-info-wrap { position: relative; flex: none; }
     .tl-info-btn {
-      flex: none;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--faint);
-      background: none;
-      border: none;
-      cursor: pointer;
-      transition: background .12s, color .12s;
+      width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      color: var(--faint); background: none; border: none; cursor: pointer; transition: background .12s, color .12s;
     }
-
-    .tl-info-btn:hover,
-    .tl-info-btn[aria-expanded="true"] {
-      background: var(--accent-soft);
-      color: var(--accent-ink);
+    .tl-info-btn:hover, .tl-info-btn:focus { background: var(--accent-soft); color: var(--accent-ink); }
+    .tl-info-tooltip {
+      position: absolute; z-index: 30; top: calc(100% + 6px); right: -8px; width: 260px;
+      padding: 9px 11px; background: var(--ink); color: #fff; border-radius: 8px;
+      font-size: 11.5px; line-height: 1.5; font-weight: 400; text-align: left;
+      box-shadow: 0 8px 20px rgba(16,19,26,.18);
+      opacity: 0; visibility: hidden; transform: translateY(-3px);
+      transition: opacity .12s, transform .12s, visibility .12s;
+      pointer-events: none;
     }
-
-    .tl-chev {
-      flex: none;
-      color: var(--faint);
-      transition: transform .18s;
+    .tl-info-btn:hover + .tl-info-tooltip, .tl-info-btn:focus + .tl-info-tooltip {
+      opacity: 1; visibility: visible; transform: translateY(0);
     }
-
-    .tl-card.open .tl-chev {
-      transform: rotate(180deg);
-    }
-
-    .tl-info-pop {
-      margin: 0 15px 13px;
-      padding: 10px 12px;
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-soft);
-      border-radius: 8px;
-      font-size: 11.5px;
-      line-height: 1.5;
-      color: var(--accent-ink);
-    }
-
-    .tl-body {
-      padding: 4px 15px 15px;
-      border-top: 1px solid var(--line-soft);
-      background: var(--canvas);
-    }
-
-    .tl-body[hidden] {
-      display: none;
-    }
-
-    .tl-subphase {
-      padding: 12px 0;
-    }
-
-    .tl-subphase:first-child {
-      padding-top: 8px;
-    }
-
-    .tl-subhead {
-      margin-bottom: 8px;
-    }
-
-    .tl-subtitle {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--ink-soft);
-    }
-
-    .tl-subdivider {
-      border-top: 1px dashed var(--line);
-      margin: 0 -15px;
-    }
+    .tl-chev { flex: none; color: var(--faint); transition: transform .18s; }
+    .tl-card.open .tl-chev { transform: rotate(180deg); }
+    .tl-body { padding: 4px 15px 15px; border-top: 1px solid var(--line-soft); background: var(--canvas); border-radius: 0 0 9px 9px; }
+    .tl-body[hidden] { display: none; }
+    .tl-subphase { padding: 12px 0; }
+    .tl-subphase:first-child { padding-top: 8px; }
+    .tl-subhead { margin-bottom: 8px; }
+    .tl-subtitle { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+    .tl-subdivider { border-top: 1px dashed var(--line); margin: 0 -15px; }
 
     .fade-in {
       animation: fi .25s ease;
@@ -659,14 +576,19 @@
 
     const TYPE_META = {
       payments: { label: 'Payments', icon: 'card', a: 'Stripe payouts', b: 'Order ledger', aKind: 'Processor', bKind: 'Internal' },
-      bank: { label: 'Bank / Cash', icon: 'bank', a: 'Bank statement', b: 'GL cash account', aKind: 'Bank', bKind: 'General ledger' },
+      bank: { label: 'Bank / Cash', icon: 'bank', a: 'Bank statement', b: 'GL cash account', aKind: 'Bank', bKind: 'General ledger', libraryLabel: 'Bank Reconciliation', short: 'Bank', description: 'Ties the general ledger cash balance to the bank statement, transaction by transaction — matching on reference and amount first, then amount plus a date window, then rounding-tolerant matching for bank fees. Flags timing differences, unrecorded charges, and deposits still in transit for review.' },
       close: { label: 'Subledger → GL', icon: 'doc', a: 'AR subledger', b: 'GL control account', aKind: 'Subledger', bKind: 'General ledger' },
       ar: { label: 'Accounts Receivable', icon: 'card', a: 'Bank deposits', b: 'Open invoices', aKind: 'Bank', bKind: 'AR ledger' },
-      ap: { label: 'Accounts Payable', icon: 'doc', a: 'Vendor bills', b: 'Sent payments', aKind: 'AP ledger', bKind: 'Bank' },
+      ap: { label: 'Accounts Payable', icon: 'doc', a: 'Vendor bills', b: 'Sent payments', aKind: 'AP ledger', bKind: 'Bank', libraryLabel: 'Accounts Payable (AP) Reconciliation', short: 'AP', description: 'Matches outgoing supplier payments to open vendor bills by bill number, then amount and payment date, catching early-payment discounts along the way. Runs a 3-way match against the purchase order and goods receipt too, so a bill can\'t be paid without a matching PO and confirmed delivery.' },
       payroll: { label: 'Payroll', icon: 'bank', a: 'Bank withdrawals', b: 'Payroll register', aKind: 'Bank', bKind: 'HR system' },
       inventory: { label: 'Inventory', icon: 'db', a: 'Goods receipts', b: 'Vendor invoices', aKind: 'Warehouse', bKind: 'AP ledger' },
-      'ar-reconciliation': { label: 'AR Reconciliation', icon: 'card', a: 'Bank deposits', b: 'Invoices', aKind: 'Bank', bKind: 'AR ledger' },
+      'ar-reconciliation': { label: 'AR Reconciliation', icon: 'card', a: 'Bank deposits', b: 'Invoices', aKind: 'Bank', bKind: 'AR ledger', libraryLabel: 'Accounts Receivable (AR) Reconciliation', short: 'AR', description: 'Identifies which customer sent each incoming payment, allocates it against their open invoices, and works down a rule-based waterfall to auto-match as much as it can. Short-pays, unapplied cash, and ambiguous payments are flagged for review, and a final GL control check confirms the subledger and general ledger agree.' },
     };
+    // The Reconciliation Library (sidebar → Reconciliation) shows exactly these 3 categories, in
+    // this order — every other TYPE_META entry exists in the data but isn't surfaced here yet.
+    // libraryLabel/description/short are additive (only these 3 entries have them) — the existing
+    // `label` used everywhere else (Dashboard table, My Work, card subtitles) is untouched.
+    const AR_LIBRARY_CATEGORIES = ['ar-reconciliation', 'ap', 'bank'];
 
     function ruleC(name, enabled, priority, ref, amount, date, confidence) { return { id: uid('rl'), name, enabled, priority, cond: { ref, amount, date }, confidence }; }
 
@@ -979,7 +901,7 @@
       const { A, B } = genRecords(recId, type);
       const rules = (RULESET[type] || RULESET.close)();
       const rec = {
-        id: recId, type, name, owner, cadence: CADENCE[type] || 'Monthly', threshold: 85,
+        id: recId, type, name, owner, cadence: CADENCE[type] || 'Monthly', threshold: 85, entityId: 'e_in',
         rules, records: A.concat(B), confirmed: [], rejected: [], lastRun: null
       };
       if (type === 'ap' || type === 'inventory') rec.threeway = genThreeway();
@@ -1121,7 +1043,7 @@
         buildRec('inventory', 'Goods Receipt ↔ Invoices', 'Sam Whitlock'),
         buildRec('close', 'AR Subledger ↔ GL', 'Priya Nair'),
       ];
-      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, arData: genARData(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, entityId: 'e_in', arData: genARData(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
       recs.push(arRec);
       // No precomputation — every reconciliation starts unrun. Results only appear once
       // "Run reconciliation" is pressed; Rules Studio still shows a live simulation preview.
@@ -2197,8 +2119,16 @@
     }
 
     // ═══════════════════════════════════════ view: reconciliation ═══════════════════════════════════════
-    const RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matches'], ['exceptions', 'Exceptions'], ['sources', 'Sources']];
-    const AR_RECON_TABS = [['overview', 'Overview'], ['rules', 'Rules Studio'], ['matches', 'Matched'], ['exceptions', 'Exceptions']];
+    // Overview commented out for now — Rules Studio is the landing tab in the meantime. The render
+    // branch for it (below, in viewRecon) and its own render functions are untouched, just unreachable
+    // through the tab bar; uncomment the tuple to bring it back.
+    const RECON_TABS = [
+      // ['overview', 'Overview'],
+      ['rules', 'Rules Studio'], ['matches', 'Matches'], ['exceptions', 'Exceptions'], ['sources', 'Sources'],
+    ];
+    const AR_RECON_TABS = [
+      ['rules', 'Rules Studio'], ['matches', 'Matched'], ['exceptions', 'Exceptions'],
+    ];
     // Overview / Matches / Exceptions / Sources only render once a reconciliation has actually
     // been run — Rules Studio stays available pre-run since it's a live simulation, not a result.
     function reconNotRun(rec, res, tabLabel) {
@@ -2216,7 +2146,7 @@
       const rec = getRec(DB.route.recId); if (!rec) return viewDashboard();
       const isAR = rec.type === 'ar-reconciliation';
       const hasRun = !!rec.lastRun;
-      const tab = DB.route.tab || 'overview';
+      const tab = DB.route.tab || 'rules';
       const res = getEngineResult(rec);
       const meta = TYPE_META[rec.type];
       const runBtn = `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
@@ -2225,7 +2155,7 @@
       const tabs = isAR ? AR_RECON_TABS : RECON_TABS;
       const exceptionsCount = hasRun ? (isAR ? res.exceptions.filter(e => e.status === 'Open').length : res.breaks.length) : 0;
       const tabLabels = { overview: 'Overview', matches: isAR ? 'Matched' : 'Matches', exceptions: 'Exceptions', sources: 'Sources' };
-      if (tab === 'overview') body = hasRun ? (isAR ? arReconOverview(rec, res) : reconOverview(rec, res)) : reconNotRun(rec, res, tabLabels.overview);
+      if (tab === 'overview' && !isAR) body = hasRun ? reconOverview(rec, res) : reconNotRun(rec, res, tabLabels.overview);
       else if (tab === 'rules') body = isAR ? arReconRules(rec, res) : reconRules(rec, res);
       else if (tab === 'matches') body = hasRun ? (isAR ? arReconMatches(rec, res) : reconMatches(rec, res)) : reconNotRun(rec, res, tabLabels.matches);
       else if (tab === 'exceptions') body = hasRun ? (isAR ? arReconExceptions(rec, res) : reconExceptions(rec, res)) : reconNotRun(rec, res, tabLabels.exceptions);
@@ -2234,7 +2164,14 @@
       const finishBtn = canFinish
         ? `<button data-act="ar-finish-recon" data-id="${rec.id}" class="fixed bottom-6 right-6 z-30 btn btn-primary shadow-lg flex items-center gap-1.5">${icon('check', 'w-4 h-4')}Finish Reconciliation</button>`
         : (isAR && rec.arFinished ? `<button data-act="ar-view-finish-summary" data-id="${rec.id}" class="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md bg-ok-soft text-ok-ink text-[13px] font-semibold shadow-lg hover:bg-ok-soft/80">${icon('check', 'w-4 h-4')}Reconciliation finished · view summary</button>` : '');
-      return topbar(esc(rec.name), `${meta.a} <span class="text-faint">↔</span> ${meta.b} · ${rec.cadence}`, `${lastRun}${runBtn}`)
+      // Breadcrumb back to the category page only for reconciliations reachable through the
+      // Library (AR/AP/Bank) — older seed types (payments, payroll, close, etc.) have no category
+      // page to return to, so they keep the plain title.
+      const companyName = (getEntity(rec.entityId) || {}).name || rec.name;
+      const title = AR_LIBRARY_CATEGORIES.includes(rec.type)
+        ? `<button data-act="goto" data-r="reconciliations" data-cat="${rec.type}" class="font-medium text-muted hover:text-accent-ink transition">${esc(meta.short || meta.label)}</button><span class="text-faint mx-1.5 font-normal">/</span>${esc(companyName)}`
+        : esc(rec.name);
+      return topbar(title, `${meta.a} <span class="text-faint">↔</span> ${meta.b} · ${rec.cadence}`, `${lastRun}${runBtn}`)
         + `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">
       ${tabs.map(([k, l]) => `<button data-act="recon-tab" data-t="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${tab === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l}${k === 'exceptions' && exceptionsCount ? ` <span class="mono text-[11px] text-warn-ink">${exceptionsCount}</span>` : ''}</button>`).join('')}
     </div><div class="flex-1 overflow-y-auto fade-in flex flex-col">${body}</div>${finishBtn}`;
@@ -2268,7 +2205,7 @@
       return `<div class="rc-card" style="--stripe:${styleFor.stripe};" data-act="open-recon" data-id="${rc.id}">
         <div class="flex items-start gap-3">
           ${ring}
-          <div class="flex-1"><div class="font-semibold text-[14px]">${esc(rc.name)}</div><div class="text-[11.5px] text-faint mt-0.5">${TYPE_META[rc.type].label} · Meridian India</div></div>
+          <div class="flex-1"><div class="font-semibold text-[14px]">${esc((getEntity(rc.entityId) || {}).name || rc.name)}</div><div class="text-[11.5px] text-faint mt-0.5">${esc(rc.name)}</div></div>
           <span class="chip ${styleFor.chipCls} ml-auto">${esc(styleFor.label)}</span>
         </div>
         <div class="rc-stats">
@@ -2277,7 +2214,10 @@
           <div><div class="k">Owner</div><div class="v">${esc(rc.owner)}</div></div>
           <div><div class="k">Due</div><div class="v">Jul ${20 + (rc.name.length % 5)}</div></div>
         </div>
-        <div class="flex items-center justify-between text-[11.5px] text-muted"><span>${esc(rc.cadence)}</span><span>${rc.lastRun ? 'Last run ' + rc.lastRun.at.slice(0, 10) : 'Never run'}</span></div>
+        <div class="flex items-center justify-between text-[11.5px] text-muted">
+          <span>${esc(rc.cadence)} · ${rc.lastRun ? 'Last run ' + rc.lastRun.at.slice(0, 10) : 'Never run'}</span>
+          <button data-act="run-recon" data-id="${rc.id}" class="btn btn-ghost btn-sm" ${rc.lastRun ? 'disabled title="Already run"' : ''}>${icon('play', 'w-3.5 h-3.5')}Run</button>
+        </div>
       </div>`;
     }
     function viewMyWork() {
@@ -2304,12 +2244,52 @@
     <div class="card overflow-hidden mb-5"><div class="h-12 px-4 flex items-center border-b border-line"><div><div class="font-semibold text-[13px]">Your task queue</div><div class="text-[11px] text-muted">Filter by assignment, role, or due date</div></div><div class="ml-auto flex gap-2"><button class="btn btn-ghost btn-sm">Assigned to me</button><button class="btn btn-ghost btn-sm">Due this week</button></div></div><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Reconciliation</th><th class="px-3 py-2">Assignment</th><th class="px-3 py-2">Next action</th><th class="px-3 py-2">Exposure</th><th class="px-4 py-2 text-right">Due</th></tr></thead><tbody>${ordered.map(task).join('')}</tbody></table></div>
     <div class="grid grid-cols-2 gap-5"><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting for your review</div>${all.filter(x => x.rc.lastRun && x.res.rate >= 90).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full bg-ok"></span><span class="flex-1 font-medium">${esc(x.rc.name)}</span><span class="mono text-[12px] text-muted">${x.res.rate}%</span></button>`).join('') || '<div class="text-[12px] text-faint text-center py-4">Nothing run yet</div>'}</div><div class="card p-4"><div class="font-semibold text-[13px] mb-3">Waiting on others</div>${all.filter(x => x.rc.owner !== DB.user.name).slice(0, 3).map(x => `<button data-act="open-recon" data-id="${x.rc.id}" class="w-full flex items-center gap-3 py-2 text-left border-b last:border-0 border-line-soft"><span class="w-2 h-2 rounded-full ${x.res.breaks.length ? 'bg-warn' : 'bg-ok'}"></span><span class="flex-1"><span class="block font-medium">${esc(x.rc.name)}</span><span class="block text-[11px] text-faint">${esc(x.rc.owner)}</span></span><span class="mono text-[12px] text-muted">${x.res.breaks.length} open</span></button>`).join('')}</div></div></div>`;
     }
-    function viewReconciliations() {
-      // AR Reconciliation surfaced first — it's the primary, actively-developed reconciliation type;
-      // relative order of everything else is left untouched (stable sort).
-      const all = DB.recs.map(rc => ({ rc, res: getEngineResult(rc) }))
-        .sort((a, b) => (a.rc.type === 'ar-reconciliation' ? -1 : b.rc.type === 'ar-reconciliation' ? 1 : 0));
-      return topbar('All reconciliations', `${DB.period.label} · ${all.length} active definitions`, `<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`) + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="rc-grid">${all.map(({ rc, res }) => arReconCard(rc, res)).join('')}</div></div>`;
+    // Sidebar → Reconciliation lands here first: 3 category cards (AR / AP / Bank), each a real,
+    // live count of that type's own records — never a placeholder number. Clicking a category goes
+    // to viewReconciliationCategory, which reuses the existing card-grid design, just filtered.
+    function arLibraryCard(catKey) {
+      const meta = TYPE_META[catKey];
+      return `<div class="card p-5 flex flex-col gap-3 cursor-pointer row-hover min-h-[220px]" data-act="goto" data-r="reconciliations" data-cat="${catKey}">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-accent-soft text-accent flex items-center justify-center flex-none">${icon(meta.icon, 'w-[18px] h-[18px]')}</div>
+          <div class="font-semibold text-[14px] leading-snug">${esc(meta.libraryLabel || meta.label)}</div>
+        </div>
+        <div class="text-[12.5px] text-muted leading-relaxed flex-1">${esc(meta.description || '')}</div>
+        <div class="pt-2 mt-1 border-t border-line-soft flex items-center justify-end">
+          <span class="text-[12.5px] font-semibold text-accent-ink flex items-center gap-1">Open ${icon('arrowr', 'w-3.5 h-3.5')}</span>
+        </div>
+      </div>`;
+    }
+    function viewReconciliationLibrary() {
+      return topbar('Reconciliation Library', DB.period.label, '')
+        + `<div class="flex-1 overflow-y-auto p-6 fade-in"><div class="rc-grid">${AR_LIBRARY_CATEGORIES.map(arLibraryCard).join('')}</div></div>`;
+    }
+    // One category's own card grid — same .rc-card/.rc-grid design as before, just filtered to a
+    // single TYPE_META key instead of showing every reconciliation type mixed together.
+    function viewReconciliationCategory(catKey) {
+      const meta = TYPE_META[catKey];
+      if (!meta) return viewReconciliationLibrary();
+      const allRecs = DB.recs.filter(rc => rc.type === catKey).map(rc => ({ rc, res: getEngineResult(rc) }));
+      const back = `<button data-act="goto" data-r="reconciliations" class="btn btn-ghost btn-sm">${icon('chevR', 'w-3.5 h-3.5 rotate-180')}Reconciliation Library</button>`;
+      // AR-only filter subtabs — scoped to AR since "Completed" reads rec.arFinished, which only
+      // AR reconciliations carry. All counts are real (recStatus/arFinished), never fabricated.
+      const isAR = catKey === 'ar-reconciliation';
+      let shown = allRecs, filterTabs = '';
+      if (isAR) {
+        const filter = DB.filters.arCatFilter || 'all';
+        const groups = {
+          all: allRecs,
+          mine: allRecs.filter(x => x.rc.owner === DB.user.name),
+          'needs-resolution': allRecs.filter(x => recStatus(x.rc, x.res) === 'Needs resolution'),
+          completed: allRecs.filter(x => x.rc.arFinished),
+        };
+        const tabs = [['all', 'All'], ['mine', 'My Assignments'], ['needs-resolution', 'Needs Resolution'], ['completed', 'Completed']];
+        filterTabs = `<div class="flex-none px-6 border-b border-line bg-surface flex items-center gap-1">${tabs.map(([k, l]) => `<button data-act="ar-cat-filter" data-f="${k}" class="h-10 px-3 text-[13px] font-medium border-b-2 -mb-px transition ${filter === k ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${l} <span class="mono text-[11px] ${filter === k ? 'text-accent-ink' : 'text-faint'}">${groups[k].length}</span></button>`).join('')}</div>`;
+        shown = groups[filter] || groups.all;
+      }
+      return topbar(meta.libraryLabel || meta.label, `${DB.period.label} · ${allRecs.length} active definition${allRecs.length === 1 ? '' : 's'}`, `${back}<button data-act="new-recon" class="btn btn-primary">${icon('plus', 'w-4 h-4')}New reconciliation</button>`)
+        + filterTabs
+        + `<div class="flex-1 overflow-y-auto p-6 fade-in">${shown.length ? `<div class="rc-grid">${shown.map(({ rc, res }) => arReconCard(rc, res)).join('')}</div>` : `<div class="card p-10 text-center text-[13px] text-muted">${allRecs.length ? 'No reconciliations match this filter.' : `No ${esc((meta.libraryLabel || meta.label).toLowerCase())} reconciliations yet.`}</div>`}</div>`;
     }
     function viewTransactions() {
       const txnStatus = (rc, r) => { const e = getEngineResult(rc); if (r.resolution) return 'resolved'; if (e.matched.some(m => m.aId === r.id || m.bId === r.id)) return 'matched'; if (e.suggested.some(m => m.aId === r.id || m.bId === r.id)) return 'suggested'; return 'break'; };
@@ -2345,52 +2325,6 @@
       return '';
     }
     // ═══════════════════════════════════════ AR Reconciliation views ═══════════════════════════════════════
-    function arReconOverview(rec, res) {
-      // Check if reconciliation hasn't been run yet
-      if (res.status === 'no-data') {
-        return `<div class="p-6 flex flex-col items-center justify-center h-full fade-in">
-          <div class="text-center">
-            <div class="text-[48px] mb-3">✓</div>
-            <div class="font-semibold text-[18px] mb-1">Everything is up to date</div>
-            <div class="text-[14px] text-muted mb-6">Upload CSV files and run reconciliation to begin</div>
-            <button data-act="recon-tab" data-t="sources" class="btn btn-primary">Go to Sources</button>
-          </div>
-        </div>`;
-      }
-
-      const ar = rec.arData;
-      const kpi_ = (label, value, sub) => `<div class="card p-4"><div class="lbl">${label}</div><div class="mono text-[24px] font-semibold mt-1.5 leading-none">${value}</div><div class="text-[11.5px] text-muted mt-1.5">${sub || ''}</div></div>`;
-      const matchRate = (res.matched.length / (res.invoices.length + res.payments.length) * 100).toFixed(1);
-      return `<div class="p-6 fade-in">
-        <div class="grid grid-cols-4 gap-3 mb-5">
-          ${kpi_('Total invoices', res.invoices.length, fmtMoney(res.invoices.reduce((s, i) => s + i.totalAmount, 0)) + ' billed')}
-          ${kpi_('Matched', res.matches.length, `${matchRate}% reconciled`)}
-          ${kpi_('Open exceptions', res.exceptions.length, `${res.exceptions.filter(e => e.status === 'Open').length} unresolved`)}
-          ${kpi_('Unapplied cash', res.unapplied.length, fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0)))}
-        </div>
-        ${res.glMismatch ? `<div class="card bg-warn-soft border border-warn-soft mb-5 p-4"><div class="flex items-start gap-3">
-          <span class="text-warn text-[20px] leading-none mt-0.5">${icon('alert', 'w-5 h-5')}</span>
-          <div class="flex-1"><div class="font-semibold text-[13px]">GL control account ${esc(res.glMismatch.account)} mismatch</div>
-          <div class="text-[12px] text-warn-ink mt-1">Sub-ledger ${fmtMoney(res.glMismatch.subledgerBalance)} vs GL ${fmtMoney(res.glMismatch.glBalance)} = ${fmtMoney(res.glMismatch.variance)} variance</div></div></div></div>` : ''}
-        <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Invoice status summary</div></div>
-        <table class="w-full text-[13px]"><tbody>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Fully matched (Paid)</td><td class="px-3 py-2.5">${res.matches.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.matches.reduce((s, m) => s + m.amount, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Over-payments</td><td class="px-3 py-2.5">${res.overpays.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.overpays.reduce((s, o) => s + o.overage, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('matched')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">Short-payments</td><td class="px-3 py-2.5">${res.shortPays.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.shortPays.reduce((s, p) => s + p.shortage, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
-          <tr class="border-b border-line-soft"><td class="px-4 py-2.5 font-medium">No payment received (Open)</td><td class="px-3 py-2.5">${res.unmatchedInvoices.length}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(res.unmatchedInvoices.reduce((s, i) => s + i.effectiveBalance, 0))}</td><td class="px-4 py-2.5 text-right"><span class="chip">Open · not yet due</span></td></tr>
-          <tr><td class="px-4 py-2.5 font-medium">Unapplied cash</td><td class="px-3 py-2.5">${res.unapplied.length}</td><td class="px-3 py-2.5 text-right mono text-warn-ink">${fmtMoney(res.unapplied.reduce((s, u) => s + u.amount, 0))}</td><td class="px-4 py-2.5 text-right">${statusPill('break')}</td></tr>
-        </tbody></table></div>
-        <div class="card overflow-hidden mb-5"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">Bank statement clearing</div><div class="ml-auto text-[11.5px] text-muted">Reconciliation lifecycle status · Open / In Progress / Reconciled / Exception</div></div>
-        <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Bank txn</th><th class="px-3 py-2">Reference</th><th class="px-3 py-2">Payer</th><th class="px-3 py-2 text-right">Amount</th><th class="px-4 py-2 text-right">Lifecycle status</th></tr></thead><tbody>
-        ${res.bankStatements.map(bs => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 font-medium">${bs.bankTxnId}</td><td class="px-3 py-2.5 mono text-[12px] text-muted">${bs.bankReferenceNumber}</td><td class="px-3 py-2.5">${esc(bs.payerName)}</td><td class="px-3 py-2.5 text-right mono">${fmtMoney(bs.amount)}</td><td class="px-4 py-2.5 text-right">${arLifecycleCell(rec, res, 'bank', bs)}</td></tr>`).join('')}
-        </tbody></table></div>
-        <div class="card overflow-hidden">
-          <div class="flex items-center px-4 h-11 border-b border-line"><div><div class="font-semibold text-[13px]">Rule performance</div><div class="text-[11px] text-faint">Calculations run internally against the seeded AR dataset</div></div><button data-act="recon-tab" data-t="rules" class="ml-auto btn btn-ghost btn-sm">Open Rules Studio ${icon('arrowr', 'w-3.5 h-3.5')}</button></div>
-          <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Phase</th><th class="px-3 py-2">Rule</th><th class="px-3 py-2">Conditions</th><th class="px-3 py-2 text-right">Results</th><th class="px-3 py-2">Status</th></tr></thead><tbody>
-          ${res.perRule.map(({ rule, count }) => `<tr class="border-b border-line-soft last:border-0"><td class="px-4 py-2.5 text-muted text-[12px]">${esc((AR_PHASES.find(p => p.key === rule.phase) || {}).label || rule.phase)}</td><td class="px-3 py-2.5 font-medium">${esc(rule.name)}</td><td class="px-3 py-2.5">${arCondSummary(rule)}</td><td class="px-3 py-2.5 text-right mono font-semibold">${count}</td><td class="px-3 py-2.5">${rule.enabled ? '<span class="text-ok-ink text-[12px] font-medium">● Active</span>' : '<span class="text-faint text-[12px]">○ Off</span>'}</td></tr>`).join('')}
-          </tbody></table>
-        </div></div>`;
-    }
     // Named-kind rules (customer-lock, most of allocation) have fixed matching logic — showing the
     // generic Ref/Amount/Date chips for them would be meaningless noise (there's no "reference
     // condition" for a UPI-handle match). This shows what the rule actually checks instead, falling
@@ -2587,7 +2521,6 @@
     }
     function arGroupRow(rec, res, group, i) {
       const isOpen = !!DB.ui.arGroupOpen[group.key];
-      const infoOpen = !!DB.ui.arGroupInfo[group.key];
       const subPhases = group.phases.map(key => AR_PHASES.find(p => p.key === key)).filter(Boolean);
       return `<div class="tl-row">
         <div class="tl-rail"><div class="tl-node">${group.priority}</div></div>
@@ -2597,10 +2530,12 @@
               <div class="tl-title">${esc(group.label)}</div>
               <div class="tl-hint">${esc(group.description)}</div>
             </div>
-            <button class="tl-info-btn" data-toggle="ar-group-info" data-phase="${group.key}" aria-label="Show an example" aria-expanded="${infoOpen}">${icon('info', 'w-3.5 h-3.5')}</button>
+            <div class="tl-info-wrap">
+              <button class="tl-info-btn" aria-label="Example: ${esc(group.example)}" onclick="event.stopPropagation()">${icon('info', 'w-3.5 h-3.5')}</button>
+              <div class="tl-info-tooltip" role="tooltip">${esc(group.example)}</div>
+            </div>
             <span class="tl-chev">${icon('chevD', 'w-3.5 h-3.5')}</span>
           </div>
-          ${infoOpen ? `<div class="tl-info-pop">${esc(group.example)}</div>` : ''}
           <div class="tl-body" ${isOpen ? '' : 'hidden'}>
             ${subPhases.map((ph, j) => arSubPhaseSection(rec, res, ph) + (j < subPhases.length - 1 ? '<div class="tl-subdivider"></div>' : '')).join('')}
           </div>
@@ -2612,7 +2547,6 @@
       // that writes an explicit true/false here, so this default never overrides a real user choice.
       DB.ui = DB.ui || {};
       DB.ui.arGroupOpen = DB.ui.arGroupOpen || { [AR_PHASE_GROUPS[0].key]: true };
-      DB.ui.arGroupInfo = DB.ui.arGroupInfo || {};
       return `<div class="p-6 fade-in">
         <div class="flex items-center mb-4">
           <div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Each phase runs its own cascading rule list, first match wins — add, edit, reorder, or enable/disable rules to see matching change live. Rules can never be deleted. This is what the reconciliation runs against.</div></div>
@@ -5526,7 +5460,7 @@
       const r = DB.route; let v;
       if (r.name === 'recon') v = viewRecon();
       else if (r.name === 'mywork') v = viewMyWork();
-      else if (r.name === 'reconciliations') v = viewReconciliations();
+      else if (r.name === 'reconciliations') v = r.category ? viewReconciliationCategory(r.category) : viewReconciliationLibrary();
       else if (r.name === 'transactions') v = viewTransactions();
       else if (r.name === 'ingestion') v = viewIngestion();
       else if (r.name === 'reconciliation') v = viewAutoReconciliation();
@@ -5660,13 +5594,13 @@
         render();
         toast('Records unreconciled', 'ok');
       },
-      goto: d => { DB.route = { name: d.r }; DB.ui.editRule = null; render(); },
+      goto: d => { DB.route = d.cat ? { name: d.r, category: d.cat } : { name: d.r }; DB.ui.editRule = null; render(); },
       'rep-tab': d => { DB.route.tab = d.t; render(); },
       'rep-run': d => modalRunSnapshot(d.id),
       'rep-export': d => exportReport(d.kind, d.fmt || 'csv'),
       'rep-export-run': d => { d.fmt === 'pdf' ? exportRunPDF(d.id) : exportRunXls(d.id); },
       'open-transaction': d => { const rec = getRec(d.rec), r = getRec(d.rec)?.records.find(x => x.id === d.record); if (rec && r) modalTransaction(rec, r); },
-      'open-recon': d => { DB.route = { name: 'recon', recId: d.id, tab: 'overview' }; DB.ui.editRule = null; render(); },
+      'open-recon': d => { DB.route = { name: 'recon', recId: d.id, tab: 'rules' }; DB.ui.editRule = null; render(); },
       'open-recon-tab': d => { DB.route = { name: 'recon', recId: d.id, tab: d.t }; render(); },
       'recon-tab': d => { DB.route.tab = d.t; DB.ui.editRule = null; render(); },
       'ar-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.arMatchStream = d.stream; render(); },
@@ -5975,6 +5909,7 @@
       'ar-rule-up': d => moveARRule(d.id, d.rule, -1), 'ar-rule-down': d => moveARRule(d.id, d.rule, 1),
       'reset-ar-rules': d => { const rec = getRec(d.id); rec.arRules = buildARRules(); DB.ui.editRule = null; render(); toast('AR rules reset to defaults', 'ok'); },
       'mfilter': d => { DB.filters.m = d.f; render(); },
+      'ar-cat-filter': d => { DB.filters.arCatFilter = d.f; render(); },
       'accept-sugg': d => { const rec = getRec(d.id); rec.confirmed.push({ aId: d.a, bId: d.b }); const a = rec.records.find(x => x.id === d.a); logAudit('Confirmed match', `${rec.name} · ${a ? esc(a.counterparty) : ''} ${a ? fmtMoney(a.amount) : ''}`); render(); toast('Match confirmed'); },
       'reject-sugg': d => { const rec = getRec(d.id); (rec.rejected = rec.rejected || []).push({ aId: d.a, bId: d.b }); render(); toast('Suggestion dismissed', 'warn'); },
       'resolve-break': d => { const rec = getRec(d.id); const r = rec.records.find(x => x.id === d.recItem); if (rec && r) modalResolution(rec, r, d.mode); },
@@ -6108,20 +6043,6 @@
           DB.ui.arGroupOpen = DB.ui.arGroupOpen || {};
           const pk = toggleEl.dataset.phase;
           DB.ui.arGroupOpen[pk] = !DB.ui.arGroupOpen[pk];
-          render();
-          const newScrollEl = document.querySelector('main > .overflow-y-auto');
-          if (newScrollEl) newScrollEl.scrollTop = scrollTop;
-          return;
-        }
-        // ar-group-info: the (i) button's worked-example popover — independent of the accordion's
-        // own open/closed state, so you can peek at the example without expanding the rule list.
-        if (toggleKey === 'ar-group-info') {
-          const scrollEl = document.querySelector('main > .overflow-y-auto');
-          const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-          DB.ui = DB.ui || {};
-          DB.ui.arGroupInfo = DB.ui.arGroupInfo || {};
-          const pk = toggleEl.dataset.phase;
-          DB.ui.arGroupInfo[pk] = !DB.ui.arGroupInfo[pk];
           render();
           const newScrollEl = document.querySelector('main > .overflow-y-auto');
           if (newScrollEl) newScrollEl.scrollTop = scrollTop;
