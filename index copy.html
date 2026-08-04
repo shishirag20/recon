@@ -488,7 +488,7 @@
 
     .rc-stats {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 10px 12px;
       padding-top: 12px;
       border-top: 1px solid var(--line-soft);
@@ -732,6 +732,73 @@
       const glControlBalances = { account: '1200-AR', glBalance: 170000 };
       // Payment-gateway settlements (payout batches, gateway fees, txn IDs) — this sample dataset's
       // cash all arrived via bank wire/ACH, so there's nothing here yet; the stream is real but empty.
+      const gatewaySettlements = [];
+      return { customers, invoices, bankStatements, glControlBalances, gatewaySettlements };
+    }
+    // Second AR mock entity (Meridian US Inc) — its own distinct customers/invoices/bank rows, not
+    // a clone of genARData(). GSTIN/PAN/UPI/IFSC are India-specific, so those fields stay blank here
+    // on purpose; identification instead runs on customer-code-in-narration, account suffix
+    // (candidate pool), and fuzzy company-name — all of which generalize fine to a US subsidiary.
+    function genARDataUS() {
+      const customers = [
+        { customerId: 'CUST-US-01', companyName: 'Nimbus Retail LLC', paymentTerms: 'Net 30', creditLimit: 4000000, currencyCode: 'USD', customerCode: 'NMBS01', pan: '', gstin: '', defaultBankAccount: '4001122003', defaultIFSC: '', upiHandle: '', expectedUTR: '' },
+        { customerId: 'CUST-US-02', companyName: 'Vertex Analytics Inc', paymentTerms: 'Net 15', creditLimit: 6000000, currencyCode: 'USD', customerCode: 'VRTX02', pan: '', gstin: '', defaultBankAccount: '4004455661', defaultIFSC: '', upiHandle: '', expectedUTR: '' },
+        { customerId: 'CUST-US-03', companyName: 'Bluepeak Freight Co', paymentTerms: 'Net 30', creditLimit: 2500000, currencyCode: 'USD', customerCode: 'BLPK03', pan: '', gstin: '', defaultBankAccount: '4007788992', defaultIFSC: '', upiHandle: '', expectedUTR: '' },
+      ];
+      const invoices = [
+        { invoiceId: 'INV-US-201', customerId: 'CUST-US-01', invoiceNumber: 'INV-US-2026-201', issueDate: '2026-07-01', dueDate: '2026-07-31', totalAmount: 800000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-US-202', customerId: 'CUST-US-02', invoiceNumber: 'INV-US-2026-202', issueDate: '2026-07-05', dueDate: '2026-07-20', totalAmount: 1250000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-US-203', customerId: 'CUST-US-03', invoiceNumber: 'INV-US-2026-203', issueDate: '2026-07-08', dueDate: '2026-08-07', totalAmount: 520000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-US-204', customerId: 'CUST-US-01', invoiceNumber: 'INV-US-2026-204', issueDate: '2026-07-15', dueDate: '2026-08-14', totalAmount: 300000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+      ];
+      const bankStatements = [
+        // Locked directly via the customer code embedded in the ACH narration.
+        { bankTxnId: 'BANK-US-701', transactionDate: '2026-07-02', bankReferenceNumber: 'ACH-REF-8801', payerName: 'Nimbus Retail LLC', payerAccountNumber: '', payerIFSC: '', narration: 'ACH CREDIT REF NMBS01 PAYMENT', amount: 800000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // No code/name clue in the narration — only the account number, so this one only locks via
+        // Candidate Pool's account-suffix fallback (last 4 digits), not Customer Identification directly.
+        { bankTxnId: 'BANK-US-702', transactionDate: '2026-07-16', bankReferenceNumber: 'ACH-REF-8802', payerName: 'NR Holdings LLC', payerAccountNumber: '4001122003', payerIFSC: '', narration: 'ACH CREDIT DOMESTIC WIRE', amount: 300000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // $300 short of the $12,500 invoice — a genuine shortfall, not a rounding/fee variance.
+        { bankTxnId: 'BANK-US-703', transactionDate: '2026-07-18', bankReferenceNumber: 'WIRE-REF-2210', payerName: 'Vertex Analytics Inc', payerAccountNumber: '', payerIFSC: '', narration: 'WIRE TRANSFER VRTX02 PARTIAL', amount: 1220000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // Payer name on the statement ("Bluepeak Freight LLC") doesn't exactly equal the saved
+        // company name ("Bluepeak Freight Co") — only Fuzzy Company Name Match (the last-resort rule)
+        // catches this, same pattern as the flagship India dataset's "Acme Corpn" row.
+        { bankTxnId: 'BANK-US-704', transactionDate: '2026-07-09', bankReferenceNumber: 'WIRE-REF-2211', payerName: 'Bluepeak Freight LLC', payerAccountNumber: '', payerIFSC: '', narration: 'DOMESTIC WIRE PAYMENT', amount: 520000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // No account, code, or recognizable name — every identification rule misses, so this stays
+        // unidentified and surfaces as a Suspense exception.
+        { bankTxnId: 'BANK-US-705', transactionDate: '2026-07-20', bankReferenceNumber: 'WIRE-REF-2212', payerName: 'Unknown Remitter', payerAccountNumber: '', payerIFSC: '', narration: 'MISC WIRE TRANSFER', amount: 175000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+      ];
+      const glControlBalances = { account: '1200-AR-US', glBalance: 2600000 };
+      const gatewaySettlements = [];
+      return { customers, invoices, bankStatements, glControlBalances, gatewaySettlements };
+    }
+    // Third AR mock entity (Meridian UK Ltd) — same idea as genARDataUS(): its own distinct
+    // customers/invoices/bank rows, GBP-denominated, no India-specific identifiers.
+    function genARDataUK() {
+      const customers = [
+        { customerId: 'CUST-UK-01', companyName: 'Harrow & Kane Ltd', paymentTerms: 'Net 30', creditLimit: 3200000, currencyCode: 'GBP', customerCode: 'HRKN01', pan: '', gstin: '', defaultBankAccount: '5511223301', defaultIFSC: '', upiHandle: '', expectedUTR: '' },
+        { customerId: 'CUST-UK-02', companyName: 'Solstice Media Group', paymentTerms: 'Net 45', creditLimit: 5000000, currencyCode: 'GBP', customerCode: 'SLST02', pan: '', gstin: '', defaultBankAccount: '5522334402', defaultIFSC: '', upiHandle: '', expectedUTR: '' },
+        { customerId: 'CUST-UK-03', companyName: 'Ferrow Industrial Plc', paymentTerms: 'Net 30', creditLimit: 7000000, currencyCode: 'GBP', customerCode: 'FRRW03', pan: '', gstin: '', defaultBankAccount: '5533445503', defaultIFSC: '', upiHandle: '', expectedUTR: '' },
+      ];
+      const invoices = [
+        { invoiceId: 'INV-UK-301', customerId: 'CUST-UK-01', invoiceNumber: 'INV-UK-2026-301', issueDate: '2026-07-03', dueDate: '2026-08-02', totalAmount: 640000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-UK-302', customerId: 'CUST-UK-02', invoiceNumber: 'INV-UK-2026-302', issueDate: '2026-07-06', dueDate: '2026-08-20', totalAmount: 980000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-UK-303', customerId: 'CUST-UK-03', invoiceNumber: 'INV-UK-2026-303', issueDate: '2026-07-10', dueDate: '2026-08-09', totalAmount: 1400000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+        { invoiceId: 'INV-UK-304', customerId: 'CUST-UK-01', invoiceNumber: 'INV-UK-2026-304', issueDate: '2026-07-17', dueDate: '2026-08-16', totalAmount: 210000, status: 'Open', creditNotes: 0, debitNotes: 0, tdsAllowedPct: 0 },
+      ];
+      const bankStatements = [
+        // Locked directly via the customer code in the Faster Payments narration.
+        { bankTxnId: 'BANK-UK-801', transactionDate: '2026-07-04', bankReferenceNumber: 'FP-REF-3301', payerName: 'Harrow & Kane Ltd', payerAccountNumber: '', payerIFSC: '', narration: 'FASTER PAYMENT REF HRKN01', amount: 640000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // Only the account number is present — locks via Candidate Pool's account-suffix fallback.
+        { bankTxnId: 'BANK-UK-802', transactionDate: '2026-07-18', bankReferenceNumber: 'FP-REF-3302', payerName: 'H&K Group', payerAccountNumber: '5511223301', payerIFSC: '', narration: 'FASTER PAYMENT DOMESTIC', amount: 210000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // £300 short of the £9,800 invoice — a genuine shortfall.
+        { bankTxnId: 'BANK-UK-803', transactionDate: '2026-07-21', bankReferenceNumber: 'BACS-REF-1190', payerName: 'Solstice Media Group', payerAccountNumber: '', payerIFSC: '', narration: 'BACS PAYMENT SLST02 PART', amount: 950000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // Payer name ("Ferrow Industrials Plc") is a near-miss on the saved company name ("Ferrow
+        // Industrial Plc") — only Fuzzy Company Name Match catches this one.
+        { bankTxnId: 'BANK-UK-804', transactionDate: '2026-07-12', bankReferenceNumber: 'CHAPS-REF-771', payerName: 'Ferrow Industrials Plc', payerAccountNumber: '', payerIFSC: '', narration: 'CHAPS PAYMENT', amount: 1400000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+        // No account, code, or recognizable name — stays unidentified, surfaces as Suspense.
+        { bankTxnId: 'BANK-UK-805', transactionDate: '2026-07-22', bankReferenceNumber: 'BACS-REF-1191', payerName: 'Unidentified Payer', payerAccountNumber: '', payerIFSC: '', narration: 'BACS CREDIT UNKNOWN REF', amount: 98000, clearingStatus: 'Pending', explicitFee: 0, isBankCharge: false },
+      ];
+      const glControlBalances = { account: '1200-AR-UK', glBalance: 3050000 };
       const gatewaySettlements = [];
       return { customers, invoices, bankStatements, glControlBalances, gatewaySettlements };
     }
@@ -1058,6 +1125,10 @@
       ];
       const arRec = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation', owner: 'Priya Nair', cadence: 'Daily', threshold: 85, entityId: 'e_in', arData: genARData(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
       recs.push(arRec);
+      const arRecUS = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation', owner: 'Marcus Feld', cadence: 'Daily', threshold: 85, entityId: 'e_us', arData: genARDataUS(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      recs.push(arRecUS);
+      const arRecUK = { id: uid('rec'), type: 'ar-reconciliation', name: 'AR Reconciliation', owner: 'Dana Osei', cadence: 'Weekly', threshold: 85, entityId: 'e_uk', arData: genARDataUK(), arRules: buildARRules(), arManualMatches: [], arResolved: {}, rules: [], records: [], confirmed: [], rejected: [], lastRun: null };
+      recs.push(arRecUK);
       // No precomputation — every reconciliation starts unrun. Results only appear once
       // "Run reconciliation" is pressed; Rules Studio still shows a live simulation preview.
       const acct = (name, institution, kind, currency, balance, status, sync, feed) => ({ id: uid('ac'), name, institution, kind, currency, balance, status, sync, feed });
@@ -2233,10 +2304,11 @@
       return `<div class="rc-card" style="--stripe:${styleFor.stripe};" data-act="open-recon" data-id="${rc.id}">
         <div class="flex items-start gap-3">
           ${ring}
-          <div class="flex-1"><div class="font-semibold text-[14px]">${esc((getEntity(rc.entityId) || {}).name || rc.name)}</div><div class="text-[11.5px] text-faint mt-0.5">${esc(rc.name)}</div></div>
+          <div class="flex-1"><div class="font-semibold text-[14px]">${esc((getEntity(rc.entityId) || {}).name || rc.name)}</div></div>
           <span class="chip ${styleFor.chipCls} ml-auto">${esc(styleFor.label)}</span>
         </div>
         <div class="rc-stats">
+          <div><div class="k">Matched</div><div class="v mono">${rc.lastRun ? res.matched.length : '—'}</div></div>
           <div><div class="k">Open exceptions</div><div class="v ${rc.lastRun && res.breaks.length ? 'warn' : ''} mono">${rc.lastRun ? res.breaks.length : '—'}</div></div>
           <div><div class="k">Unreconciled</div><div class="v ${rc.lastRun && res.breaks.length ? 'warn' : ''} mono">${rc.lastRun ? fmtMoney(res.breakVal) : '—'}</div></div>
           <div><div class="k">Owner</div><div class="v">${esc(rc.owner)}</div></div>
