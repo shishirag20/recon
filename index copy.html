@@ -1453,7 +1453,10 @@
         .filter(g => g.invoiceIds.length && g.paymentIds.length);
       const manualPayIds = new Set(manualGroups.flatMap(g => g.paymentIds));
       const manualInvIds = new Set(manualGroups.flatMap(g => g.invoiceIds));
-      const claimedPayIds = new Set(manualPayIds), claimedInvIds = new Set(manualInvIds);
+      const unreconPayIds = new Set((rec.arUnreconciled || []).flatMap(g => g.paymentIds));
+      const unreconInvIds = new Set((rec.arUnreconciled || []).flatMap(g => g.invoiceIds));
+      const claimedPayIds = new Set([...manualPayIds, ...unreconPayIds]);
+      const claimedInvIds = new Set([...manualInvIds, ...unreconInvIds]);
 
       const shortPayRule = firstEnabled('short-pay');
       const matches = [], shortPays = [], overpays = [], unmatchedInvoices = [];
@@ -1700,8 +1703,16 @@
       const touchedInvIds = new Set([...matches, ...overpays, ...shortPays].map(m => m.invoiceId));
       invoices.forEach(inv => { if (!touchedInvIds.has(inv.invoiceId) && !unmatchedInvoices.includes(inv)) unmatchedInvoices.push(inv); });
       unmatchedInvoices.forEach(inv => {
+        if (unreconInvIds.has(inv.invoiceId)) return;
         const custName = cust(inv.customerId).companyName;
         flagException('No Payment Received', inv.invoiceId, `${custName} invoice ${inv.invoiceNumber} (${fmtMoney(inv.effectiveBalance)}) has received no payment`, inv.effectiveBalance, { date: inv.dueDate, customer: custName, confidence: 100 });
+      });
+
+      (rec.arUnreconciled || []).forEach(u => {
+        const p = u.paymentIds.length ? payments.find(x => x.paymentId === u.paymentIds[0]) : null;
+        const custName = p && p.customerId ? cust(p.customerId).companyName : 'Unknown';
+        const total = u.paymentIds.reduce((s, pid) => { const py = payments.find(x => x.paymentId === pid); return s + (py ? py.totalReceived : 0); }, 0);
+        flagException('Manually Unreconciled', u.paymentIds.join(', ') || u.invoiceIds.join(', '), `User explicitly unreconciled this match`, total, { customer: custName, confidence: 100 }, u.id);
       });
 
       // Final bank-statement clearing status, now that every row's fate is known.
@@ -2440,10 +2451,9 @@
     // Three named matching streams shown as a segmented control within the Matched tab, plus an
     // "All" view that keeps today's single combined list — nothing is removed, just organized.
     const AR_MATCH_STREAMS = [
-      ['all', 'All'],
-      ['bank-cash', 'Bank & Cash Application'],
-      ['gateway', 'Payment Gateway Settlements'],
-      ['gl', 'Sub-Ledger vs GL Control'],
+      ['bank-cash', 'Bank & Invoice'],
+      ['gateway', 'Payment gateway settlement'],
+      ['gl', 'Sub legder vs GL control'],
     ];
     function arMatchSegControl(stream) {
       return `<div class="inline-flex items-center gap-1 p-1 bg-sunken rounded-lg mb-4">${AR_MATCH_STREAMS.map(([k, l]) => `<button data-act="ar-match-stream" data-stream="${k}" class="px-3 py-1.5 rounded-md text-[12.5px] font-semibold transition ${stream === k ? 'bg-surface shadow-sm text-ink' : 'text-muted hover:text-ink'}">${l}</button>`).join('')}</div>`;
@@ -2499,44 +2509,67 @@
         if (!groupIndex.has(key)) { groupIndex.set(key, groups.length); groups.push([]); }
         groups[groupIndex.get(key)].push(m);
       });
-      const rowsHtml = groups.map(group => {
+      const rowsHtml = groups.map((group, groupIdx) => {
+        const invIds = group.map(x => x.invoiceId).join(',');
         const isGroup = group.length > 1;
-        return group.map((m, i) => {
-          const invoiceCell = `<td class="px-4 py-2.5 ${isGroup ? 'border-l-2 border-accent' : ''}">
+        const rows = group.map((m, i) => {
+          const chkCell = `<td class="px-4 py-2.5 border-r border-line-soft unrecon-chk hidden w-10" rowspan="${group.length}">
+            <input type="checkbox" class="w-4 h-4 rounded border-line cursor-pointer" data-pay="${m.paymentId || ''}" data-invs="${invIds}">
+          </td>`;
+          const invoiceCell = `<td class="px-4 py-2.5 ${isGroup ? 'border-l-[3px] border-accent' : ''}">
           <div class="font-medium">${m.invoiceNum}</div>
+          <div class="text-[10.5px] text-faint mb-1">Invoice number</div>
           <div class="text-[11.5px] text-muted">${esc(m.customer)} · ${fmtMoney(m.amount)}</div>
-          <span class="chip mt-1 inline-block">${esc(arMatchTypeFor(rec, res, m.invoiceId))}</span>
         </td>`;
-          const invoiceObj = (res.invoices || []).find(inv => inv.invoiceId === m.invoiceId);
-          const lifecycleCell = `<td class="px-3 py-2.5">${arLifecycleCell(rec, res, 'invoice', invoiceObj)}</td>`;
-          if (i > 0) return `<tr class="border-b border-line-soft">${invoiceCell}${lifecycleCell}</tr>`;
+          const isLast = (i === group.length - 1);
+          const trClass = isLast ? '' : 'border-b border-line-soft';
+          if (i > 0) return `<tr class="${trClass}">${invoiceCell}</tr>`;
+          
           const ruleName = m.ruleName || 'Manual match';
-          const idMethod = arIdentificationMethodFor(res, m.paymentId);
           const payIds = String(m.paymentId || '').split(',').map(s => s.trim());
           const firstPayId = payIds[0];
           const pay = (res.payments || []).find(p => p.paymentId === firstPayId);
           const payTotal = payIds.reduce((s, pid) => { const py = (res.payments || []).find(p => p.paymentId === pid); return s + (py ? py.totalReceived : 0); }, 0);
-          const idDetailLines = arIdentificationFieldCompareLines(res, pay);
-          return `<tr class="border-b border-line-soft">
+          
+          return `<tr class="${trClass}">
+        ${chkCell}
         ${invoiceCell}
-        ${lifecycleCell}
         <td class="px-3 py-2.5" rowspan="${group.length}">
           <div class="mono text-[12px] text-ink-soft">${m.paymentId}</div>
+          <div class="text-[10.5px] text-faint mb-1">Bank transaction number</div>
           <div class="mono text-[12.5px] font-medium mt-0.5">${fmtMoney(payTotal)}</div>
-          <div class="mt-1">${statusPill('matched')}</div>
           ${m.overage ? `<div class="mono text-[11px] text-ok-ink mt-1">+${fmtMoney(m.overage)} on account</div>` : ''}
         </td>
         <td class="px-4 py-2.5 text-[12px]" rowspan="${group.length}">
           <div class="font-medium text-ink-soft">${esc(ruleName)}</div>
-          <div class="text-[11px] text-faint">${esc(idMethod)}</div>
-          ${idDetailLines.map(l => `<div class="text-[10.5px] text-faint mono mt-0.5">${esc(l)}</div>`).join('')}
-        </td></tr>`;
+        </td>
+        </tr>`;
         }).join('');
+        const tbodyClass = groupIdx > 0 ? 'border-t-[4px] border-canvas' : '';
+        return `<tbody class="${tbodyClass}">${rows}</tbody>`;
       }).join('');
-      return `<div class="card overflow-hidden"><div class="px-4 h-11 flex items-center border-b border-line"><div class="font-semibold text-[13px]">${esc(title)} (${all.length})</div></div>
-      <table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line"><th class="px-4 py-2">Invoice</th><th class="px-3 py-2">Lifecycle</th><th class="px-3 py-2">Payment</th><th class="px-4 py-2">Resolved via</th></tr></thead><tbody>
-      ${rowsHtml || `<tr><td colspan="4" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr>`}
-      </tbody></table></div>`;
+      return `<div class="card overflow-hidden" id="ar-matched-container">
+        <div class="px-4 h-11 flex items-center border-b border-line">
+          <div class="font-semibold text-[13px]">${esc(title)} (<span id="ar-matched-count">${all.length}</span>)</div>
+          <div class="unrecon-msg hidden ml-3 text-[12px] text-muted">Select the records to be unreconciled</div>
+          <button data-act="start-unrecon" class="ml-auto btn btn-ghost btn-sm text-bad-ink hover:bg-bad-soft unrecon-btn">Unreconcile</button>
+          <div class="ml-auto flex items-center gap-2 unrecon-actions hidden">
+            <button data-act="cancel-unrecon" class="btn btn-ghost btn-sm">Cancel</button>
+            <button data-act="confirm-unrecon" class="btn btn-primary bg-bad-ink border-transparent hover:bg-bad-ink/90 btn-sm">Confirm Unreconcile</button>
+          </div>
+        </div>
+        <table class="w-full text-[13px] border-collapse">
+          <thead>
+            <tr class="lbl text-left border-b border-line">
+              <th class="w-10 px-4 py-2 unrecon-chk hidden"></th>
+              <th class="px-4 py-2">Invoice</th>
+              <th class="px-3 py-2">Payment</th>
+              <th class="px-4 py-2">Resolved via</th>
+            </tr>
+          </thead>
+          ${rowsHtml || `<tbody><tr><td colspan="4" class="px-4 py-8 text-center text-muted">No matches yet.</td></tr></tbody>`}
+        </table>
+      </div>`;
     }
     function arGatewaySection(rec) {
       const rows = rec.arData.gatewaySettlements || [];
@@ -2559,7 +2592,7 @@
       </div>`;
     }
     function arReconMatches(rec, res) {
-      const stream = (DB.ui && DB.ui.arMatchStream) || 'all';
+      const stream = (DB.ui && DB.ui.arMatchStream) || 'bank-cash';
       const body = stream === 'bank-cash' ? arMatchedTable(rec, res, 'Bank Deposits ↔ Open Invoices')
         : stream === 'gateway' ? arGatewaySection(rec)
           : stream === 'gl' ? arGlSection(res)
@@ -2597,17 +2630,17 @@
     function arMatchTypeFor(rec, res, invId) {
       const manual = (rec.arManualMatches || []).find(g => g.invoiceIds.includes(invId));
       if (manual) {
-        if (manual.invoiceIds.length > 1 && manual.paymentIds.length > 1) return 'Many-to-Many (Manual)';
-        if (manual.invoiceIds.length > 1) return 'One-to-Many (Manual)';
-        if (manual.paymentIds.length > 1) return 'Many-to-One (Manual)';
-        return '1-to-1 (Manual)';
+        if (manual.invoiceIds.length > 1 && manual.paymentIds.length > 1) return 'Complex match (Manual)';
+        if (manual.invoiceIds.length > 1) return 'Batched invoice (Manual)';
+        if (manual.paymentIds.length > 1) return 'Split payment (Manual)';
+        return 'Direct match (Manual)';
       }
       const auto = (res.autoGroups || []).find(g => g.invoiceIds.includes(invId));
       if (auto) {
-        if (auto.invoiceIds.length > 1) return 'One-to-Many';
-        if (auto.paymentIds.length > 1) return 'Many-to-One';
+        if (auto.invoiceIds.length > 1) return 'Batched invoice';
+        if (auto.paymentIds.length > 1) return 'Split payment';
       }
-      return '1-to-1';
+      return 'Direct match';
     }
     // Single unified reconciliation-lifecycle status — one shared 4-state vocabulary used for both
     // invoices and bank statement rows, everywhere it's shown (Data Explorer, Overview, etc.):
@@ -4598,17 +4631,18 @@
     </div>
     -->
 
-    <div class="flex items-center gap-2 mb-3">
-      <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
-        <input data-stg-search class="field pl-9" value="${esc(DB.filters.stgQ || '')}" placeholder="Search"></div>
-      <select data-stg-job class="field w-[260px]">
-        <option value="all">All files (${staging.length})</option>
-        ${files.map(f => {
+    <div class="flex overflow-x-auto hide-scrollbar border-b border-line mb-4" style="scrollbar-width: none; -ms-overflow-style: none;">
+      <button onclick="DB.filters.stgJobId='all'; DB.filters.stgPage=1; render()" class="h-10 px-4 text-[13px] font-medium whitespace-nowrap flex-none transition border-b-2 -mb-px ${jobFilter === 'all' ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">All files (${staging.length})</button>
+      ${files.map(f => {
         const jObj = (DB.jobs || []).find(j => j.id === f.id);
         const jTime = jObj ? ` · ${jObj.at.slice(11, 16)}` : '';
-        return `<option value="${f.id}" ${jobFilter === f.id ? 'selected' : ''}>${esc(f.label)} (${f.id}${jTime})</option>`;
+        const active = jobFilter === f.id;
+        return `<button onclick="DB.filters.stgJobId='${f.id}'; DB.filters.stgPage=1; render()" class="h-10 px-4 text-[13px] font-medium whitespace-nowrap flex-none transition border-b-2 -mb-px ${active ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${esc(f.label)} <span class="opacity-60 font-normal text-[11.5px]">(${f.id}${jTime})</span></button>`;
       }).join('')}
-      </select>
+    </div>
+    <div class="flex items-center gap-3 mb-3">
+      <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
+        <input data-stg-search class="field pl-9 w-full" value="${esc(DB.filters.stgQ || '')}" placeholder="Search"></div>
       <button data-act="stg-insert" class="btn btn-primary btn-sm ml-auto">${icon('plus', 'w-3.5 h-3.5')}Insert row</button>
     </div>
     <div class="card overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="lbl text-left border-b border-line">
@@ -4888,7 +4922,7 @@
     function repRunsFiltered() { const f = DB.ui.rep, q = (f.runQ || '').toLowerCase(); return liveReportRuns().filter(r => { if (f.runStatus !== 'all' && r.status !== f.runStatus) return false; if (f.runType !== 'all' && r.type !== f.runType) return false; if (q && ![r.runId, r.type, r.preparedBy, r.status].join(' ').toLowerCase().includes(q)) return false; return true; }); }
     function repMatchedFiltered() {
       const f = DB.ui.rep || {};
-      const stream = (DB.ui && DB.ui.repMatchStream) || 'all';
+      const stream = (DB.ui && DB.ui.repMatchStream) || 'bank-cash';
       const q = (f.matQ || '').toLowerCase();
       return liveReportMatched().filter(m => {
         if (stream !== 'all' && m.stream !== stream) return false;
@@ -4984,7 +5018,7 @@
     }
     function repMatched() {
       const f = DB.ui.rep || {};
-      const stream = (DB.ui && DB.ui.repMatchStream) || 'all';
+      const stream = (DB.ui && DB.ui.repMatchStream) || 'bank-cash';
       const allMatches = liveReportMatched();
       const rows = repMatchedFiltered();
       const runIds = ['all', ...new Set(allMatches.map(m => m.runId))];
@@ -5336,6 +5370,58 @@
       });
     }
     const ACT = {
+      'start-unrecon': (d, el) => {
+        const c = el.closest('#ar-matched-container');
+        if (c) {
+          c.querySelector('.unrecon-msg')?.classList.remove('hidden');
+          c.querySelector('.unrecon-actions')?.classList.remove('hidden');
+          c.querySelector('.unrecon-btn')?.classList.add('hidden');
+          c.querySelectorAll('.unrecon-chk').forEach(el => el.classList.remove('hidden'));
+        }
+      },
+      'cancel-unrecon': (d, el) => {
+        const c = el.closest('#ar-matched-container');
+        if (c) {
+          c.querySelector('.unrecon-msg')?.classList.add('hidden');
+          c.querySelector('.unrecon-actions')?.classList.add('hidden');
+          c.querySelector('.unrecon-btn')?.classList.remove('hidden');
+          c.querySelectorAll('.unrecon-chk').forEach(el => el.classList.add('hidden'));
+          c.querySelectorAll('.unrecon-chk input').forEach(inp => inp.checked = false);
+        }
+      },
+      'confirm-unrecon': (d, el) => {
+        const c = el.closest('#ar-matched-container');
+        if (!c) return;
+        const checked = [...c.querySelectorAll('.unrecon-chk input:checked')];
+        if (!checked.length) { toast('Select at least one record', 'bad'); return; }
+        
+        const rec = getRec(DB.route.recId);
+        if (!rec) return;
+
+        rec.arUnreconciled = rec.arUnreconciled || [];
+        rec.arManualMatches = rec.arManualMatches || [];
+
+        checked.forEach(chk => {
+          const payId = chk.dataset.pay;
+          if (!payId) return;
+          const invIds = chk.dataset.invs.split(',');
+          
+          // Remove from manual matches if it was a manual match
+          rec.arManualMatches = rec.arManualMatches.filter(g => !g.paymentIds.includes(payId));
+          
+          // Force into unreconciled state for auto-matching bypass
+          rec.arUnreconciled.push({
+            id: uid('exc'),
+            invoiceIds: invIds,
+            paymentIds: payId.split(','),
+            at: new Date().toISOString()
+          });
+        });
+
+        ACT['cancel-unrecon'](d, el);
+        render();
+        toast('Records unreconciled', 'ok');
+      },
       goto: d => { DB.route = { name: d.r }; DB.ui.editRule = null; render(); },
       'rep-tab': d => { DB.route.tab = d.t; render(); },
       'rep-run': d => modalRunSnapshot(d.id),
