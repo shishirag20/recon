@@ -2226,7 +2226,7 @@
       ['rules', 'Rules Studio'], ['matches', 'Matches'], ['exceptions', 'Exceptions'], ['sources', 'Sources'],
     ];
     const AR_RECON_TABS = [
-      ['rules', 'Rules Studio'], ['matches', 'Matched'], ['exceptions', 'Exceptions'],
+      ['matches', 'Matched'], ['exceptions', 'Exceptions'], ['rules', 'Rules Studio'],
     ];
     // Overview / Matches / Exceptions / Sources only render once a reconciliation has actually
     // been run — Rules Studio stays available pre-run since it's a live simulation, not a result.
@@ -2245,7 +2245,7 @@
       const rec = getRec(DB.route.recId); if (!rec) return viewDashboard();
       const isAR = rec.type === 'ar-reconciliation';
       const hasRun = !!rec.lastRun;
-      const tab = DB.route.tab || 'rules';
+      const tab = DB.route.tab || 'matches';
       const res = getEngineResult(rec);
       const meta = TYPE_META[rec.type];
       const runBtn = `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
@@ -2666,7 +2666,6 @@
       return `<div class="p-6 fade-in">
         <div class="flex items-center mb-4">
           <div><div class="font-semibold text-[14px]">AR reconciliation rules</div><div class="text-[12px] text-muted">Each phase runs its own cascading rule list, first match wins — add, edit, reorder, or enable/disable rules to see matching change live. Rules can never be deleted. This is what the reconciliation runs against.</div></div>
-          <button data-act="reset-ar-rules" data-id="${rec.id}" class="ml-auto btn btn-ghost btn-sm">${icon('plus', 'w-3.5 h-3.5')}Reset to defaults</button>
         </div>
         <div class="tl-wrap">${AR_PHASE_GROUPS.map((g, i) => arGroupRow(rec, res, g, i)).join('')}</div>
       </div>`;
@@ -2820,9 +2819,9 @@
           } else if (rl) {
             ruleNumStr = `Rule ${rl.priority}`;
           }
-          const amountRuleHtml = `<button data-act="goto-rule" data-rule="${m.ruleId || ''}" class="text-[12.5px] text-left hover:underline text-ink block">
+          const amountRuleHtml = `<div data-act="goto-rule" data-rule="${m.ruleId || ''}" class="text-[12.5px] text-left text-ink block cursor-default">
             <span class="font-medium">${esc(ruleNumStr)}</span> : <span class="text-ink-soft">${esc(ruleNameText)}</span>
-          </button>`;
+          </div>`;
 
           const payIds = String(m.paymentId || '').split(',').map(s => s.trim());
           const firstPayId = payIds[0];
@@ -2846,9 +2845,9 @@
             } else if (activeIdRl.priority) {
               idRuleNumStr = `Rule ${activeIdRl.priority}`;
             }
-            idRuleHtml = `<button data-act="goto-rule" data-rule="${activeIdRl.id}" class="text-[12.5px] text-left hover:underline text-ink block mb-2">
+            idRuleHtml = `<div data-act="goto-rule" data-rule="${activeIdRl.id}" class="text-[12.5px] text-left text-ink block mb-2 cursor-default">
               <span class="font-medium">${esc(idRuleNumStr)}</span> : <span class="text-ink-soft">${esc(idRuleNameText)}</span>
-            </button>`;
+            </div>`;
           }
 
           return `<tr class="${trClass}">
@@ -5758,7 +5757,7 @@
       'rep-export': d => exportReport(d.kind, d.fmt || 'csv'),
       'rep-export-run': d => { d.fmt === 'pdf' ? exportRunPDF(d.id) : exportRunXls(d.id); },
       'open-transaction': d => { const rec = getRec(d.rec), r = getRec(d.rec)?.records.find(x => x.id === d.record); if (rec && r) modalTransaction(rec, r); },
-      'open-recon': d => { DB.route = { name: 'recon', recId: d.id, tab: 'rules' }; DB.ui.editRule = null; render(); },
+      'open-recon': d => { DB.route = { name: 'recon', recId: d.id, tab: 'matches' }; DB.ui.editRule = null; render(); },
       'open-recon-tab': d => { DB.route = { name: 'recon', recId: d.id, tab: d.t }; render(); },
       'recon-tab': d => { DB.route.tab = d.t; DB.ui.editRule = null; render(); },
       'ar-match-stream': d => { DB.ui = DB.ui || {}; DB.ui.arMatchStream = d.stream; render(); },
@@ -6027,7 +6026,7 @@
       'create-recon': () => {
         const t = DB.ui.newType || 'payments'; const name = ($('#new-name').value.trim()) || `${TYPE_META[t].a} ↔ ${TYPE_META[t].b}`;
         const rec = buildRec(t, name, DB.user.name);
-        DB.recs.push(rec); closeModal(); DB.route = { name: 'recon', recId: rec.id, tab: 'rules' }; render(); toast('Reconciliation created — configure rules, then run it');
+        DB.recs.push(rec); closeModal(); DB.route = { name: 'recon', recId: rec.id, tab: 'matches' }; render(); toast('Reconciliation created — run it or configure rules first');
       },
       'close-modal': (d, el, e) => { if (el.dataset.backdrop && e.target !== el) return; closeModal(); },
       'run-recon': d => {
