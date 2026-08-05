@@ -2248,7 +2248,7 @@
       const tab = DB.route.tab || 'matches';
       const res = getEngineResult(rec);
       const meta = TYPE_META[rec.type];
-      const runBtn = `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
+      const runBtn = isAR ? '' : `<button data-act="run-recon" data-id="${rec.id}" class="btn btn-primary">${icon('play', 'w-4 h-4')}Run reconciliation</button>`;
       const lastRun = rec.lastRun ? `<span class="text-[11.5px] text-muted mono">last run ${rec.lastRun.at.replace('T', ' ')}</span>` : `<span class="text-[11.5px] text-faint mono">never run</span>`;
       let body = '';
       const tabs = isAR ? AR_RECON_TABS : RECON_TABS;
