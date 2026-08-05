@@ -4960,15 +4960,19 @@
     </div>
     -->
 
+  
     <div class="flex overflow-x-auto hide-scrollbar border-b border-line mb-4" style="scrollbar-width: none; -ms-overflow-style: none;">
+      <!--
       <button onclick="DB.filters.stgJobId='all'; DB.filters.stgPage=1; render()" class="h-10 px-4 text-[13px] font-medium whitespace-nowrap flex-none transition border-b-2 -mb-px ${jobFilter === 'all' ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">All files (${staging.length})</button>
+      -->
       ${files.map(f => {
         const jObj = (DB.jobs || []).find(j => j.id === f.id);
         const jTime = jObj ? ` · ${jObj.at.slice(11, 16)}` : '';
         const active = jobFilter === f.id;
-        return `<button onclick="DB.filters.stgJobId='${f.id}'; DB.filters.stgPage=1; render()" class="h-10 px-4 text-[13px] font-medium whitespace-nowrap flex-none transition border-b-2 -mb-px ${active ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${esc(f.label)} <span class="opacity-60 font-normal text-[11.5px]">(${f.id}${jTime})</span></button>`;
+        return `<button onclick="DB.filters.stgJobId='${f.id}'; DB.filters.stgPage=1; render()" class="h-10 px-4 text-[13px] font-medium whitespace-nowrap flex-none transition border-b-2 -mb-px ${active ? 'border-accent text-accent-ink' : 'border-transparent text-muted hover:text-ink'}">${esc((f.label || '').split(' · ')[0])}</span></button>`;
       }).join('')}
     </div>
+    
     <div class="flex items-center gap-3 mb-3">
       <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2 text-faint">${icon('search', 'w-4 h-4')}</span>
         <input data-stg-search class="field pl-9 w-full" value="${esc(DB.filters.stgQ || '')}" placeholder="Search"></div>
